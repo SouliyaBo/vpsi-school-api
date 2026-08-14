@@ -1,0 +1,113 @@
+services:
+  mongo:
+    image: mongo:7
+    container_name: vpsischool-mongo
+    # Transactions require a replica set, even for a single node.
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the replica set on first boot, then reports healthy once it has a primary.
+      test: >
+        mongosh --quiet --eval "
+          try { rs.status().ok } catch (e) {
+            rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok
+          }
+        "
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: vpsischool-redis
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    container_name: vpsischool-minio
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-minioadmin} ${S3_SECRET_KEY:-minioadmin};
+      mc mb --ignore-existing local/${S3_BUCKET:-vpsischool};
+      exit 0;
+      "
+
+  api:
+    build:
+      context: .
+      target: development
+    container_name: vpsischool-api
+    command: npm run start:dev
+    env_file:
+      - .env
+    ports:
+      - '${PORT:-3000}:3000'
+    volumes:
+      - ./src:/app/src
+      - ./test:/app/test
+      - /app/node_modules
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      target: development
+    container_name: vpsischool-worker
+    # Same image, WORKER_MODE makes main.ts boot without the HTTP listener.
+    command: npm run start:dev
+    environment:
+      WORKER_MODE: 'true'
+    env_file:
+      - .env
+    volumes:
+      - ./src:/app/src
+      - /app/node_modules
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
+  redis-data:
+  minio-data:

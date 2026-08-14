@@ -1,0 +1,601 @@
+[
+  {
+    "id": 1,
+    "student_id": "0713",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ເກດທິດາ",
+    "last_name": "ວົງໄຊ",
+    "nickname": "ເກດ",
+    "english_class": "7B",
+    "dob": "3/2/2013",
+    "age": 13,
+    "father": {
+      "name": "ມະນະສິນ ວົງໄຊ",
+      "occupation": "ພະນັກງານ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ສຸວັນນະພາ ວົງໄຊ",
+      "occupation": "ພະນັກງານ",
+      "phone": "55868528"
+    },
+    "address": {
+      "village": "ສີຖານເໜືອ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 2,
+    "student_id": "0662",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ຈີຈູ້",
+    "last_name": "ຖາງ",
+    "nickname": "ສຽວຖັງ",
+    "english_class": "8A",
+    "dob": "15/2/2009",
+    "age": 17,
+    "father": {
+      "name": "ຢຽນຫົງ ທ່າງ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "59985668"
+    },
+    "mother": {
+      "name": "ຊວາງກຽນ ເດີນ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": ""
+    },
+    "address": {
+      "village": "ດົງນາທອງ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 3,
+    "student_id": "0715",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ສິລິໂສພາ",
+    "last_name": "ສຸລິຈັນ",
+    "nickname": "ໄອດາ",
+    "english_class": "7B",
+    "dob": "14/8/2013",
+    "age": 13,
+    "father": {
+      "name": "ວິໄລສັກ ສຸລິຈັນ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ບົວທອງ ສີວິໄລ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "56999666"
+    },
+    "address": {
+      "village": "ໜອງປາໄນ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 4,
+    "student_id": "0721",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ສຸກສໍາລານ",
+    "last_name": "ຊໍຊະນະວົງສາ",
+    "nickname": "ຕົ້ນເຂົ້າ",
+    "english_class": "7B",
+    "dob": "22/6/2013",
+    "age": 13,
+    "father": {
+      "name": "ສຸກໃສ ຊໍຊະນະວົງສາ",
+      "occupation": "ພະນັກງານ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ສຸກິຕາ ເຮືອງແພງອ່ອນ",
+      "occupation": "ພະນັກງານ",
+      "phone": "22227646"
+    },
+    "address": {
+      "village": "ວັດໄຕໃຫຍ່ທົ່ງ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": "",
+    "notes": "ພີ່ນ້ອງໃນໂຮງຮຽນ: ຕົ້ນກ້າ ມ.5"
+  },
+  {
+    "id": 5,
+    "student_id": "0722",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ສຸກດາວັນ",
+    "last_name": "ລິດດາວົງ",
+    "nickname": "ເບ່ວລາ",
+    "english_class": "7A",
+    "dob": "28/6/2013",
+    "age": 13,
+    "father": {
+      "name": "ສັນຕິສຸກ ລິດດາວົງ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ວິໄລວັນ ລິດດາວົງ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "97992222"
+    },
+    "address": {
+      "village": "ໂພນສີນວນ",
+      "district": "ສີສັດຕະນາກ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 6,
+    "student_id": "0723",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ແສງພະກອນ",
+    "last_name": "ບຸຜາສວັນ",
+    "nickname": "ວິສອນ",
+    "english_class": "7B",
+    "dob": "17/10/2013",
+    "age": 13,
+    "father": {
+      "name": "ພຸດທະກອນ ບຸບຜາສວັນ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ສຸວັນນາ ບຸບຜາສວັນ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "55526542"
+    },
+    "address": {
+      "village": "ທາດຫຼວງເໜືອ",
+      "district": "ໄຊເຊດຖາ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": "",
+    "notes": "ພີ່ນ້ອງໃນໂຮງຮຽນ: ວິລັອບ ມ7"
+  },
+  {
+    "id": 7,
+    "student_id": "0728",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ທິວານັນ",
+    "last_name": "ອຸດົມສິນ",
+    "nickname": "ເພີຍເພີ້ຍ",
+    "english_class": "7B",
+    "dob": "13/2/2013",
+    "age": 13,
+    "father": {
+      "name": "ຈິນດາ ອຸດົມສິນ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ເກດມະນີ ໂພທິວົງ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "57891666"
+    },
+    "address": {
+      "village": "ອານຸ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": "",
+    "notes": "ພີ່ນ້ອງໃນໂຮງຮຽນ: ອາຕີ້ ມ3/ກ"
+  },
+  {
+    "id": 8,
+    "student_id": "0729",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ທອງຈະເລີນ",
+    "last_name": "ອິນທະວົງ",
+    "nickname": "ເຂັມຄໍາ",
+    "english_class": "7B",
+    "dob": "16/9/2012",
+    "age": 14,
+    "father": {
+      "name": "ຂັນທອງລືໄຊ ອິນທະວົງ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ສຸກຈະເລີນ ບຸນຄໍ້າ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "28966541"
+    },
+    "address": {
+      "village": "ໜອງດ້ວງເໜືອ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 9,
+    "student_id": "0731",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ນັດທັນວາ",
+    "last_name": "ລູ່ພາໄຊ",
+    "nickname": "ດາກອນ",
+    "english_class": "7B",
+    "dob": "12/12/2012",
+    "age": 14,
+    "father": {
+      "name": "ສິດປະສົງ ລູ່ພາໄຊ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ສຸພາລັກ ເຊັງເຊິນ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "99880044"
+    },
+    "address": {
+      "village": "ນາຄໍາ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 10,
+    "student_id": "0732",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ບຸນທັບ",
+    "last_name": "ບັນນະວົງ",
+    "nickname": "ວາເລັນ",
+    "english_class": "7B",
+    "dob": "4/5/2013",
+    "age": 13,
+    "father": {
+      "name": "ວັດທະນາ ບັນນະວົງ",
+      "occupation": "ພະນັກງານ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ພູຄໍາ ບັນນະວົງ",
+      "occupation": "ແມ່ເຮືອນ",
+      "phone": "56146655"
+    },
+    "address": {
+      "village": "ຂົວຫຼວງ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 11,
+    "student_id": "0756",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ພະຫັດເທວາ",
+    "last_name": "ພົມສຸວັນດາລາ",
+    "nickname": "ຊີເນຍ",
+    "english_class": "7B",
+    "dob": "24/1/2013",
+    "age": 13,
+    "father": {
+      "name": "ຄອນສະໄໝ ພົມສຸວັນດາລາ",
+      "occupation": "ພະນັກງານ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ວະລັນຍາ ສີລັດຕະນະກຸນ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "56469465"
+    },
+    "address": {
+      "village": "ປ່າຝາງ",
+      "district": "ຫາດຊາຍຟອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 12,
+    "student_id": "0733",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ພິລະພົນ",
+    "last_name": "ພິຈິດ",
+    "nickname": "ພົນ",
+    "english_class": "7B",
+    "dob": "1/2/2013",
+    "age": 13,
+    "father": {
+      "name": "ສຸລິໄຊ ພິຈິດ",
+      "occupation": "ພະນັກງານ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ວຽງສະຫວັນ ພິລາວົງ",
+      "occupation": "ພະນັກງານ",
+      "phone": "99900123"
+    },
+    "address": {
+      "village": "ສາຍນໍ້າເງິນ",
+      "district": "ໄຊທານີ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 13,
+    "student_id": "0734",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ພອນສິລິ",
+    "last_name": "ສີໃສແກ້ວ",
+    "nickname": "ມິນິ",
+    "english_class": "7B",
+    "dob": "18/10/2012",
+    "age": 14,
+    "father": {
+      "name": "ສົມຫວັງ ສີໃສແກ້ວ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "99947456"
+    },
+    "mother": {
+      "name": "ວົງລັດສະໝີ ພະປະເສີດ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "55502544"
+    },
+    "address": {
+      "village": "ພະໂພ",
+      "district": "ສີສັດຕະນາກ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": "",
+    "notes": "ພີ່ນ້ອງໃນໂຮງຮຽນ: ພອນໄພລິນ1/ຂ"
+  },
+  {
+    "id": 14,
+    "student_id": "0737",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ມາວິນ",
+    "last_name": "ພານຸວົງ",
+    "nickname": "ມາວິນ",
+    "english_class": "7B",
+    "dob": "18/3/2013",
+    "age": 13,
+    "father": {
+      "name": "ມານະສັກ ພານຸວົງ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ສຸລິລັກ ໄຊຍະວົງສາ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "59266563"
+    },
+    "address": {
+      "village": "ໂພນປ່າເປົ້າ",
+      "district": "ສີສັດຕະນາກ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 15,
+    "student_id": "0738",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ມິນນະດາ",
+    "last_name": "ແກ້ວໄຊຍະຈັກ",
+    "nickname": "ນ້ອງຟ້າ",
+    "english_class": "7A",
+    "dob": "1/7/2013",
+    "age": 13,
+    "father": {
+      "name": "ປີຊາໄຊ ແກ້ວໄຊຍະຈັກ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ເຟືອງຟ້າ ແກ້ວໄຊຍະຈັກ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "52966666"
+    },
+    "address": {
+      "village": "ໜອງໄຮ",
+      "district": "ຫາດຊາຍຟອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": "",
+    "notes": "ພີ່ນ້ອງໃນໂຮງຮຽນ: ຟ້າຊາຍ 2/ຂ"
+  },
+  {
+    "id": 16,
+    "student_id": "0741",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ລັດຊານົນ",
+    "last_name": "ສີລາຄູນ",
+    "nickname": "ນີໂນ້",
+    "english_class": "7B",
+    "dob": "22/2/2013",
+    "age": 13,
+    "father": {
+      "name": "ຈິດດາວະດີ ສີລາຄູນ",
+      "occupation": "ພະນັກງານ",
+      "phone": "54436086"
+    },
+    "mother": {
+      "name": "ພິມໃຈ ວົງສະຫວັດ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": ""
+    },
+    "address": {
+      "village": "ວັດໄຕໃຫຍ່ທົ່ງ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 17,
+    "student_id": "0743",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ວານິດາ",
+    "last_name": "ລັດຕະນະວົງ",
+    "nickname": "ນໍ້າຫອມ",
+    "english_class": "7B",
+    "dob": "8/5/2013",
+    "age": 13,
+    "father": {
+      "name": "ສົມພອນ ລັດຕະນະວົງ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ວັນດາລາ ແກ້ວມາລາວົງ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "59635163"
+    },
+    "address": {
+      "village": "ວັດໄຕນ້ອຍທົ່ງ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 18,
+    "student_id": "0746",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ຫົງພະຈັນ",
+    "last_name": "ລໍສະຫວັດ",
+    "nickname": "ສະກາຍ",
+    "english_class": "7B",
+    "dob": "21/1/2013",
+    "age": 13,
+    "father": {
+      "name": "ບຸນລັນ ລໍສະຫວັດ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ວາດສະໜາ ບຸນຄໍ້າ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "54535359"
+    },
+    "address": {
+      "village": "ດົງນາທອງ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 19,
+    "student_id": "0751",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ອັກສອນໄຊ",
+    "last_name": "ວົງໄຊ",
+    "nickname": "ປໍເຊ",
+    "english_class": "7A",
+    "dob": "1/10/2012",
+    "age": 14,
+    "father": {
+      "name": "ວິລິຍະ ວົງໄຊ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ເພັດອັກສອນ ແສງວິໄຊ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "29299299"
+    },
+    "address": {
+      "village": "ນາຄໍາ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 20,
+    "student_id": "0748",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ອາລິຍາ",
+    "last_name": "ຣາຊະພົນ",
+    "nickname": "ອາລິຍາ",
+    "english_class": "7A",
+    "dob": "2/7/2013",
+    "age": 13,
+    "father": {
+      "name": "ທໍາມະລົດ ຣາຊະພົນ",
+      "occupation": "ພະນັກງານ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ສຸດາໄລ ສວນນະວົງ",
+      "occupation": "ພະນັກງານ",
+      "phone": "28773377"
+    },
+    "address": {
+      "village": "ສາຍລົມ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 21,
+    "student_id": "0749",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ອາຣັນຍາເອລິຊະເບດດອນ",
+    "last_name": "ເອແວນສ໌",
+    "nickname": "ອາລິດ",
+    "english_class": "7B",
+    "dob": "18/2/2013",
+    "age": 13,
+    "father": {
+      "name": "ແກຼນ ອີເວນ",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ແກ້ວມະນີ ສົມວັນດີ",
+      "occupation": "ແມ່ເຮືອນ",
+      "phone": "56244695"
+    },
+    "address": {
+      "village": "ວັດໄຕນ້ອຍທ່າ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  },
+  {
+    "id": 22,
+    "student_id": "0750",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ອາລຸນ",
+    "last_name": "ລໍມີໄຊ",
+    "nickname": "ອາລຸນ",
+    "english_class": "7B",
+    "dob": "22/4/2012",
+    "age": 14,
+    "father": {
+      "name": "ລີຮຸ້ຍ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ອານີວັນ ລໍມີໄຊ",
+      "occupation": "ປະຊາຊົນ",
+      "phone": "59599199"
+    },
+    "address": {
+      "village": "ຂຸນຕາທົ່ງ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງວຽງຈັນ"
+    },
+    "contact_phone": ""
+  }
+]

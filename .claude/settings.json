@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx jest *)",
+      "Bash(npm test *)",
+      "Bash(npx eslint *)",
+      "Bash(node -e ' *)"
+    ],
+    "additionalDirectories": [
+      "/tmp/claude-501/-Users-devbo-Desktop-vpsischool-api/896a32ef-6703-40a2-a363-ae29a01fceb9/scratchpad"
+    ]
+  }
+}

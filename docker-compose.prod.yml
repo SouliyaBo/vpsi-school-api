@@ -1,0 +1,104 @@
+# Production stack for the API alone — the admin SPA is not part of this yet.
+#
+# MongoDB is deliberately absent: it lives on Atlas and the app already points at
+# it, so what this box has to run is the API, the queue worker that shares its
+# image, and the Redis those two talk to.
+#
+# Every command needs `--env-file .env.production`. That is not boilerplate: the
+# repo's `.env` is the development one, compose reads it by default, and without
+# the flag a deploy would quietly come up pointing at localhost.
+#
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build
+#
+# See DEPLOY.md.
+
+name: vpsischool-prod
+
+services:
+  api:
+    build:
+      context: .
+      target: production
+    image: vpsischool-api:prod
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      # Overrides whatever the env file says. Inside compose, Redis is a service
+      # name on the private network — never localhost, which in a container is
+      # the container itself.
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      # Host port is configurable so the API can move behind a proxy later
+      # without editing this file.
+      - '${API_PUBLIC_PORT:-3000}:3000'
+    healthcheck:
+      # `/v1/health`, not `/health`: URI versioning applies even to the two routes
+      # excluded from the global `api` prefix, so the version segment is still there.
+      test:
+        ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:3000/v1/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      # The first connection to Atlas has to succeed before the app answers.
+      start_period: 40s
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
+
+  worker:
+    build:
+      context: .
+      target: production
+    image: vpsischool-api:prod
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Same image and same entrypoint as the API. main.ts reads this flag and
+      # returns after `app.init()` instead of calling `listen()`, so the BullMQ
+      # processors for term results and report generation run without binding a
+      # port. (`npm run worker` in package.json points at a `dist/worker` that
+      # does not exist — this flag is the working path.)
+      WORKER_MODE: 'true'
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - 'yes'
+      - --requirepass
+      - '${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env.production}'
+    environment:
+      # Only so the healthcheck below can authenticate; the app reads its own
+      # copy from the env file.
+      REDIS_PASSWORD: '${REDIS_PASSWORD}'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # No `ports`: cache and job queue, reachable only by the two services above.
+    # A Redis open to the internet is a full compromise of the session store.
+    logging: *logging
+
+volumes:
+  redis-data:

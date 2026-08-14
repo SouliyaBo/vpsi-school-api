@@ -1,0 +1,17 @@
+{
+  // What `nest build` compiles, as opposed to what the editor, ESLint and Jest
+  // type-check — those keep using tsconfig.json and its `test/**/*` include.
+  //
+  // Without this file the build's input set spans `src/` and `test/`, so
+  // TypeScript infers the project root as `rootDir` and emits `dist/src/main.js`
+  // instead of `dist/main.js`. Everything that runs the built output —
+  // `start:prod`, the worker, and the Dockerfile's `CMD ["node", "dist/main"]` —
+  // then fails with `Cannot find module '/app/dist/main'`, which only shows up
+  // once something actually runs the production image.
+  //
+  // Excluding the tests narrows the input set to `src/`, so `rootDir` infers to
+  // `src` and the layout matches what those entrypoints expect. It also keeps
+  // the specs out of the shipped image.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.e2e-spec.ts"]
+}

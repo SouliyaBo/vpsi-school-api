@@ -1,0 +1,309 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
+import { EnrollmentStatus } from 'src/common/constants/enums';
+import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { AppException } from 'src/common/exceptions/app.exception';
+import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
+import { Enrollment, EnrollmentDocument, Student, StudentDocument } from 'src/database/schemas';
+import { TransactionHelper } from 'src/database/transaction.helper';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { ClassroomsService } from '../classrooms/classrooms.service';
+import {
+  BulkEnrollDto,
+  BulkEnrollResultDto,
+  ChangeEnrollmentStatusDto,
+  CreateEnrollmentDto,
+  QueryEnrollmentsDto,
+} from './dto/enrollment.dto';
+
+/**
+ * Allowed status transitions.
+ *
+ * `active` is the only state that can move anywhere; the terminal states are
+ * terminal on purpose — a dropped student is re-enrolled with a new enrollment
+ * record, which keeps the history of why they left intact.
+ */
+const ALLOWED_TRANSITIONS: Record<EnrollmentStatus, EnrollmentStatus[]> = {
+  active: ['transferred', 'promoted', 'dropped', 'repeated'],
+  transferred: [],
+  promoted: [],
+  dropped: ['active'], // a student who returns in the same year resumes their place
+  repeated: [],
+};
+
+@Injectable()
+export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
+  protected readonly entityType = 'enrollments';
+  protected readonly sortableFields = ['rollNumber', 'enrolledAt', 'studentCode'] as const;
+  protected readonly defaultSort = { rollNumber: 1 as const };
+  private readonly logger = new Logger(EnrollmentsService.name);
+
+  constructor(
+    @InjectModel(Enrollment.name) model: Model<EnrollmentDocument>,
+    @InjectModel(Student.name) private readonly studentModel: Model<StudentDocument>,
+    audit: AuditLogsService,
+    private readonly classrooms: ClassroomsService,
+    private readonly tx: TransactionHelper,
+  ) {
+    super(model, audit);
+  }
+
+  async findAll(query: QueryEnrollmentsDto): Promise<PaginatedResponse<EnrollmentDocument>> {
+    const filter: Record<string, unknown> = { deletedAt: null };
+    if (query.studentId) filter.studentId = new Types.ObjectId(query.studentId);
+    if (query.classroomId) filter.classroomId = new Types.ObjectId(query.classroomId);
+    if (query.schoolYearId) filter.schoolYearId = new Types.ObjectId(query.schoolYearId);
+    if (query.gradeLevelId) filter.gradeLevelId = new Types.ObjectId(query.gradeLevelId);
+    if (query.status) filter.status = query.status;
+
+    const sort = query.toSort(this.sortableFields, this.defaultSort);
+    const [data, total] = await Promise.all([
+      this.model
+        .find(filter)
+        .populate('classroomId', 'name gradeLevelId')
+        .sort(sort)
+        .skip(query.skip)
+        .limit(query.limit)
+        .exec(),
+      this.model.countDocuments(filter).exec(),
+    ]);
+
+    return new PaginatedResponse(data, total, query.page, query.limit);
+  }
+
+  findOne(id: string) {
+    return this.findOneOrFail(id);
+  }
+
+  /** A student's enrollment history, newest year first. */
+  async findByStudent(studentId: string) {
+    return this.model
+      .find({ studentId: new Types.ObjectId(studentId), deletedAt: null })
+      .populate('classroomId', 'name')
+      .populate('schoolYearId', 'code nameLo')
+      .populate('gradeLevelId', 'code nameLo level')
+      .sort({ enrolledAt: -1 })
+      .exec();
+  }
+
+  /** The class roster, in roll-number order. */
+  async findClassRoster(classroomId: string) {
+    return this.model
+      .find({
+        classroomId: new Types.ObjectId(classroomId),
+        status: 'active',
+        deletedAt: null,
+      })
+      .sort({ rollNumber: 1 })
+      .exec();
+  }
+
+  /**
+   * Enrolls one student.
+   *
+   * Transactional because it writes the enrollment and bumps the classroom's
+   * cached `currentCount`; if those diverge, capacity checks become meaningless.
+   */
+  async create(dto: CreateEnrollmentDto, context: CrudContext): Promise<EnrollmentDocument> {
+    return this.tx.run((session) => this.enrollWithinTransaction(dto, session, context));
+  }
+
+  /**
+   * Bulk enroll, intended for the CSV/Excel import path.
+   *
+   * Each row is its own transaction rather than one transaction for the batch:
+   * a single bad student code should not discard 499 good rows. The response
+   * reports exactly which rows failed and why.
+   */
+  async bulkEnroll(dto: BulkEnrollDto, context: CrudContext): Promise<BulkEnrollResultDto> {
+    const result: BulkEnrollResultDto = { enrolled: 0, failed: 0, errors: [] };
+
+    for (const item of dto.items) {
+      try {
+        const student = await this.studentModel
+          .findOne({ studentCode: item.studentCode, deletedAt: null })
+          .exec();
+        if (!student) {
+          throw AppException.badRequest('common.notFound', { field: 'studentCode' });
+        }
+
+        await this.tx.run((session) =>
+          this.enrollWithinTransaction(
+            { studentId: student._id.toString(), classroomId: item.classroomId },
+            session,
+            context,
+          ),
+        );
+        result.enrolled += 1;
+      } catch (error) {
+        result.failed += 1;
+        result.errors.push({
+          studentCode: item.studentCode,
+          reason:
+            error instanceof AppException
+              ? `${error.messageKey}${error.details ? ` ${JSON.stringify(error.details)}` : ''}`
+              : error instanceof Error
+                ? error.message
+                : 'unknown error',
+        });
+      }
+    }
+
+    this.logger.log(`Bulk enroll: ${result.enrolled} enrolled, ${result.failed} failed`);
+    return result;
+  }
+
+  /**
+   * Changes an enrollment's status, keeping classroom counts correct.
+   *
+   * A transfer creates the destination enrollment and decrements the origin's
+   * count in the same transaction, so a student is never counted twice or in
+   * neither place.
+   */
+  async changeStatus(
+    id: string,
+    dto: ChangeEnrollmentStatusDto,
+    context: CrudContext,
+  ): Promise<EnrollmentDocument> {
+    return this.tx.run(async (session) => {
+      const enrollment = await this.findOneOrFail(id, session);
+
+      const allowed = ALLOWED_TRANSITIONS[enrollment.status];
+      if (!allowed.includes(dto.status)) {
+        throw AppException.badRequest('enrollment.invalidStatusTransition', {
+          from: enrollment.status,
+          to: dto.status,
+          allowed,
+        });
+      }
+
+      const isTransfer = dto.status === 'transferred' && Boolean(dto.transferredToClassroomId);
+
+      // Check the destination has room before vacating the origin, so a failed
+      // transfer leaves the student where they were.
+      const destination = isTransfer
+        ? await this.classrooms.assertHasSpace(dto.transferredToClassroomId!, session)
+        : null;
+
+      // Leaving `active` frees a seat in the origin classroom.
+      if (enrollment.status === 'active' && dto.status !== 'active') {
+        await this.classrooms.adjustCount(enrollment.classroomId, -1, session);
+      }
+      // Returning to `active` takes one back.
+      if (enrollment.status !== 'active' && dto.status === 'active') {
+        await this.classrooms.assertHasSpace(enrollment.classroomId.toString(), session);
+        await this.classrooms.adjustCount(enrollment.classroomId, 1, session);
+      }
+
+      // The origin must stop being `active` *before* the destination row is
+      // created: the unique index allows only one active enrollment per student
+      // per year, so creating first would collide with the row we are replacing.
+      const updated = await this.updateDocument(
+        id,
+        {
+          status: dto.status,
+          statusChangedAt: new Date(),
+          statusReason: dto.reason ?? null,
+          transferredToClassroomId: dto.transferredToClassroomId
+            ? new Types.ObjectId(dto.transferredToClassroomId)
+            : null,
+        },
+        { ...context, session },
+      );
+
+      if (destination) {
+        await this.model.create(
+          [
+            {
+              studentId: enrollment.studentId,
+              studentCode: enrollment.studentCode,
+              studentNameLo: enrollment.studentNameLo,
+              classroomId: destination._id,
+              schoolYearId: destination.schoolYearId,
+              gradeLevelId: destination.gradeLevelId,
+              enrolledAt: new Date(),
+              status: 'active',
+              rollNumber: await this.classrooms.nextRollNumber(destination._id, session),
+            },
+          ],
+          { session },
+        );
+
+        await this.classrooms.adjustCount(destination._id, 1, session);
+      }
+
+      return updated;
+    });
+  }
+
+  async remove(id: string, context: CrudContext): Promise<void> {
+    await this.tx.run(async (session) => {
+      const enrollment = await this.findOneOrFail(id, session);
+      if (enrollment.status === 'active') {
+        await this.classrooms.adjustCount(enrollment.classroomId, -1, session);
+      }
+      await this.softDelete(id, { ...context, session });
+    });
+  }
+
+  // ── Internals ─────────────────────────────────────────────────────────────
+
+  private async enrollWithinTransaction(
+    dto: CreateEnrollmentDto,
+    session: ClientSession,
+    context: CrudContext,
+  ): Promise<EnrollmentDocument> {
+    const student = await this.studentModel
+      .findOne({ _id: dto.studentId, deletedAt: null })
+      .session(session)
+      .exec();
+    if (!student) throw AppException.badRequest('common.notFound', { field: 'studentId' });
+
+    // Graduated or dropped students must be reactivated deliberately before
+    // they can be placed in a class.
+    if (student.status !== 'active') {
+      throw AppException.badRequest('enrollment.studentNotActive', { status: student.status });
+    }
+
+    const classroom = await this.classrooms.assertHasSpace(dto.classroomId, session);
+
+    // Mirrors the unique index — one *active* enrollment per student per year.
+    // Checked here so the caller gets a domain error rather than a raw
+    // duplicate-key conflict. Superseded rows (transferred, dropped) do not
+    // block a new placement.
+    const existing = await this.model
+      .findOne({
+        studentId: student._id,
+        schoolYearId: classroom.schoolYearId,
+        status: 'active',
+        deletedAt: null,
+      })
+      .session(session)
+      .exec();
+    if (existing) {
+      throw AppException.conflict('enrollment.alreadyEnrolled', {
+        existingEnrollmentId: existing._id.toString(),
+        classroomId: existing.classroomId.toString(),
+      });
+    }
+
+    const enrollment = await this.createDocument(
+      {
+        studentId: student._id,
+        studentCode: student.studentCode,
+        studentNameLo: `${student.firstNameLo} ${student.lastNameLo}`,
+        classroomId: classroom._id,
+        schoolYearId: classroom.schoolYearId,
+        gradeLevelId: classroom.gradeLevelId,
+        enrolledAt: dto.enrolledAt ? new Date(dto.enrolledAt) : new Date(),
+        status: 'active',
+        rollNumber: await this.classrooms.nextRollNumber(classroom._id, session),
+      } as Partial<EnrollmentDocument>,
+      { ...context, session },
+    );
+
+    await this.classrooms.adjustCount(classroom._id, 1, session);
+    return enrollment;
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "name": "vpsischool-api",
+  "version": "0.1.0",
+  "description": "School Management System API (MongoDB + NestJS)",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:debug": "nest start --debug --watch",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,test}/**/*.ts\" --max-warnings 0",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:cov": "jest --coverage",
+    "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
+    "seed": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed.ts",
+    "seed:roles": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed.ts roles",
+    "import:students": "ts-node -r tsconfig-paths/register src/database/imports/run-student-import.ts",
+    "import:teachers": "ts-node -r tsconfig-paths/register src/database/imports/run-teacher-import.ts",
+    "worker": "WORKER_MODE=true node dist/main"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
+    "@aws-sdk/s3-request-presigner": "^3.637.0",
+    "@nestjs/bullmq": "^10.2.0",
+    "@nestjs/cache-manager": "^2.2.2",
+    "@nestjs/common": "^10.4.1",
+    "@nestjs/config": "^3.2.3",
+    "@nestjs/core": "^10.4.1",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/mongoose": "^10.0.10",
+    "@nestjs/passport": "^10.0.3",
+    "@nestjs/platform-express": "^10.4.1",
+    "@nestjs/swagger": "^7.4.0",
+    "@nestjs/throttler": "^6.2.1",
+    "argon2": "^0.41.0",
+    "bullmq": "^5.12.0",
+    "cache-manager": "^5.7.6",
+    "cache-manager-ioredis-yet": "^2.1.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "csv-parse": "^5.5.6",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.4.1",
+    "mongoose": "^8.6.0",
+    "nestjs-pino": "^4.1.0",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "pdfkit": "^0.19.1",
+    "pino-http": "^10.2.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.4",
+    "@nestjs/schematics": "^10.1.4",
+    "@nestjs/testing": "^10.4.1",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.12",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^20.16.1",
+    "@types/passport-jwt": "^4.0.1",
+    "@types/pdfkit": "^0.17.6",
+    "@types/supertest": "^6.0.2",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.2.1",
+    "jest": "^29.7.0",
+    "mongodb-memory-server": "^10.0.0",
+    "pino-pretty": "^11.2.2",
+    "prettier": "^3.3.3",
+    "source-map-support": "^0.5.21",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.2.5",
+    "ts-loader": "^9.5.1",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.5.4"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "collectCoverageFrom": [
+      "**/*.(t|j)s"
+    ],
+    "coverageDirectory": "../coverage",
+    "testEnvironment": "node",
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/$1"
+    }
+  }
+}

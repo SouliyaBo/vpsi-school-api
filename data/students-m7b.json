@@ -1,0 +1,422 @@
+[
+  {
+    "id": 1,
+    "student_id": "0593",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ທິດາມະນີ",
+    "last_name": "ພົງສາ",
+    "nickname": "ຟ້າ",
+    "english_class": "11A",
+    "dob": "9.9.2009",
+    "age": 16,
+    "father": {
+      "name": "ພູວຽຽງ ພົງສາ",
+      "occupation": "ພະນັກງານ",
+      "phone": "55333399"
+    },
+    "mother": {
+      "name": "ໄກ່ຄຳ ສຸລິຍະແສງ",
+      "occupation": "ພະນັກງານ",
+      "phone": "55995555"
+    },
+    "address": {
+      "village": "ໂພນຕ້ອງຈອມມະນີ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Thidamany Phongsa",
+    "contact_phone": ""
+  },
+  {
+    "id": 2,
+    "student_id": "0556",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ທັນຍາລັກ",
+    "last_name": "ພະປະເສີດ",
+    "nickname": "ເມວເບີ້ນ",
+    "english_class": "11B",
+    "dob": "3.8.2009",
+    "age": 16,
+    "father": {
+      "name": "ອະລຸນຍະເດດ ຫລວງລາດ",
+      "occupation": "(ເສຍຊີວິດ)",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ຈັນສຸດາ ພະປະເສີດ",
+      "occupation": "ພະນັກງານ",
+      "phone": "23381999"
+    },
+    "address": {
+      "village": "ໄຊສະຫວ່າງ",
+      "district": "ໄຊທານີ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Thanyalak Phapaseuth",
+    "contact_phone": ""
+  },
+  {
+    "id": 3,
+    "student_id": "0568",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ບຸນຮັກສາ",
+    "last_name": "ໄຊຍະພູມ",
+    "nickname": "ອາຢີ",
+    "english_class": "11A",
+    "dob": "14.10.2009",
+    "age": 16,
+    "father": {
+      "name": "ຫງຽນ ອັນຕວັນ",
+      "occupation": "(ເສຍຊີວິດ)",
+      "phone": ""
+    },
+    "mother": {
+      "name": "ອາລິສາ ໄຊຍະພູມ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "56563366"
+    },
+    "address": {
+      "village": "ອານຸ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Bounhaksa Sayaphoum",
+    "contact_phone": ""
+  },
+  {
+    "id": 4,
+    "student_id": "0558",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ປາວິນາ",
+    "last_name": "ສີວິໄລ",
+    "nickname": "ປາວີນາ",
+    "english_class": "11A",
+    "dob": "8.9.2009",
+    "age": 16,
+    "father": {
+      "name": "ບຸນຄ້ຳ ສີວິໄລ",
+      "occupation": "ທຸລະກິດ",
+      "phone": "22345432"
+    },
+    "mother": {
+      "name": "ບຸນມີ ຢາດວງຈິດ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "22408834"
+    },
+    "address": {
+      "village": "ສີວິໄລ",
+      "district": "ໄຊທານີ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Pavina Sivilay",
+    "contact_phone": ""
+  },
+  {
+    "id": 5,
+    "student_id": "0570",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ພຶກສາ",
+    "last_name": "ສີຈັນໂທ",
+    "nickname": "ໂມ",
+    "english_class": "12B",
+    "dob": "14.2.2007",
+    "age": 18,
+    "father": {
+      "name": "ກິດສະດາ ສີຈັນໂທ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "58579595"
+    },
+    "mother": {
+      "name": "ແອນນີ ທໍາມະວົງສາ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "54844628"
+    },
+    "address": {
+      "village": "ຮ້ອງຄ້າ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Pheuksa Sychantho",
+    "contact_phone": ""
+  },
+  {
+    "id": 6,
+    "student_id": "0564",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ພູນໄຊ",
+    "last_name": "ຂັນຕິພາສຸກ",
+    "nickname": "ມາລິໂອ",
+    "english_class": "11A",
+    "dob": "4.8.2009",
+    "age": 16,
+    "father": {
+      "name": "ແສງດາວ ຂັນຕິພາສຸກ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "55169426"
+    },
+    "mother": {
+      "name": "ນ້ອຍປະເສີດ ຂັນຕິພາສຸກ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "55166992"
+    },
+    "address": {
+      "village": "ສີຖານເໜືອ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Phounexay Khantiphasouk",
+    "contact_phone": ""
+  },
+  {
+    "id": 7,
+    "student_id": "0560",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ມະນີໄຊ",
+    "last_name": "ກວາລີວົງ",
+    "nickname": "ນ້ຳໜື່ງ",
+    "english_class": "11A",
+    "dob": "1.12.2008",
+    "age": 17,
+    "father": {
+      "name": "ສົມໄຊ ກວາລີວົງ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "55516949"
+    },
+    "mother": {
+      "name": "ອຳມອນລັດ ໄຊຍະລາດ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "55516339"
+    },
+    "address": {
+      "village": "ໂພນສະອາດ",
+      "district": "ໄຊເສດຖາ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Manixay Koualyvong",
+    "contact_phone": ""
+  },
+  {
+    "id": 8,
+    "student_id": "0542",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ຢາຈ້ຽນ",
+    "last_name": "ຫວງ",
+    "nickname": "ຊັນນີ",
+    "english_class": "11B",
+    "dob": "19.8.2009",
+    "age": 16,
+    "father": {
+      "name": "ໄມພອນ ເພັງມີໄຊ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "55356666"
+    },
+    "mother": {
+      "name": "ຊູຟ່າງ ຈູ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "99552266"
+    },
+    "address": {
+      "village": "ໜອງປາໄນ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Yaqian Huang",
+    "contact_phone": ""
+  },
+  {
+    "id": 9,
+    "student_id": "0655",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ລຸ້ງສີລິ",
+    "last_name": "ຫຼວງວາລິນ",
+    "nickname": "ລຸ້ງ",
+    "english_class": "11B",
+    "dob": "26.11.2009",
+    "age": 16,
+    "father": {
+      "name": "ວິທະປອນ ຫຼວງວາລິນ",
+      "occupation": "ພະນັກງານ",
+      "phone": "55597898"
+    },
+    "mother": {
+      "name": "ນ້ອຍ ແສງຈັນທະວົງ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "56166565"
+    },
+    "address": {
+      "village": "ທາດຫຼວງກາງ",
+      "district": "ໄຊເສດຖາ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Louangsily Louangvalinh",
+    "contact_phone": ""
+  },
+  {
+    "id": 10,
+    "student_id": "0566",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ວັນຊະນະ",
+    "last_name": "ອາໄພລາດ",
+    "nickname": "ບ໋ອດ",
+    "english_class": "11A",
+    "dob": "13.4.2009",
+    "age": 16,
+    "father": {
+      "name": "ວັນແກ້ວ ອາໄພລາດ",
+      "occupation": "ພະນັກງານ",
+      "phone": "22229890"
+    },
+    "mother": {
+      "name": "ອຳໄພ ຄື່ນເທັບ",
+      "occupation": "ພະນັກງານ",
+      "phone": "28215622"
+    },
+    "address": {
+      "village": "ໂພສີ",
+      "district": "ຫາດຊອງຟອງ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Vansana Aphailath",
+    "contact_phone": ""
+  },
+  {
+    "id": 11,
+    "student_id": "0656",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ວາລາພອນ",
+    "last_name": "ສຸກກະເສີມ",
+    "nickname": "ນີນ່າ",
+    "english_class": "11A",
+    "dob": "21.3.2010",
+    "age": 15,
+    "father": {
+      "name": "ນຸ່ຍ ສຸກກະເສີມ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "55555503"
+    },
+    "mother": {
+      "name": "ວະນີລາ ສຸກກະເສີມ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "22455555"
+    },
+    "address": {
+      "village": "ໜອງທາເໜືອ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Valaphone Soukkaseum",
+    "contact_phone": ""
+  },
+  {
+    "id": 12,
+    "student_id": "0549",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ວຸດທິສັກ",
+    "last_name": "ແສງດາລາ",
+    "nickname": "ລູຟີ່",
+    "english_class": "11B",
+    "dob": "23.11.2008",
+    "age": 17,
+    "father": {
+      "name": "ອານຸສັກ ແສງດາລາ",
+      "occupation": "ທຸລະກິດ",
+      "phone": "22299990"
+    },
+    "mother": {
+      "name": "ດາລິວັນ ພົມມະວົງສາ",
+      "occupation": "ປະຊາຊົນ",
+      "phone": "55511336"
+    },
+    "address": {
+      "village": "ໜອງສະໂນຄຳ",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Wuttisack Sengdala",
+    "contact_phone": ""
+  },
+  {
+    "id": 13,
+    "student_id": "0550",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ອະດິສອນ",
+    "last_name": "ເສົາວະລີ",
+    "nickname": "ຟູຈິ",
+    "english_class": "11A",
+    "dob": "20.11.2008",
+    "age": 17,
+    "father": {
+      "name": "ອາພິນັນ ແສງຄຳສຸກ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "56655916"
+    },
+    "mother": {
+      "name": "ຈີລາພອນ ເສົາວະລີ",
+      "occupation": "ຄ້າຂາຍ",
+      "phone": "21213035"
+    },
+    "address": {
+      "village": "ທົ່ງຂັນຄຳ",
+      "district": "ຈັນທະບູລີ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Adisone Sauvaly",
+    "contact_phone": ""
+  },
+  {
+    "id": 14,
+    "student_id": "0528",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ອານຸທິດາ",
+    "last_name": "ສີໃສແກ້ວ",
+    "nickname": "ວຽນນາ",
+    "english_class": "12B",
+    "dob": "2.9.2008",
+    "age": 17,
+    "father": {
+      "name": "ອານຸສິດ ສັງວຽນ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "22214444"
+    },
+    "mother": {
+      "name": "ວີ ສີໃສແກ້ວ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "55411111"
+    },
+    "address": {
+      "village": "ຝາຍ",
+      "district": "ໄຊເສດຖາ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Anouthida Sisaykeo",
+    "contact_phone": ""
+  },
+  {
+    "id": 15,
+    "student_id": "0561",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ອາຣິຍາມະນີ",
+    "last_name": "ຈຸນລະມະນີ",
+    "nickname": "ສະກຸລະ",
+    "english_class": "11A",
+    "dob": "21.7.2009",
+    "age": 16,
+    "father": {
+      "name": "ອາວະກາດ ແພງສີອາຣຸນ",
+      "occupation": "ປະຊາຊົນ",
+      "phone": "55954415"
+    },
+    "mother": {
+      "name": "ບຸບຜາມະນີ ຈຸນລະມະນີ",
+      "occupation": "ນັກທຸລະກິດ",
+      "phone": "55529715"
+    },
+    "address": {
+      "village": "ດົງນາໂຊກໃຕ້",
+      "district": "ສີໂຄດຕະບອງ",
+      "province": "ນະຄອນຫຼວງ"
+    },
+    "english_name": "Aariyamany Chounramany",
+    "contact_phone": ""
+  }
+]

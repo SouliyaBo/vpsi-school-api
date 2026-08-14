@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm run test -- --ci --coverage
+
+      - name: E2E tests
+        # mongodb-memory-server boots its own replica set, so no service container needed.
+        run: npm run test:e2e -- --ci
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build --target production -t vpsischool-api:${{ github.sha }} .

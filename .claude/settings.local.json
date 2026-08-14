@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sSfL -o /dev/null -w \"%{http_code}\\\\n\" https://raw.githubusercontent.com/notofonts/lao/main/README.md)",
+      "Bash(curl -sSfL -o /dev/null -w \"%{http_code}\\\\n\" https://registry.npmjs.org/pdfkit)",
+      "Bash(curl -sSL \"https://api.github.com/repos/notofonts/lao/contents/fonts\")",
+      "Bash(curl -sSL -o assets/fonts/NotoSansLao-Bold.ttf \"https://github.com/googlefonts/noto-fonts/raw/main/hinted/ttf/NotoSansLao/NotoSansLao-Bold.ttf\")",
+      "Bash(node -e ' *)",
+      "Bash(rm -rf test/tmp)",
+      "Bash(rm -f sample.png)",
+      "Bash(sips -s format png --out sample.png sample-report.pdf)",
+      "Bash(npm test *)",
+      "Bash(npx tsc *)",
+      "Bash(npx prettier *)",
+      "Bash(npx eslint *)",
+      "Bash(python3 -c ' *)",
+      "Bash(grep -vE \"^\\\\s*$\")"
+    ],
+    "additionalDirectories": [
+      "/tmp/claude-501/-Users-devbo-Desktop-vpsischool-api/896a32ef-6703-40a2-a363-ae29a01fceb9/scratchpad"
+    ]
+  }
+}

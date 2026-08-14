@@ -1,0 +1,10 @@
+node_modules
+dist
+coverage
+.git
+.env
+# Compose reads this on the host and injects it as environment; it must never be
+# baked into a layer, where `docker history` would hand out the secrets.
+.env.production
+*.log
+docs

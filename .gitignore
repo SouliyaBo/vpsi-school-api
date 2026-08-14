@@ -1,0 +1,27 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.local
+.env.*.local
+# The filled-in production secrets. `.env.*.local` does not cover it, and the
+# example next to it is the file that belongs in the repo.
+.env.production
+!.env.production.example
+
+.DS_Store
+*.log
+npm-debug.log*
+
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+docker/volumes/
+
+# Fonts have their own licences and are fetched per-environment.
+assets/fonts/*.ttf
+assets/fonts/*.ttc
+assets/fonts/*.otf
