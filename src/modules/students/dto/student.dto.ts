@@ -218,11 +218,28 @@ export class SetStudentGuardiansDto {
   guardians: StudentGuardianInputDto[];
 }
 
+/**
+ * What `status` accepts on the list query: any real status, plus `all`.
+ *
+ * `all` is not a status a student can hold — it is the escape hatch from the
+ * `active` default the list applies, and exists because "no filter" now means
+ * "the current roll" rather than "the whole register".
+ */
+export const STUDENT_STATUS_FILTERS = [...STUDENT_STATUSES, 'all'] as const;
+export type StudentStatusFilter = (typeof STUDENT_STATUS_FILTERS)[number];
+
 export class QueryStudentsDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ enum: STUDENT_STATUSES })
-  @IsIn(STUDENT_STATUSES)
+  @ApiPropertyOptional({
+    enum: STUDENT_STATUS_FILTERS,
+    default: 'active',
+    description:
+      'Defaults to `active` — a list of students means the children currently ' +
+      'attending. Send `all` for the whole register, leavers and graduates ' +
+      'included, or a single status to narrow to it.',
+  })
+  @IsIn(STUDENT_STATUS_FILTERS)
   @IsOptional()
-  status?: StudentStatus;
+  status?: StudentStatusFilter;
 
   @ApiPropertyOptional({ enum: GENDERS })
   @IsIn(GENDERS)

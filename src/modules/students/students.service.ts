@@ -123,7 +123,11 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     // classroom/grade filters and the placement filter); collected here so the
     // second never silently overwrites the first.
     const idConstraints: Record<string, unknown>[] = [];
-    if (query.status) filter.status = query.status;
+    // The current roll is what a list of students is for, so `active` is the
+    // default rather than the whole register — a graduated or transferred child
+    // stays on file and reachable by id, but no longer turns up in a roster, a
+    // picker, or a headcount unless asked for by name. `all` opts out.
+    if (query.status !== 'all') filter.status = query.status ?? 'active';
     if (query.gender) filter.gender = query.gender;
     if (query.villageId) filter.villageId = new Types.ObjectId(query.villageId);
     if (query.guardianId) {

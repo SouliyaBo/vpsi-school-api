@@ -5,6 +5,13 @@ import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
+import {
+  nicknameOf,
+  populatedStudent,
+  registerName,
+  STUDENT_NAME_PROJECTION,
+  STUDENT_NAME_SELECT,
+} from 'src/common/utils/student-name';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import {
   BehaviorLog,
@@ -38,7 +45,6 @@ const CLASSROOM_WITH_GRADE = {
 } as const;
 
 const TEACHER_NAME = 'teacherCode firstNameLo lastNameLo firstNameEn lastNameEn';
-const STUDENT_NAME = 'studentCode firstNameLo lastNameLo firstNameEn lastNameEn';
 
 /** One student's line within a sheet row. */
 export interface SheetRowStudent {
@@ -46,6 +52,8 @@ export interface SheetRowStudent {
   studentId: string;
   studentCode: string | null;
   studentNameLo: string | null;
+  /** What the class calls them — how a teacher recognises the row. */
+  studentNickname: string | null;
   behavior: string | null;
   action: string | null;
 }
@@ -112,7 +120,7 @@ export class BehaviorLogsService {
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
-        .populate('studentId', STUDENT_NAME)
+        .populate('studentId', STUDENT_NAME_SELECT)
         .populate(CLASSROOM_WITH_GRADE)
         .populate('subjectId', 'code nameLo nameEn')
         .populate('teacherId', TEACHER_NAME)
@@ -151,7 +159,7 @@ export class BehaviorLogsService {
           date: { $gte: start, $lt: end },
           deletedAt: null,
         })
-        .populate('studentId', STUDENT_NAME)
+        .populate('studentId', STUDENT_NAME_SELECT)
         .populate('subjectId', 'code nameLo nameEn')
         .populate('teacherId', TEACHER_NAME)
         .sort({ date: 1, period: 1 })
@@ -174,21 +182,14 @@ export class BehaviorLogsService {
         students: [],
       };
 
-      if (record.studentId) {
-        // Populated, so it is the student document rather than an id — but typed
-        // as the ref, hence the cast to read the denormalized name fields.
-        const student = record.studentId as unknown as {
-          _id: Types.ObjectId;
-          studentCode?: string;
-          firstNameLo?: string;
-          lastNameLo?: string;
-        };
+      const student = populatedStudent(record.studentId);
+      if (student) {
         row.students.push({
           id: record._id.toString(),
           studentId: student._id.toString(),
           studentCode: student.studentCode ?? null,
-          studentNameLo:
-            [student.firstNameLo, student.lastNameLo].filter(Boolean).join(' ') || null,
+          studentNameLo: registerName(student),
+          studentNickname: nicknameOf(student),
           behavior: record.behavior ?? null,
           action: record.action ?? null,
         });
@@ -223,6 +224,9 @@ export class BehaviorLogsService {
           status: 'active',
           deletedAt: null,
         })
+        // The nickname is not on the enrollment snapshot, and the picker this
+        // roster fills is where a teacher looks for the child they mean.
+        .populate('studentId', STUDENT_NAME_SELECT)
         .sort({ rollNumber: 1 })
         .lean()
         .exec(),
@@ -259,12 +263,16 @@ export class BehaviorLogsService {
     return {
       date: normalized.toISOString().slice(0, 10),
       lessons,
-      roster: roster.map((enrollment) => ({
-        studentId: enrollment.studentId.toString(),
-        studentCode: enrollment.studentCode,
-        studentNameLo: enrollment.studentNameLo,
-        rollNumber: enrollment.rollNumber ?? null,
-      })),
+      roster: roster.map((enrollment) => {
+        const student = populatedStudent(enrollment.studentId);
+        return {
+          studentId: student?._id.toString() ?? String(enrollment.studentId),
+          studentCode: enrollment.studentCode,
+          studentNameLo: enrollment.studentNameLo,
+          studentNickname: nicknameOf(student),
+          rollNumber: enrollment.rollNumber ?? null,
+        };
+      }),
     };
   }
 
@@ -483,7 +491,7 @@ export class BehaviorLogsService {
             localField: '_id',
             foreignField: '_id',
             as: 'student',
-            pipeline: [{ $project: { studentCode: 1, firstNameLo: 1, lastNameLo: 1 } }],
+            pipeline: [{ $project: STUDENT_NAME_PROJECTION }],
           },
         },
         { $sort: { withAction: -1, entries: -1 } },
@@ -493,8 +501,8 @@ export class BehaviorLogsService {
     return rows.map((row) => ({
       studentId: row._id.toString(),
       studentCode: row.student[0]?.studentCode ?? null,
-      studentNameLo:
-        [row.student[0]?.firstNameLo, row.student[0]?.lastNameLo].filter(Boolean).join(' ') || null,
+      studentNameLo: registerName(row.student[0]),
+      studentNickname: nicknameOf(row.student[0]),
       entries: row.entries,
       withAction: row.withAction,
       lastDate: row.lastDate.toISOString().slice(0, 10),

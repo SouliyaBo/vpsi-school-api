@@ -7,6 +7,7 @@ import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
+import { STUDENT_NAME_SELECT } from 'src/common/utils/student-name';
 import { Enrollment, EnrollmentDocument, Student, StudentDocument } from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -103,14 +104,20 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
 
   /** The class roster, in roll-number order. */
   async findClassRoster(classroomId: string) {
-    return this.model
-      .find({
-        classroomId: new Types.ObjectId(classroomId),
-        status: 'active',
-        deletedAt: null,
-      })
-      .sort({ rollNumber: 1 })
-      .exec();
+    return (
+      this.model
+        .find({
+          classroomId: new Types.ObjectId(classroomId),
+          status: 'active',
+          deletedAt: null,
+        })
+        // `studentNameLo` on the row is the register name snapshotted at placement.
+        // The student is joined so a roster can also show what the class calls the
+        // child, which is what a teacher reads down the column looking for.
+        .populate('studentId', STUDENT_NAME_SELECT)
+        .sort({ rollNumber: 1 })
+        .exec()
+    );
   }
 
   /**

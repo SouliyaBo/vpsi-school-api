@@ -16,6 +16,7 @@ import {
 } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
+import { nicknameOf, populatedStudent, STUDENT_NAME_SELECT } from 'src/common/utils/student-name';
 import { SemestersService } from '../semesters/semesters.service';
 import { round2 } from '../term-results/grading';
 import {
@@ -106,7 +107,7 @@ export class AttendancesService {
         .find(filter)
         // An absence log is read as "who, on what day" — the ids alone are
         // unreadable, and joining them client-side would be one request per row.
-        .populate('studentId', 'studentCode firstNameLo lastNameLo firstNameEn lastNameEn')
+        .populate('studentId', STUDENT_NAME_SELECT)
         .populate(CLASSROOM_WITH_GRADE)
         .populate('subjectId', 'code nameLo nameEn')
         // Both sides of "who checked": the teacher whose lesson it was, and the
@@ -430,6 +431,10 @@ export class AttendancesService {
           status: 'active',
           deletedAt: null,
         })
+        // The enrollment carries a snapshot of the register name but no nickname,
+        // and the nickname is what the teacher calling the roll recognises — so
+        // the student is joined for it rather than read off the snapshot.
+        .populate('studentId', STUDENT_NAME_SELECT)
         .sort({ rollNumber: 1 })
         .lean()
         .exec(),
@@ -476,13 +481,14 @@ export class AttendancesService {
           subject: assignment.subjectId,
           teacher: assignment.teacherId,
           entries: roster.map((enrollment) => {
-            const record = byLessonAndStudent.get(
-              `${assignmentId}:${enrollment.studentId.toString()}`,
-            );
+            const student = populatedStudent(enrollment.studentId);
+            const studentId = student?._id.toString() ?? String(enrollment.studentId);
+            const record = byLessonAndStudent.get(`${assignmentId}:${studentId}`);
             return {
-              studentId: enrollment.studentId.toString(),
+              studentId,
               studentCode: enrollment.studentCode,
               studentNameLo: enrollment.studentNameLo,
+              studentNickname: nicknameOf(student),
               rollNumber: enrollment.rollNumber,
               status: record?.status ?? null,
               minutesLate: record?.minutesLate ?? null,

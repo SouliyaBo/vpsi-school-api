@@ -245,6 +245,105 @@ describe('Academic operations (e2e)', () => {
         response.body.data.some((s: { studentCode: string }) => s.studentCode === 'S-SEARCH-001'),
       ).toBe(true);
     });
+
+    /**
+     * A list of students means the children currently attending, so the leavers
+     * have to be asked for by name. Without this the school's whole history
+     * accumulates in every roster, picker and headcount.
+     */
+    it('lists only the children currently attending unless another status is asked for', async () => {
+      const studentId = await createStudent('S-STATUS-001', 'ຈົບ');
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(token))
+        .send({ status: 'graduated' })
+        .expect(200);
+
+      const codesOf = (body: { data: { studentCode: string }[] }) =>
+        body.data.map((row) => row.studentCode);
+
+      // Default: gone from the list.
+      const byDefault = await http()
+        .get('/api/students?limit=100&search=S-STATUS-001')
+        .set(auth(token))
+        .expect(200);
+      expect(codesOf(byDefault.body)).not.toContain('S-STATUS-001');
+      expect(byDefault.body.meta.total).toBe(0);
+
+      // Named explicitly: found.
+      const byStatus = await http()
+        .get('/api/students?limit=100&search=S-STATUS-001&status=graduated')
+        .set(auth(token))
+        .expect(200);
+      expect(codesOf(byStatus.body)).toContain('S-STATUS-001');
+
+      // `all` is the escape hatch for the whole register.
+      const everyone = await http()
+        .get('/api/students?limit=100&search=S-STATUS-001&status=all')
+        .set(auth(token))
+        .expect(200);
+      expect(codesOf(everyone.body)).toContain('S-STATUS-001');
+    });
+
+    /**
+     * The `active` default is scoped to browsing. A child who has left is still
+     * on file: reachable by id, and still their siblings' sibling — which is the
+     * whole reason the office asks.
+     */
+    it('leaves a departed student on file, by id and in a sibling list', async () => {
+      const stayingId = await createStudent('S-STATUS-002', 'ຢູ່');
+      const staying = await http().get(`/api/students/${stayingId}`).set(auth(token)).expect(200);
+      const guardianId = guardianIdOf(staying.body);
+
+      // The departed sibling shares that guardian, which is what links them.
+      const leaverId = await http()
+        .post('/api/students')
+        .set(auth(token))
+        .send({
+          studentCode: 'S-STATUS-003',
+          firstNameLo: 'ຍ້າຍ',
+          lastNameLo: 'ວົງສະຫວັນ',
+          gender: 'male',
+          dateOfBirth: '2008-02-02',
+          guardians: [{ guardianId, relationship: 'father', isPrimary: true }],
+        })
+        .expect(201)
+        .then((response) => response.body.id as string);
+
+      await http()
+        .patch(`/api/students/${leaverId}`)
+        .set(auth(token))
+        .send({ status: 'transferred' })
+        .expect(200);
+
+      // Gone from the roster…
+      const roster = await http()
+        .get('/api/students?limit=100&search=S-STATUS-003')
+        .set(auth(token))
+        .expect(200);
+      expect(roster.body.meta.total).toBe(0);
+
+      // …but still readable by id…
+      await http().get(`/api/students/${leaverId}`).set(auth(token)).expect(200);
+
+      // …and still a sibling.
+      const siblings = await http()
+        .get(`/api/students/${stayingId}/siblings`)
+        .set(auth(token))
+        .expect(200);
+      expect(siblings.body.map((row: { studentCode: string }) => row.studentCode)).toContain(
+        'S-STATUS-003',
+      );
+
+      // The guardian's own children list keeps them too — a family record, not a roll.
+      const children = await http()
+        .get(`/api/guardians/${guardianId}/children`)
+        .set(auth(token))
+        .expect(200);
+      expect(children.body.map((row: { studentCode: string }) => row.studentCode)).toContain(
+        'S-STATUS-003',
+      );
+    });
   });
 
   describe('enrollment', () => {
@@ -855,6 +954,97 @@ describe('Academic operations (e2e)', () => {
         .set(auth(token))
         .send({ studentId: attendanceStudentId, classroomId })
         .expect(201);
+    });
+
+    /**
+     * Teachers know a child by what the class calls them, so every register the
+     * two logging screens draw carries the nickname next to the register name.
+     * It is joined off the student rather than read from the enrollment snapshot,
+     * which is taken at placement and so predates most nicknames.
+     */
+    it('names students on the roll-call sheet by their nickname too', async () => {
+      const nicknamedId = await http()
+        .post('/api/students')
+        .set(auth(token))
+        .send({
+          studentCode: 'S-NICK-001',
+          firstNameLo: 'ສົມຈິດ',
+          lastNameLo: 'ວົງສາ',
+          gender: 'female',
+          dateOfBirth: '2011-06-06',
+          guardians: [
+            {
+              guardian: { firstNameLo: 'ບຸນມີ', lastNameLo: 'ວົງສາ', phone: '02055500123' },
+              relationship: 'father',
+              isPrimary: true,
+            },
+          ],
+        })
+        .expect(201)
+        .then((response) => response.body.id as string);
+
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: nicknamedId, classroomId })
+        .expect(201);
+
+      // Typed in *after* placement, which is the case a denormalized copy misses.
+      await http()
+        .patch(`/api/students/${nicknamedId}`)
+        .set(auth(token))
+        .send({ nickname: 'ລິຕ້າ' })
+        .expect(200);
+
+      // The sheet is built from the timetable, so this test brings its own lesson
+      // rather than leaning on one another test happens to have created. Tuesday
+      // is untouched by the rest of the file, and the time sits inside the seeded
+      // school day (15:10–16:55) — Monday is already booked end to end.
+      await http()
+        .post('/api/teaching-assignments')
+        .set(auth(token))
+        .send({
+          // A pairing no other test claims: one assignment per
+          // teacher+subject+classroom is all the timetable allows.
+          teacherId: otherTeacherId,
+          subjectId: laoSubjectId,
+          classroomId,
+          semesterId,
+          schedule: [{ dayOfWeek: 2, startTime: '15:10', endTime: '16:00', room: 'R100' }],
+        })
+        .expect(201);
+
+      // 2025-09-16 is a Tuesday, which is when that lesson falls.
+      const sheet = await http()
+        .get(`/api/attendances/daily-sheet?classroomId=${classroomId}&date=2025-09-16`)
+        .set(auth(token))
+        .expect(200);
+
+      const entries = sheet.body.lessons.flatMap(
+        (lesson: { entries: { studentId: string; studentNickname: string | null }[] }) =>
+          lesson.entries,
+      );
+      const entry = entries.find((row: { studentId: string }) => row.studentId === nicknamedId) as
+        { studentNickname: string | null } | undefined;
+
+      expect(entry?.studentNickname).toBe('ລິຕ້າ');
+      // A child with none on file gets `null`, not the register name repeated.
+      expect(
+        entries.some(
+          (row: { studentId: string; studentNickname: string | null }) =>
+            row.studentId === attendanceStudentId && row.studentNickname === null,
+        ),
+      ).toBe(true);
+
+      // The class roster the attendance summary is built from carries it as well.
+      const roster = await http()
+        .get(`/api/enrollments/classroom/${classroomId}/roster`)
+        .set(auth(token))
+        .expect(200);
+      const rosterRow = roster.body.find(
+        (row: { studentCode: string }) => row.studentCode === 'S-NICK-001',
+      ) as { studentId: { nickname?: string } } | undefined;
+      expect(rosterRow?.studentId.nickname).toBe('ລິຕ້າ');
     });
 
     it('records a roll call', async () => {
