@@ -84,17 +84,30 @@ export const ROLE_SEEDS: RoleSeed[] = [
     description:
       'Enters scores, conduct, attendance and the behaviour register for their own classes, ' +
       'and submits lesson plans. Score and behaviour entry are additionally restricted to the ' +
-      'subjects and classrooms they are assigned to — the permission alone is not sufficient.',
+      'subjects and classrooms they are assigned to — the permission alone is not sufficient. ' +
+      'Reading and correcting student records is likewise narrowed to the classroom they are ' +
+      'homeroom teacher of.',
     isSystem: true,
     permissions: [
-      { resource: 'students', actions: ['read'] },
+      // `create` and `update` so the homeroom teacher — the one person who
+      // actually sees the child every day — can add a newcomer and correct a
+      // wrong phone number or spelling on the register. StudentsService narrows
+      // reads and writes to their own homeroom and refuses a change to `status`,
+      // which is the office's call. No `delete`: removing a child from the
+      // register stays with the registrar.
+      { resource: 'students', actions: ['read', 'create', 'update'] },
       { resource: 'guardians', actions: ['read'] },
       { resource: 'teachers', actions: ['read'] },
       { resource: 'classrooms', actions: ['read'] },
       { resource: 'subject-groups', actions: ['read'] },
       { resource: 'subjects', actions: ['read'] },
       { resource: 'teaching-assignments', actions: ['read'] },
-      { resource: 'enrollments', actions: ['read'] },
+      // A new student who is never placed is invisible to the teacher who just
+      // added them, so creating one has to come with placing them. Narrowed by
+      // EnrollmentsService to the teacher's own homeroom — they cannot pull a
+      // child into someone else's room, and moving or removing an enrolment
+      // still needs `update`/`delete`, which they do not have.
+      { resource: 'enrollments', actions: ['read', 'create'] },
       { resource: 'score-components', actions: ['create', 'read', 'update'] },
       // Deliberately no `manage`: a teacher can submit and lock grades but not
       // reopen them.

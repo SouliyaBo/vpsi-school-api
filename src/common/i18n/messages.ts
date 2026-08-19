@@ -115,6 +115,10 @@ export const MESSAGES = {
     lo: 'ບໍ່ສາມາດປ່ຽນສະຖານະນີ້ໄດ້',
     en: 'That enrollment status change is not allowed',
   },
+  'enrollment.notOwnHomeroom': {
+    lo: 'ຈັດເຂົ້າຫ້ອງໄດ້ສະເພາະຫ້ອງທີ່ທ່ານເປັນຄູປະຈຳຫ້ອງ',
+    en: 'You may only place a student in the classroom you are homeroom teacher of',
+  },
 
   // ── Teaching assignments ──────────────────────────────────────────────────
   'assignment.teacherConflict': {
@@ -234,6 +238,14 @@ export const MESSAGES = {
   'student.multiplePrimaryGuardians': {
     lo: 'ກຳນົດຜູ້ປົກຄອງຫຼັກໄດ້ພຽງຄົນດຽວ',
     en: 'Only one guardian can be marked as primary',
+  },
+  'student.notInHomeroom': {
+    lo: 'ແກ້ໄຂໄດ້ສະເພາະນັກຮຽນໃນຫ້ອງທີ່ທ່ານເປັນຄູປະຈຳຫ້ອງ',
+    en: 'You may only edit students in the classroom you are homeroom teacher of',
+  },
+  'student.statusIsOfficeOnly': {
+    lo: 'ການປ່ຽນສະຖານະນັກຮຽນແມ່ນໜ້າທີ່ຂອງຫ້ອງທະບຽນ',
+    en: 'Changing a student’s status is the registrar’s decision',
   },
 } as const;
 

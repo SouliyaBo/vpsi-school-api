@@ -418,7 +418,7 @@ describe('Academic operations (e2e)', () => {
           subjectId: mathSubjectId,
           classroomId,
           semesterId,
-          schedule: [{ dayOfWeek: 1, startTime: '08:00', endTime: '08:50', room: 'R101' }],
+          schedule: [{ dayOfWeek: 1, startTime: '15:10', endTime: '16:00', room: 'R101' }],
         })
         .expect(201);
 
@@ -434,7 +434,7 @@ describe('Academic operations (e2e)', () => {
           subjectId: laoSubjectId,
           classroomId: secondClassroomId,
           semesterId,
-          schedule: [{ dayOfWeek: 1, startTime: '08:30', endTime: '09:20', room: 'R202' }],
+          schedule: [{ dayOfWeek: 1, startTime: '15:40', endTime: '16:30', room: 'R202' }],
         })
         .expect(409);
 
@@ -451,7 +451,7 @@ describe('Academic operations (e2e)', () => {
           subjectId: laoSubjectId,
           classroomId,
           semesterId,
-          schedule: [{ dayOfWeek: 1, startTime: '08:00', endTime: '08:50', room: 'R303' }],
+          schedule: [{ dayOfWeek: 1, startTime: '15:10', endTime: '16:00', room: 'R303' }],
         })
         .expect(409);
 
@@ -467,7 +467,7 @@ describe('Academic operations (e2e)', () => {
           subjectId: laoSubjectId,
           classroomId,
           semesterId,
-          schedule: [{ dayOfWeek: 1, startTime: '08:50', endTime: '09:40', room: 'R101' }],
+          schedule: [{ dayOfWeek: 1, startTime: '16:00', endTime: '16:50', room: 'R101' }],
         })
         .expect(201);
     });
@@ -482,8 +482,8 @@ describe('Academic operations (e2e)', () => {
           classroomId: secondClassroomId,
           semesterId,
           schedule: [
-            { dayOfWeek: 3, startTime: '10:00', endTime: '11:00' },
-            { dayOfWeek: 3, startTime: '10:30', endTime: '11:30' },
+            { dayOfWeek: 3, startTime: '15:10', endTime: '16:10' },
+            { dayOfWeek: 3, startTime: '15:40', endTime: '16:40' },
           ],
         })
         .expect(400);

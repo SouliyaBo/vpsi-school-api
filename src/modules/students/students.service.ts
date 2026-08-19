@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
+import type { StudentStatus } from 'src/common/constants/enums';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
+import { RecordScopeService } from 'src/common/services/record-scope.service';
 import {
   Enrollment,
   EnrollmentDocument,
@@ -54,6 +56,21 @@ export interface StudentListRow extends Record<string, unknown> {
   currentEnrollment: StudentPlacement | null;
 }
 
+/** What a child can be on the day they are entered on the register. */
+const INTAKE_STATUSES: StudentStatus[] = ['new', 'active'];
+
+/**
+ * The write context every students route supplies.
+ *
+ * `CrudContext.actor` carries only the id and username, which is all the audit
+ * trail needs. The homeroom rules need the caller's identity and permission set
+ * as well, and the controllers already hand over the whole authenticated user —
+ * this only tells the type system so.
+ */
+export interface StudentWriteContext extends CrudContext {
+  actor?: AuthenticatedUser;
+}
+
 /** The guardian two students have in common, and how the sibling relates to them. */
 export interface SharedGuardian {
   guardianId: string;
@@ -85,13 +102,22 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     @InjectModel(Enrollment.name) private readonly enrollmentModel: Model<EnrollmentDocument>,
     @InjectModel(SchoolYear.name) private readonly schoolYearModel: Model<SchoolYearDocument>,
     audit: AuditLogsService,
+    private readonly scope: RecordScopeService,
     private readonly storage: StorageService,
     private readonly tx: TransactionHelper,
   ) {
     super(model, audit);
   }
 
-  async findAll(query: QueryStudentsDto): Promise<PaginatedResponse<StudentListRow>> {
+  /**
+   * `actor` is optional only so the signature stays usable from a context with
+   * no request behind it; every route passes one, and omitting it means no
+   * homeroom scoping is applied.
+   */
+  async findAll(
+    query: QueryStudentsDto,
+    actor?: AuthenticatedUser,
+  ): Promise<PaginatedResponse<StudentListRow>> {
     const filter: Record<string, unknown> = { deletedAt: null };
     // Constraints on `_id` can come from two independent places (the
     // classroom/grade filters and the placement filter); collected here so the
@@ -143,6 +169,12 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
         idConstraints.push(query.enrolled ? { $in: placedIds } : { $nin: placedIds });
       }
     }
+
+    // A homeroom teacher's own children, and nobody else's. Pushed as another
+    // `_id` constraint so it intersects with — rather than replaces — whatever
+    // the client filtered by.
+    const homeroom = await this.scope.homeroomStudentIds(actor, query.schoolYearId);
+    if (homeroom) idConstraints.push({ $in: homeroom });
 
     if (idConstraints.length === 1) filter._id = idConstraints[0];
     else if (idConstraints.length > 1) {
@@ -276,7 +308,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
    */
   async findOneForActor(id: string, actor: AuthenticatedUser): Promise<WithPhotoUrl> {
     const student = await this.findOne(id);
-    this.assertMayRead(student, actor);
+    await this.assertMayRead(student, actor);
 
     return {
       ...student.toJSON(),
@@ -284,7 +316,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     };
   }
 
-  private assertMayRead(student: StudentDocument, actor: AuthenticatedUser): void {
+  private async assertMayRead(student: StudentDocument, actor: AuthenticatedUser): Promise<void> {
     if (actor.personType === 'student' && actor.personId !== String(student._id)) {
       throw AppException.forbidden();
     }
@@ -294,6 +326,29 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
         (link) => this.linkedGuardianId(link) === actor.personId && link.canViewRecords,
       );
       if (!isPermittedGuardian) throw AppException.forbidden();
+    }
+
+    // Without this the list scope would be cosmetic: a homeroom teacher could
+    // still read any child by guessing an id.
+    const homeroom = await this.scope.homeroomStudentIds(actor);
+    if (homeroom && !homeroom.some((id) => String(id) === String(student._id))) {
+      throw AppException.forbidden();
+    }
+  }
+
+  /**
+   * A homeroom teacher may write only to their own students.
+   *
+   * Separate from `assertMayRead` because the read rules also cover student and
+   * guardian accounts, neither of which holds `students:update` and so can never
+   * reach a write route at all.
+   */
+  private async assertMayWrite(id: string, actor?: AuthenticatedUser): Promise<void> {
+    if (!actor) return;
+
+    const homeroom = await this.scope.homeroomStudentIds(actor);
+    if (homeroom && !homeroom.some((studentId) => String(studentId) === id)) {
+      throw AppException.forbidden('student.notInHomeroom');
     }
   }
 
@@ -312,7 +367,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
    */
   async findSiblings(id: string, actor: AuthenticatedUser): Promise<SiblingRow[]> {
     const student = await this.findOne(id);
-    this.assertMayRead(student, actor);
+    await this.assertMayRead(student, actor);
 
     const guardianIds = student.guardians.map(
       (link) => new Types.ObjectId(this.linkedGuardianId(link)),
@@ -363,7 +418,18 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
    * All of it in one transaction: a student with no guardian, or a guardian
    * created for a student that then failed to save, are both invalid states.
    */
-  async create(dto: CreateStudentDto, context: CrudContext): Promise<StudentDocument> {
+  async create(dto: CreateStudentDto, context: StudentWriteContext): Promise<StudentDocument> {
+    // A homeroom teacher enters a newcomer, so the only statuses open to them are
+    // the two a newcomer can be in. Everything past that — graduated,
+    // transferred, dropped — is the office's to record, exactly as on update.
+    if (
+      dto.status !== undefined &&
+      !INTAKE_STATUSES.includes(dto.status) &&
+      (await this.scope.homeroomClassroomIds(context.actor))
+    ) {
+      throw AppException.forbidden('student.statusIsOfficeOnly', { to: dto.status });
+    }
+
     if (dto.villageId) await this.assertVillage(dto.villageId);
     this.assertExactlyOnePrimary(dto.guardians);
 
@@ -388,7 +454,16 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     });
   }
 
-  async update(id: string, dto: UpdateStudentDto, context: CrudContext) {
+  async update(id: string, dto: UpdateStudentDto, context: StudentWriteContext) {
+    // Resolved once and reused for both checks below — it costs two reads.
+    const homeroom = await this.scope.homeroomStudentIds(context.actor);
+    if (homeroom) {
+      if (!homeroom.some((studentId) => String(studentId) === id)) {
+        throw AppException.forbidden('student.notInHomeroom');
+      }
+      await this.assertStatusUnchanged(id, dto);
+    }
+
     if (dto.villageId) await this.assertVillage(dto.villageId);
 
     const patch: Record<string, unknown> = { ...dto };
@@ -399,12 +474,34 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     return this.updateDocument(id, patch, context);
   }
 
+  /**
+   * Refuses a status change from a homeroom teacher.
+   *
+   * Graduating, transferring or dropping a child drives enrolment, certificates
+   * and the placement queue, so it stays an office decision even though the
+   * homeroom teacher may correct everything else on the record. Compared against
+   * what is stored rather than rejecting the field outright: the edit form posts
+   * the whole record back, so an untouched `status` must still go through.
+   */
+  private async assertStatusUnchanged(id: string, dto: UpdateStudentDto): Promise<void> {
+    if (dto.status === undefined) return;
+
+    const current = await this.findOneOrFail(id);
+    if (current.status !== dto.status) {
+      throw AppException.forbidden('student.statusIsOfficeOnly', {
+        from: current.status,
+        to: dto.status,
+      });
+    }
+  }
+
   /** Replaces the guardian list wholesale, creating any new guardians as needed. */
   async setGuardians(
     id: string,
     dto: SetStudentGuardiansDto,
-    context: CrudContext,
+    context: StudentWriteContext,
   ): Promise<StudentDocument> {
+    await this.assertMayWrite(id, context.actor);
     this.assertExactlyOnePrimary(dto.guardians);
 
     return this.tx.run(async (session) => {
@@ -417,8 +514,9 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
   async setPhoto(
     id: string,
     file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
-    context: CrudContext,
+    context: StudentWriteContext,
   ): Promise<WithPhotoUrl> {
+    await this.assertMayWrite(id, context.actor);
     const student = await this.findOneOrFail(id);
     const previousKey = student.photoKey;
 

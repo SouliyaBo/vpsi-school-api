@@ -93,6 +93,19 @@ describe('RBAC (e2e)', () => {
     classroomId = classrooms.body.data[0].id;
     otherClassroomId = classrooms.body.data[1].id;
 
+    // Homeroom teachers, set explicitly: the seed hands them out round-robin, and
+    // the students list scope turns on which room each teacher owns.
+    await http()
+      .patch(`/api/classrooms/${classroomId}`)
+      .set(auth(adminToken))
+      .send({ homeroomTeacherId: assignedTeacherId })
+      .expect(200);
+    await http()
+      .patch(`/api/classrooms/${otherClassroomId}`)
+      .set(auth(adminToken))
+      .send({ homeroomTeacherId: unassignedTeacherId })
+      .expect(200);
+
     // ── A student with a guardian, enrolled in the classroom ───────────────
     const student = await http()
       .post('/api/students')
@@ -133,7 +146,9 @@ describe('RBAC (e2e)', () => {
         subjectId: mathSubjectId,
         classroomId,
         semesterId,
-        schedule: [{ dayOfWeek: 1, startTime: '08:00', endTime: '08:50' }],
+        // Inside the seeded school day (`schedule.dayStartTime`/`dayEndTime`),
+        // which this school runs in the afternoon.
+        schedule: [{ dayOfWeek: 1, startTime: '15:10', endTime: '16:00' }],
       })
       .expect(201);
 
@@ -318,6 +333,194 @@ describe('RBAC (e2e)', () => {
           entries: [{ studentId, score: 50 }],
         })
         .expect(403);
+    });
+  });
+
+  describe('homeroom scope on the students list', () => {
+    it('shows a homeroom teacher only the children in their own classroom', async () => {
+      const response = await http()
+        .get('/api/students?limit=100')
+        .set(auth(tokens.assignedTeacher))
+        .expect(200);
+
+      const codes = response.body.data.map((row: { studentCode: string }) => row.studentCode);
+      expect(codes).toContain('S-RBAC-001');
+      // Every row is placed in the classroom this teacher is homeroom teacher of.
+      for (const row of response.body.data) {
+        expect(row.currentEnrollment?.classroomId).toBe(classroomId);
+      }
+    });
+
+    it('shows nothing to a teacher whose homeroom is empty', async () => {
+      const response = await http()
+        .get('/api/students?limit=100')
+        .set(auth(tokens.unassignedTeacher))
+        .expect(200);
+
+      expect(response.body.meta.total).toBe(0);
+      expect(response.body.data).toEqual([]);
+    });
+
+    it('denies a teacher a student outside their homeroom by id', async () => {
+      await http()
+        .get(`/api/students/${studentId}`)
+        .set(auth(tokens.unassignedTeacher))
+        .expect(403);
+
+      await http().get(`/api/students/${studentId}`).set(auth(tokens.assignedTeacher)).expect(200);
+    });
+
+    it('lets a homeroom teacher correct their own student', async () => {
+      const response = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ phone: '02055512399', nickname: 'ນ້ອຍ' })
+        .expect(200);
+
+      expect(response.body.phone).toBe('02055512399');
+      expect(response.body.nickname).toBe('ນ້ອຍ');
+    });
+
+    it('denies a teacher a student outside their homeroom', async () => {
+      const response = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.unassignedTeacher))
+        .send({ nickname: 'ບໍ່ຄວນໄດ້' })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('student.notInHomeroom');
+    });
+
+    it('refuses a status change from a homeroom teacher', async () => {
+      const response = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ status: 'dropped' })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('student.statusIsOfficeOnly');
+    });
+
+    it('lets an unchanged status through, because the edit form posts it back', async () => {
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ status: 'active', contactName: 'ພໍ່ບຸນມີ' })
+        .expect(200);
+    });
+
+    it('still lets the office change a status', async () => {
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.registrar))
+        .send({ status: 'suspended' })
+        .expect(200);
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.registrar))
+        .send({ status: 'active' })
+        .expect(200);
+    });
+
+    it('lets a homeroom teacher add a student and place them in their own room', async () => {
+      const created = await http()
+        .post('/api/students')
+        .set(auth(tokens.assignedTeacher))
+        .send({
+          studentCode: 'S-RBAC-NEW',
+          firstNameLo: 'ນ້ອງ',
+          lastNameLo: 'ໃໝ່',
+          gender: 'male',
+          dateOfBirth: '2011-02-02',
+          guardians: [
+            {
+              guardian: { firstNameLo: 'ພໍ່', lastNameLo: 'ໃໝ່', phone: '02055577010' },
+              relationship: 'father',
+              isPrimary: true,
+            },
+          ],
+        })
+        .expect(201);
+
+      await http()
+        .post('/api/enrollments')
+        .set(auth(tokens.assignedTeacher))
+        .send({ studentId: created.body.id, classroomId })
+        .expect(201);
+
+      // The point of the placement: the child they just added is now theirs to see.
+      const list = await http()
+        .get('/api/students?limit=100')
+        .set(auth(tokens.assignedTeacher))
+        .expect(200);
+
+      expect(list.body.data.map((row: { studentCode: string }) => row.studentCode)).toContain(
+        'S-RBAC-NEW',
+      );
+    });
+
+    it('refuses to enter a newcomer as anything but a newcomer', async () => {
+      const response = await http()
+        .post('/api/students')
+        .set(auth(tokens.assignedTeacher))
+        .send({
+          studentCode: 'S-RBAC-GRAD',
+          firstNameLo: 'ຈົບ',
+          lastNameLo: 'ແລ້ວ',
+          gender: 'male',
+          dateOfBirth: '2011-04-04',
+          status: 'graduated',
+          guardians: [
+            {
+              guardian: { firstNameLo: 'ພໍ່', lastNameLo: 'ຈົບ', phone: '02055577012' },
+              relationship: 'father',
+              isPrimary: true,
+            },
+          ],
+        })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('student.statusIsOfficeOnly');
+    });
+
+    it('refuses to place a student in someone else’s room', async () => {
+      const created = await http()
+        .post('/api/students')
+        .set(auth(tokens.assignedTeacher))
+        .send({
+          studentCode: 'S-RBAC-ELSEWHERE',
+          firstNameLo: 'ຫ້ອງ',
+          lastNameLo: 'ອື່ນ',
+          gender: 'female',
+          dateOfBirth: '2011-03-03',
+          guardians: [
+            {
+              guardian: { firstNameLo: 'ແມ່', lastNameLo: 'ອື່ນ', phone: '02055577011' },
+              relationship: 'mother',
+              isPrimary: true,
+            },
+          ],
+        })
+        .expect(201);
+
+      const response = await http()
+        .post('/api/enrollments')
+        .set(auth(tokens.assignedTeacher))
+        .send({ studentId: created.body.id, classroomId: otherClassroomId })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('enrollment.notOwnHomeroom');
+    });
+
+    it('leaves the academic office unscoped', async () => {
+      // `academic_head` holds more than `read` on students, so it looks across the
+      // whole school even when its account is linked to a teacher with a homeroom.
+      const response = await http()
+        .get('/api/students?limit=100')
+        .set(auth(tokens.academicHead))
+        .expect(200);
+
+      expect(response.body.meta.total).toBeGreaterThan(0);
     });
   });
 

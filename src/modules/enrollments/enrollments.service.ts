@@ -4,7 +4,9 @@ import { ClientSession, Model, Types } from 'mongoose';
 import { EnrollmentStatus } from 'src/common/constants/enums';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
+import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
+import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { Enrollment, EnrollmentDocument, Student, StudentDocument } from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -24,6 +26,17 @@ import {
  * terminal on purpose — a dropped student is re-enrolled with a new enrollment
  * record, which keeps the history of why they left intact.
  */
+/**
+ * The write context the enrollment routes supply.
+ *
+ * `CrudContext.actor` carries only what the audit trail needs; placing a student
+ * also has to know which rooms the caller owns. The controllers already hand
+ * over the whole authenticated user — this only tells the type system so.
+ */
+export interface EnrollmentWriteContext extends CrudContext {
+  actor?: AuthenticatedUser;
+}
+
 const ALLOWED_TRANSITIONS: Record<EnrollmentStatus, EnrollmentStatus[]> = {
   active: ['transferred', 'promoted', 'dropped', 'repeated'],
   transferred: [],
@@ -45,6 +58,7 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
     audit: AuditLogsService,
     private readonly classrooms: ClassroomsService,
     private readonly tx: TransactionHelper,
+    private readonly scope: RecordScopeService,
   ) {
     super(model, audit);
   }
@@ -105,7 +119,10 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
    * Transactional because it writes the enrollment and bumps the classroom's
    * cached `currentCount`; if those diverge, capacity checks become meaningless.
    */
-  async create(dto: CreateEnrollmentDto, context: CrudContext): Promise<EnrollmentDocument> {
+  async create(
+    dto: CreateEnrollmentDto,
+    context: EnrollmentWriteContext,
+  ): Promise<EnrollmentDocument> {
     return this.tx.run((session) => this.enrollWithinTransaction(dto, session, context));
   }
 
@@ -116,7 +133,10 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
    * a single bad student code should not discard 499 good rows. The response
    * reports exactly which rows failed and why.
    */
-  async bulkEnroll(dto: BulkEnrollDto, context: CrudContext): Promise<BulkEnrollResultDto> {
+  async bulkEnroll(
+    dto: BulkEnrollDto,
+    context: EnrollmentWriteContext,
+  ): Promise<BulkEnrollResultDto> {
     const result: BulkEnrollResultDto = { enrolled: 0, failed: 0, errors: [] };
 
     for (const item of dto.items) {
@@ -249,11 +269,31 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
 
   // ── Internals ─────────────────────────────────────────────────────────────
 
+  /**
+   * A homeroom teacher may place a student in their own room and nowhere else.
+   *
+   * They hold `enrollments:create` only so that adding a newcomer can put them
+   * somewhere — without a placement the child is invisible to the very teacher
+   * who just entered them. Everyone with a school-wide grant is unscoped.
+   */
+  private async assertOwnClassroom(classroomId: string, actor?: AuthenticatedUser): Promise<void> {
+    const own = await this.scope.homeroomClassroomIds(actor);
+    if (own === null) return;
+
+    if (!own.some((id) => String(id) === classroomId)) {
+      throw AppException.forbidden('enrollment.notOwnHomeroom', { classroomId });
+    }
+  }
+
   private async enrollWithinTransaction(
     dto: CreateEnrollmentDto,
     session: ClientSession,
-    context: CrudContext,
+    context: EnrollmentWriteContext,
   ): Promise<EnrollmentDocument> {
+    // The single choke point both `create` and `bulkEnroll` pass through, so a
+    // homeroom teacher is held to their own room on either path.
+    await this.assertOwnClassroom(dto.classroomId, context.actor);
+
     const student = await this.studentModel
       .findOne({ _id: dto.studentId, deletedAt: null })
       .session(session)

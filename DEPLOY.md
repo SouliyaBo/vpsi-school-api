@@ -208,6 +208,51 @@ unreachable, so you can defer this — uploads fail, nothing else does.
 
 ## 5. Build and start
 
+The instance is 1 vCPU with 951 MiB of RAM. Building there works — there is a
+2 GB swapfile to fall back on — but `npm ci` followed by the TypeScript compiler
+(measured at a 536 MB peak on its own) is slow and close to the edge. Building
+elsewhere and shipping the image avoids it, and also means no source code and no
+toolchain on the server.
+
+### Option A — build on your machine, ship the image (recommended)
+
+**Build for the server's architecture, not yours.** The instance is `amd64`; an
+Apple Silicon Mac produces `arm64` by default, and the container then dies in a
+restart loop with `exec /usr/local/bin/docker-entrypoint.sh: exec format error`.
+The `--platform` flag is what prevents that:
+
+```bash
+# On your machine, in vpsischool-api/
+docker buildx build --platform linux/amd64 --target production \
+  -t vpsischool-api:prod --load .
+
+# Sanity-check before spending time on the transfer
+docker image inspect vpsischool-api:prod --format '{{.Os}}/{{.Architecture}}'
+# must print linux/amd64
+```
+
+Then ship it — roughly 72 MB gzipped:
+
+```bash
+docker save vpsischool-api:prod | gzip -6 > api-prod.tar.gz
+scp -i vpsi.school.pem -C api-prod.tar.gz ubuntu@18.140.239.33:/tmp/
+
+ssh -i vpsi.school.pem ubuntu@18.140.239.33 \
+  'gunzip -c /tmp/api-prod.tar.gz | docker load && rm /tmp/api-prod.tar.gz'
+```
+
+Only `docker-compose.prod.yml` and `.env.production` need to be on the server —
+`--no-build` means the build context is never read:
+
+```bash
+cd ~/vpsischool-api
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
+```
+
+### Option B — build on the server
+
+Needs the source copied up (step 3) and the swapfile in place (step 2f):
+
 ```bash
 cd ~/vpsischool-api
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build

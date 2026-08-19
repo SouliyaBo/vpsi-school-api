@@ -27,7 +27,7 @@ export class AttendancesController {
   @ApiQuery({ name: 'classroomId', required: true })
   @ApiQuery({ name: 'date', required: true, example: '2025-09-15' })
   @ApiOperation({
-    summary: "Roll-call sheet for a class on one date",
+    summary: 'Roll-call sheet for a class on one date',
     description:
       'Returns every lesson the class has that day, each with its subject, ' +
       'assigned teacher, time slot and the roster with anything already recorded.',

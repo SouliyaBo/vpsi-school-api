@@ -39,10 +39,11 @@ export class StudentsController {
     summary: 'Search students',
     description:
       'Filterable by status, gender, village, district/province ancestry, grade level, ' +
-      'classroom, and guardian.',
+      'classroom, and guardian. A teacher account sees only the students in the classrooms ' +
+      'it is homeroom teacher of.',
   })
-  findAll(@Query() query: QueryStudentsDto) {
-    return this.service.findAll(query);
+  findAll(@Query() query: QueryStudentsDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.service.findAll(query, actor);
   }
 
   @Get(':id')
@@ -88,6 +89,12 @@ export class StudentsController {
 
   @Patch(':id')
   @RequirePermissions({ resource: 'students', action: 'update' })
+  @ApiOperation({
+    summary: 'Correct a student record',
+    description:
+      'A teacher account may only edit the students in the classroom it is homeroom teacher ' +
+      'of, and may not change their `status` — that stays with the office.',
+  })
   update(
     @Param('id') id: string,
     @Body() dto: UpdateStudentDto,
@@ -101,7 +108,9 @@ export class StudentsController {
   @RequirePermissions({ resource: 'students', action: 'update' })
   @ApiOperation({
     summary: 'Replace the guardian list',
-    description: 'Exactly one guardian must be primary; if none is flagged, the first is used.',
+    description:
+      'Exactly one guardian must be primary; if none is flagged, the first is used. Subject to ' +
+      'the same homeroom limit as editing the student.',
   })
   setGuardians(
     @Param('id') id: string,
@@ -123,7 +132,10 @@ export class StudentsController {
       required: ['file'],
     },
   })
-  @ApiOperation({ summary: 'Upload a student photo (JPEG/PNG/WebP, max 5 MB)' })
+  @ApiOperation({
+    summary: 'Upload a student photo (JPEG/PNG/WebP, max 5 MB)',
+    description: 'Subject to the same homeroom limit as editing the student.',
+  })
   uploadPhoto(
     @Param('id') id: string,
     @UploadedFile(

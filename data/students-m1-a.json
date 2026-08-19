@@ -1,0 +1,698 @@
+[
+  {
+    "id": 1,
+    "student_id": "0802",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ເກດສະລາ",
+    "last_name": "ຄ້າຍເພັດ",
+    "nickname": "ຖຽນຖຽນ",
+    "english_name": "Ketsara KLAIPETCH",
+    "english_nickname": "Tien Tien",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 2,
+    "student_id": "0803",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ຄຣິດ",
+    "last_name": "ໄຊຍະລາດ",
+    "nickname": "ປະດິດ",
+    "english_name": "Christ SAYARATH",
+    "english_nickname": "Padit",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 3,
+    "student_id": "0809",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ສີວຽງຄໍາ",
+    "last_name": "ສີເມນນໍລາດ",
+    "nickname": "ນ້ຳໜຶ່ງ",
+    "english_name": "Siviengkham SYMENNORLATH",
+    "english_nickname": "Namneung",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 4,
+    "student_id": "0814",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ແສງທິດາ",
+    "last_name": "ວົງສໍາພັນ",
+    "nickname": "ຊັນຊາຍ",
+    "english_name": "Sengthida VONGSAMPHANH",
+    "english_nickname": "Sunshine",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 5,
+    "student_id": "0815",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ແສງມະນີ",
+    "last_name": "ແກ້ວມະນີວັນ",
+    "nickname": "ໄຂ່ມຸກ",
+    "english_name": "Sengmani KEOMANIVANH",
+    "english_nickname": "Khaimouk",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 6,
+    "student_id": "0806",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ເຈຍເວີຍ",
+    "last_name": "ຫຼຽງ",
+    "nickname": "ຊາລີ",
+    "english_name": "Jia Wei LIANG",
+    "english_nickname": "Charly",
+    "english_class": "7B",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 7,
+    "student_id": "0816",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ຊີສີ",
+    "last_name": "ເພັງ",
+    "nickname": "ຊີສີ",
+    "english_name": "Zi Qi PENG",
+    "english_nickname": "",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 8,
+    "student_id": "0819",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ຊາຍອູ໋",
+    "last_name": "ອູ່ສິດທິເດດ",
+    "nickname": "ຊາຍອູ່",
+    "english_name": "Xaiy Ou OUSITTHIDETH",
+    "english_nickname": "",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 9,
+    "student_id": "0823",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ທິດາສະຫວັນ",
+    "last_name": "ສີມູນ",
+    "nickname": "ເຈຍເຈຍ",
+    "english_name": "Thidasavanh SYMOUN",
+    "english_nickname": "Jia Jia",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 10,
+    "student_id": "0827",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ນັດເທວາ",
+    "last_name": "ລູ່ພະໄຊ",
+    "nickname": "ໄລອ້ອນ",
+    "english_name": "Nattheva LOUPHAXAY",
+    "english_nickname": "Lion",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 11,
+    "student_id": "0828",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ບຸນທະວີໄຊ",
+    "last_name": "ລັດຊະນະໄຊ",
+    "nickname": "ປີເຕີ",
+    "english_name": "Bounthavyxay LATSANAXAY",
+    "english_nickname": "Peter",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 12,
+    "student_id": "0829",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ປານທິດາ",
+    "last_name": "ໄຊສົງຄາມ",
+    "nickname": "ດາດາ",
+    "english_name": "Panthida SAISONGKHAM",
+    "english_nickname": "Dada",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 13,
+    "student_id": "0830",
+    "gender": "",
+    "first_name": "ພັດທະລິນ",
+    "last_name": "ແກ້ວຫາວົງ",
+    "nickname": "ພັດທະລິນ",
+    "english_name": "Phatthalin KEOHAVONG",
+    "english_nickname": "Phatthalin",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ສະຖານະໃນບັນຊີຫ້ອງ: ຍ້າຍ; ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 14,
+    "student_id": "0832",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ເພັດທະສອນ",
+    "last_name": "ເພົ້າສະດາ",
+    "nickname": "ໂຈໂຈ້",
+    "english_name": "Phethasone PHAOSADA",
+    "english_nickname": "Jojo",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 15,
+    "student_id": "0834",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ພອຍໄພລິນ",
+    "last_name": "ຈັນສະຫວ່າງ",
+    "nickname": "ເອນ້າ",
+    "english_name": "Phoyphailin CHANSAVANG",
+    "english_nickname": "Ana",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 16,
+    "student_id": "0835",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ພອຍໄພລິນ",
+    "last_name": "ເລັ່ງສະຫວັດ",
+    "nickname": "ມິນນີ້",
+    "english_name": "Phoyphailin LENGSAVATH",
+    "english_nickname": "Minny",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 17,
+    "student_id": "0836",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ພອຍໄພລິນ",
+    "last_name": "ວັນນະເຮືອງ",
+    "nickname": "ນ້ຳພອຍ",
+    "english_name": "Phoyphailin VANNAHEUANG",
+    "english_nickname": "Namphoy",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 18,
+    "student_id": "0837",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ພອນມາລິນ",
+    "last_name": "ສຸນິນເພັງ",
+    "nickname": "ມາລິນ",
+    "english_name": "Phonemalin SOUNINPHENG",
+    "english_nickname": "Malin",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 19,
+    "student_id": "0840",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ວະນິດາ",
+    "last_name": "ອິນທະວົງ",
+    "nickname": "ເອດ້າ",
+    "english_name": "Vanida INTHAVONG",
+    "english_nickname": "Ada",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 20,
+    "student_id": "0841",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ວິນັດດາ",
+    "last_name": "ອິນທະວົງ",
+    "nickname": "ນັດດາ",
+    "english_name": "Vinatda INTHAVONG",
+    "english_nickname": "Natda",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 21,
+    "student_id": "0843",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ວິລະພົນ",
+    "last_name": "ປິສັນທະນະກຸນ",
+    "nickname": "ກັອບ",
+    "english_name": "Vilaphon PISONTANAKUL",
+    "english_nickname": "Golf",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 22,
+    "student_id": "0844",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ອາມີນາ",
+    "last_name": "ຈະເລີນທອງ",
+    "nickname": "ອາມີນາ",
+    "english_name": "Amena CHALEUNTHONG",
+    "english_nickname": "",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 23,
+    "student_id": "0845",
+    "gender": "ຍິງ",
+    "first_name": "ນາງ ອາລຸນນີ",
+    "last_name": "ອິງໄຊ",
+    "nickname": "ຟ້າ",
+    "english_name": "Alounnee INGXAY",
+    "english_nickname": "Fa",
+    "english_class": "",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  },
+  {
+    "id": 24,
+    "student_id": "0847",
+    "gender": "ຊາຍ",
+    "first_name": "ທ້າວ ຮັກນິລັນ",
+    "last_name": "ໄຊຍະສອນ",
+    "nickname": "ໂຄທ",
+    "english_name": "Huknirun SAYASONE",
+    "english_nickname": "Colt",
+    "english_class": "7A",
+    "dob": "1/1/2015",
+    "father": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "mother": {
+      "name": "",
+      "occupation": "",
+      "phone": ""
+    },
+    "address": {
+      "village": "",
+      "district": "",
+      "province": ""
+    },
+    "contact_phone": "",
+    "notes": "ວັນເກີດຍັງບໍ່ໄດ້ຮັບຂໍ້ມູນ — ວັນທີ 1/1/2015 ເປັນຂໍ້ມູນຊົ່ວຄາວ, ຕ້ອງແກ້ໄຂ"
+  }
+]

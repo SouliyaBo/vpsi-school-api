@@ -270,10 +270,7 @@ export class AttendancesService {
       });
     }
 
-    if (
-      actor.personType === 'teacher' &&
-      actor.personId !== assignment.teacherId.toString()
-    ) {
+    if (actor.personType === 'teacher' && actor.personId !== assignment.teacherId.toString()) {
       throw AppException.forbidden('attendance.notAssignedTeacher');
     }
 
@@ -369,17 +366,19 @@ export class AttendancesService {
       bySubject.set(key, entry);
     }
 
-    return [...bySubject.entries()]
-      .map(([subjectId, { subject, statuses }]) => ({
-        ...this.buildSummary(studentId, statuses),
-        subjectId,
-        subjectCode: subject?.code ?? null,
-        subjectNameLo: subject?.nameLo ?? null,
-        subjectNameEn: subject?.nameEn ?? null,
-      }))
-      // Worst attendance first: this list exists to surface the subject a
-      // student is falling out of, and that should not need scrolling for.
-      .sort((a, b) => a.attendanceRate - b.attendanceRate);
+    return (
+      [...bySubject.entries()]
+        .map(([subjectId, { subject, statuses }]) => ({
+          ...this.buildSummary(studentId, statuses),
+          subjectId,
+          subjectCode: subject?.code ?? null,
+          subjectNameLo: subject?.nameLo ?? null,
+          subjectNameEn: subject?.nameEn ?? null,
+        }))
+        // Worst attendance first: this list exists to surface the subject a
+        // student is falling out of, and that should not need scrolling for.
+        .sort((a, b) => a.attendanceRate - b.attendanceRate)
+    );
   }
 
   /** The same summary for every student in a classroom, in one aggregation. */
