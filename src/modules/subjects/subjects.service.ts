@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
+import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import { Subject, SubjectDocument } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -41,8 +42,40 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
     return filter;
   }
 
-  findAll(query: QuerySubjectsDto) {
-    return this.findAllPaginated(query);
+  /**
+   * The list renders the grade level and the department by name, so both refs are
+   * resolved here. Left as bare ids they read as "—" and "not yet assigned to a
+   * department" on every row, however carefully the subject was filed.
+   *
+   * The department is matched on `deletedAt` as well: a group the school has since
+   * removed is gone from the picker and routes no lesson plans, so naming it here
+   * would point at a department that no longer exists anywhere else. It reads as
+   * unassigned instead, which is both true and a prompt to re-file the subject.
+   * The grade level is populated unconditionally — a subject belongs to its grade
+   * whatever became of the row, and blanking it would lose the only thing that
+   * orders this list.
+   */
+  async findAll(query: QuerySubjectsDto): Promise<PaginatedResponse<SubjectDocument>> {
+    const filter = { deletedAt: null, ...this.buildFilter(query) };
+    const sort = query.toSort(this.sortableFields, this.defaultSort);
+
+    const [data, total] = await Promise.all([
+      this.model
+        .find(filter)
+        .populate('gradeLevelId', 'code nameLo nameEn level')
+        .populate({
+          path: 'subjectGroupId',
+          select: 'code nameLo nameEn',
+          match: { deletedAt: null },
+        })
+        .sort(sort)
+        .skip(query.skip)
+        .limit(query.limit)
+        .exec(),
+      this.model.countDocuments(filter).exec(),
+    ]);
+
+    return new PaginatedResponse(data, total, query.page, query.limit);
   }
 
   findOne(id: string) {

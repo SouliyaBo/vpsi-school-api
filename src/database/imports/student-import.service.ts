@@ -32,6 +32,7 @@ import { conductGradeFor } from 'src/modules/term-results/grading';
 import {
   guardianKey,
   locationLookupName,
+  genderFromTitle,
   parseGender,
   parseSourceDate,
   splitContact,
@@ -163,6 +164,18 @@ export class StudentImportService {
         continue;
       }
 
+      // The gender column, or the honorific in front of the name when the column
+      // is blank. Neither is a guess; with neither on file the row is reported
+      // rather than filed under a value the office never gave us.
+      const gender = parseGender(row.gender) ?? genderFromTitle(title);
+      if (!gender) {
+        report.skipped.push({
+          studentId: studentCode,
+          reason: `no gender on file — column is "${row.gender ?? ''}" and the name carries no honorific`,
+        });
+        continue;
+      }
+
       const villageId = await this.resolveVillage(row, options, report);
       const links = await this.resolveGuardians(row, lastNameLo, options, report);
 
@@ -190,13 +203,12 @@ export class StudentImportService {
 
       const fields = {
         studentCode,
-        title: title ?? null,
         firstNameLo: givenName,
         lastNameLo,
         ...splitEnglishName(row.english_name),
         nickname: row.nickname?.trim() || null,
         nicknameEn: row.english_nickname?.trim() || null,
-        gender: parseGender(row.gender),
+        gender,
         dateOfBirth,
         ethnicity: row.ethnicity?.trim() || null,
         phone: null,

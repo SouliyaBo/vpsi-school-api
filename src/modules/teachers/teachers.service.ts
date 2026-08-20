@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
+import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import {
   Location,
@@ -29,6 +30,18 @@ export interface WithPhotoUrl extends Record<string, unknown> {
   photoUrl: string | null;
 }
 
+/**
+ * The teacher an account *is*, for the self-service routes.
+ *
+ * An account whose person link is a student, a guardian, or nothing at all has
+ * no own record to read or photograph — a 403 rather than a 404, since the
+ * record may well exist and simply is not theirs.
+ */
+function ownTeacherId(actor: AuthenticatedUser): string {
+  if (actor.personType !== 'teacher' || !actor.personId) throw AppException.forbidden();
+  return actor.personId;
+}
+
 @Injectable()
 export class TeachersService extends BaseCrudService<TeacherDocument> {
   protected readonly entityType = 'teachers';
@@ -52,7 +65,7 @@ export class TeachersService extends BaseCrudService<TeacherDocument> {
     super(model, audit);
   }
 
-  async findAll(query: QueryTeachersDto): Promise<PaginatedResponse<TeacherDocument>> {
+  async findAll(query: QueryTeachersDto): Promise<PaginatedResponse<WithPhotoUrl>> {
     const filter: Record<string, unknown> = { deletedAt: null };
     if (query.status) filter.status = query.status;
     if (query.villageId) filter.villageId = new Types.ObjectId(query.villageId);
@@ -97,7 +110,23 @@ export class TeachersService extends BaseCrudService<TeacherDocument> {
       this.model.countDocuments(filter).exec(),
     ]);
 
-    return new PaginatedResponse(data, total, query.page, query.limit);
+    return new PaginatedResponse(await this.withPhotoUrls(data), total, query.page, query.limit);
+  }
+
+  /**
+   * Signs the portrait on every row of a page.
+   *
+   * A staff list is read by face before it is read by name, so the URL is minted
+   * for the page and not only on the detail read. Signing is a local HMAC with no
+   * round trip per row, so a page costs the same as it did without photos.
+   */
+  private withPhotoUrls(teachers: TeacherDocument[]): Promise<WithPhotoUrl[]> {
+    return Promise.all(
+      teachers.map(async (teacher) => ({
+        ...(teacher.toJSON() as Record<string, unknown>),
+        photoUrl: await this.storage.getSignedUrl(teacher.photoKey),
+      })),
+    );
   }
 
   async findOne(id: string) {
@@ -177,6 +206,27 @@ export class TeachersService extends BaseCrudService<TeacherDocument> {
     if (dto.joinedOrgDate) patch.joinedOrgDate = new Date(dto.joinedOrgDate);
 
     return this.updateDocument(id, patch, context);
+  }
+
+  /**
+   * The signed-in teacher's own record.
+   *
+   * Keeping one's own portrait current is self-service, and `teachers:update` is
+   * an office permission the teacher role deliberately does not hold — so who is
+   * being read comes from the token's person link rather than from a path
+   * parameter, which nobody can point at someone else.
+   */
+  findOwnWithPhotoUrl(actor: AuthenticatedUser): Promise<WithPhotoUrl> {
+    return this.findOneWithPhotoUrl(ownTeacherId(actor));
+  }
+
+  /** `setPhoto` on the actor's own record. See `findOwnWithPhotoUrl`. */
+  setOwnPhoto(
+    actor: AuthenticatedUser,
+    file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
+    context: CrudContext,
+  ): Promise<WithPhotoUrl> {
+    return this.setPhoto(ownTeacherId(actor), file, context);
   }
 
   /** Replaces the photo and removes the previous object from storage. */

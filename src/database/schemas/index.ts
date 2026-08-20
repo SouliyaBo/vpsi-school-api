@@ -10,6 +10,7 @@ export * from './enrollment.schema';
 export * from './teaching-assignment.schema';
 export * from './assessment.schema';
 export * from './lesson-plan.schema';
+export * from './health.schema';
 export * from './reporting.schema';
 export * from './exam.schema';
 export * from './communication.schema';

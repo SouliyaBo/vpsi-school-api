@@ -27,6 +27,46 @@ import { TeachersService } from './teachers.service';
 export class TeachersController {
   constructor(private readonly service: TeachersService) {}
 
+  /**
+   * Declared before `:id` so the literal path wins the route match — otherwise
+   * "me" would be parsed as an id.
+   *
+   * The two self-service routes carry no `@RequirePermissions`: a teacher holds
+   * `teachers:read` but not `teachers:update`, and updating one's own portrait is
+   * not an office action. Being signed in and linked to a teacher record is the
+   * whole authorisation — see `TeachersService.findOwnWithPhotoUrl`.
+   */
+  @Get('me')
+  @ApiOperation({ summary: 'Your own teacher record, including a signed photo URL' })
+  findMe(@CurrentUser() actor: AuthenticatedUser) {
+    return this.service.findOwnWithPhotoUrl(actor);
+  }
+
+  @Post('me/photo')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+      required: ['file'],
+    },
+  })
+  @ApiOperation({ summary: 'Upload your own photo (JPEG/PNG/WebP, max 5 MB)' })
+  uploadMyPhoto(
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /^image\/(jpeg|png|webp)$/ })
+        .addMaxSizeValidator({ maxSize: UPLOAD_RULES.photo.maxBytes })
+        .build({ fileIsRequired: true }),
+    )
+    file: Express.Multer.File,
+    @CurrentUser() actor: AuthenticatedUser,
+    @ClientIp() ip: string | null,
+  ) {
+    return this.service.setOwnPhoto(actor, file, { actor, ip });
+  }
+
   @Get()
   @RequirePermissions({ resource: 'teachers', action: 'read' })
   @ApiOperation({ summary: 'Search teachers by name, code, village or district/province' })

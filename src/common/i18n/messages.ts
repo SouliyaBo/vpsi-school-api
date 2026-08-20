@@ -239,6 +239,10 @@ export const MESSAGES = {
     lo: 'ກຳນົດຜູ້ປົກຄອງຫຼັກໄດ້ພຽງຄົນດຽວ',
     en: 'Only one guardian can be marked as primary',
   },
+  'student.duplicateOrganization': {
+    lo: 'ນັກຮຽນເຂົ້າແຕ່ລະອົງການໄດ້ພຽງຄັ້ງດຽວ',
+    en: 'A student can hold only one membership per organisation',
+  },
   'student.notInHomeroom': {
     lo: 'ແກ້ໄຂໄດ້ສະເພາະນັກຮຽນໃນຫ້ອງທີ່ທ່ານເປັນຄູປະຈຳຫ້ອງ',
     en: 'You may only edit students in the classroom you are homeroom teacher of',
@@ -246,6 +250,36 @@ export const MESSAGES = {
   'student.statusIsOfficeOnly': {
     lo: 'ການປ່ຽນສະຖານະນັກຮຽນແມ່ນໜ້າທີ່ຂອງຫ້ອງທະບຽນ',
     en: 'Changing a student’s status is the registrar’s decision',
+  },
+
+  // ── Health ────────────────────────────────────────────────────────────────
+  'vaccination.campaignHasDoses': {
+    lo: 'ລຶບໂຄງການບໍ່ໄດ້ ເພາະໄດ້ສັກໃຫ້ນັກຮຽນແລ້ວ {count} ຄົນ — ໃຫ້ປ່ຽນສະຖານະເປັນ "ຍົກເລີກ" ແທນ',
+    en: 'Cannot delete a campaign that has already given {count} dose(s) — cancel it instead',
+  },
+  'vaccination.studentNotEligible': {
+    lo: 'ນັກຮຽນບໍ່ຢູ່ໃນເງື່ອນໄຂຂອງໂຄງການນີ້: {studentIds}',
+    en: 'These students do not meet this campaign’s eligibility rule: {studentIds}',
+  },
+  'vaccination.studentNotOnRound': {
+    lo: 'ນັກຮຽນຍັງບໍ່ໄດ້ຖືກເລືອກເຂົ້າໂຄງການນີ້: {studentIds}',
+    en: 'These students have not been added to this round: {studentIds}',
+  },
+  'vaccination.studentHasRecord': {
+    lo: 'ເອົານັກຮຽນ {count} ຄົນອອກຈາກໂຄງການບໍ່ໄດ້ ເພາະໄດ້ບັນທຶກຜົນການສັກໄວ້ແລ້ວ',
+    en: 'Cannot remove {count} student(s) from this round — a dose is already recorded for them',
+  },
+  'vaccination.guardianNotOnFile': {
+    lo: 'ຜູ້ປົກຄອງທີ່ເຊັນຍິນຍອມບໍ່ຢູ່ໃນລາຍຊື່ຜູ້ປົກຄອງຂອງນັກຮຽນ {studentCode}',
+    en: 'The consenting guardian is not on student {studentCode}’s guardian list',
+  },
+  'vaccination.administeredDateRequired': {
+    lo: 'ຕ້ອງລະບຸວັນທີ່ສັກ ສຳລັບນັກຮຽນ {studentCode}',
+    en: 'A dose marked as given must say when — student {studentCode}',
+  },
+  'vaccination.consentRequired': {
+    lo: 'ຍັງບໍ່ມີໃບຍິນຍອມຈາກຜູ້ປົກຄອງຂອງນັກຮຽນ {studentCode}',
+    en: 'No guardian consent on file for student {studentCode}',
   },
 } as const;
 

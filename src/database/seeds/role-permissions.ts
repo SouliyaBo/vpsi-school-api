@@ -170,6 +170,30 @@ export const ROLE_SEEDS: RoleSeed[] = [
   },
 
   {
+    code: 'school_nurse',
+    nameLo: 'ພະນັກງານສາທາລະນະສຸກໂຮງຮຽນ',
+    nameEn: 'School Nurse',
+    description:
+      'Runs vaccination campaigns and holds the dose records. Reads the student register only ' +
+      'as far as building a roll needs — no scores, no conduct, no attendance.',
+    isSystem: true,
+    permissions: [
+      { resource: 'vaccinations', actions: ['manage'] },
+      ...readOnly(
+        'students',
+        'guardians',
+        'enrollments',
+        'classrooms',
+        'grade-levels',
+        'school-years',
+        'announcements',
+        'notifications',
+        'calendar',
+      ),
+    ],
+  },
+
+  {
     code: 'student',
     nameLo: 'ນັກຮຽນ',
     nameEn: 'Student',

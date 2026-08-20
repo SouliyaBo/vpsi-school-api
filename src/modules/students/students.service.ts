@@ -19,6 +19,7 @@ import {
   Student,
   StudentDocument,
   StudentGuardianLink,
+  StudentOrganizationMembership,
 } from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -30,6 +31,7 @@ import {
   QueryStudentsDto,
   SetStudentGuardiansDto,
   StudentGuardianInputDto,
+  StudentOrganizationInputDto,
   UpdateStudentDto,
 } from './dto/student.dto';
 
@@ -54,10 +56,27 @@ export interface StudentPlacement {
 /** A student row with its placement resolved. `null` means "not placed yet". */
 export interface StudentListRow extends Record<string, unknown> {
   currentEnrollment: StudentPlacement | null;
+  /** Signed on read, `null` when no photo is on file. See `withPlacements`. */
+  photoUrl: string | null;
 }
 
 /** What a child can be on the day they are entered on the register. */
 const INTAKE_STATUSES: StudentStatus[] = ['new', 'active'];
+
+/**
+ * Membership inputs as the document holds them — the ISO date becomes a `Date`.
+ *
+ * `undefined` in, `undefined` out, so an omitted field stays omitted rather than
+ * clearing the memberships already on file.
+ */
+function toMemberships(
+  organizations: StudentOrganizationInputDto[] | undefined,
+): StudentOrganizationMembership[] | undefined {
+  return organizations?.map((entry) => ({
+    organization: entry.organization,
+    joinedDate: new Date(entry.joinedDate),
+  }));
+}
 
 /**
  * The write context every students route supplies.
@@ -215,11 +234,16 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
   }
 
   /**
-   * Attaches each student's active placement.
+   * Attaches each student's active placement and a signed photo URL.
    *
    * One extra query per page, keyed on the ids already fetched — deliberately not
    * an `$lookup` in the main pipeline, which would have to run before `skip`/
    * `limit` and so join across the whole collection to return 20 rows.
+   *
+   * The photo is signed here rather than only on the single-student read, because
+   * a roster is where staff recognise a child: a list of initials is one every
+   * teacher has to decode row by row. Signing costs nothing per row — it is local
+   * HMAC, not a call to S3 — and the key still never leaves the database.
    */
   private async withPlacements(
     students: StudentDocument[],
@@ -261,10 +285,13 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       });
     }
 
-    return students.map((student) => ({
-      ...(student.toJSON() as Record<string, unknown>),
-      currentEnrollment: byStudent.get(String(student._id)) ?? null,
-    }));
+    return Promise.all(
+      students.map(async (student) => ({
+        ...(student.toJSON() as Record<string, unknown>),
+        currentEnrollment: byStudent.get(String(student._id)) ?? null,
+        photoUrl: await this.storage.getSignedUrl(student.photoKey),
+      })),
+    );
   }
 
   /** The year the placement filters and projection apply to. */
@@ -436,6 +463,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
 
     if (dto.villageId) await this.assertVillage(dto.villageId);
     this.assertExactlyOnePrimary(dto.guardians);
+    this.assertOneMembershipPerOrganization(dto.organizations);
 
     return this.tx.run(async (session) => {
       const links = await this.resolveGuardianLinks(dto.guardians, session, context);
@@ -452,6 +480,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
           dateOfBirth: new Date(dto.dateOfBirth),
           admissionDate: dto.admissionDate ? new Date(dto.admissionDate) : null,
           guardians: links,
+          organizations: toMemberships(dto.organizations),
         } as Partial<StudentDocument>,
         { ...context, session },
       );
@@ -469,11 +498,16 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     }
 
     if (dto.villageId) await this.assertVillage(dto.villageId);
+    this.assertOneMembershipPerOrganization(dto.organizations);
 
     const patch: Record<string, unknown> = { ...dto };
     if (dto.villageId) patch.villageId = new Types.ObjectId(dto.villageId);
     if (dto.dateOfBirth) patch.dateOfBirth = new Date(dto.dateOfBirth);
     if (dto.admissionDate) patch.admissionDate = new Date(dto.admissionDate);
+    // Replaced wholesale, like the guardian list: the edit form posts the set it
+    // wants, and patching entries individually would need a key the list has not
+    // got. An omitted field leaves the stored memberships alone.
+    if (dto.organizations) patch.organizations = toMemberships(dto.organizations);
 
     return this.updateDocument(id, patch, context);
   }
@@ -624,6 +658,29 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     if (primaryCount === 0) {
       // Rather than reject, promote the first entry — the caller's intent is clear.
       guardians[0].isPrimary = true;
+    }
+  }
+
+  /**
+   * One entry per organisation.
+   *
+   * A student joins `ສະຫະພັນຊາວໜຸ່ມ` once; a second entry for it is a duplicate
+   * of the same fact with a different date, which would double every member
+   * count taken off this list.
+   */
+  private assertOneMembershipPerOrganization(
+    organizations: StudentOrganizationInputDto[] | undefined,
+  ): void {
+    if (!organizations) return;
+
+    const seen = new Set<string>();
+    for (const entry of organizations) {
+      if (seen.has(entry.organization)) {
+        throw AppException.badRequest('student.duplicateOrganization', {
+          organization: entry.organization,
+        });
+      }
+      seen.add(entry.organization);
     }
   }
 

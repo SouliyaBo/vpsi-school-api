@@ -46,6 +46,7 @@ import { SubjectsModule } from './modules/subjects/subjects.module';
 import { TeachersModule } from './modules/teachers/teachers.module';
 import { TeachingAssignmentsModule } from './modules/teaching-assignments/teaching-assignments.module';
 import { TermResultsModule } from './modules/term-results/term-results.module';
+import { VaccinationsModule } from './modules/vaccinations/vaccinations.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -156,6 +157,7 @@ import { UsersModule } from './modules/users/users.module';
     AttendancesModule,
     BehaviorLogsModule,
     TermResultsModule,
+    VaccinationsModule,
 
     // Phase 3 — reporting and lesson plans
     ReportsModule,

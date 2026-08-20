@@ -1,4 +1,5 @@
 import {
+  genderFromTitle,
   guardianKey,
   locationLookupName,
   parseGender,
@@ -80,7 +81,29 @@ describe('student import mapper', () => {
     it('maps the Lao words the register uses', () => {
       expect(parseGender('ຍິງ')).toBe('female');
       expect(parseGender('ຊາຍ')).toBe('male');
-      expect(parseGender('anything else')).toBe('other');
+    });
+
+    it('refuses a cell it cannot read rather than inventing a third option', () => {
+      expect(parseGender('anything else')).toBeNull();
+      expect(parseGender('')).toBeNull();
+      expect(parseGender(null)).toBeNull();
+    });
+  });
+
+  describe('genderFromTitle', () => {
+    it('reads the gender off the honorific, abbreviated or not', () => {
+      expect(genderFromTitle('ນາງ')).toBe('female');
+      expect(genderFromTitle('ນ.')).toBe('female');
+      expect(genderFromTitle('ດ.ຍ.')).toBe('female');
+      expect(genderFromTitle('ທ້າວ')).toBe('male');
+      expect(genderFromTitle('ທ.')).toBe('male');
+      expect(genderFromTitle('Mr.')).toBe('male');
+    });
+
+    it('has no answer for a name that carries no honorific', () => {
+      expect(genderFromTitle(null)).toBeNull();
+      expect(genderFromTitle('')).toBeNull();
+      expect(genderFromTitle('ພັດທະລິນ')).toBeNull();
     });
   });
 

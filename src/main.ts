@@ -99,6 +99,7 @@ async function bootstrap(): Promise<void> {
       .addTag('documents', 'Document centre')
       .addTag('feedback', 'Feedback, including anonymous submissions')
       .addTag('settings', 'System settings')
+      .addTag('vaccinations', 'Vaccination campaigns and per-student dose records')
       .addTag('audit-logs', 'Audit trail')
       .addTag('health', 'Liveness and readiness probes')
       .build();

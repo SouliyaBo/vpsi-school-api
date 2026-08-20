@@ -189,11 +189,48 @@ export function splitContact(value: string | null | undefined): {
   };
 }
 
-export function parseGender(value: string | null | undefined): Gender {
+/** The gender each honorific implies, abbreviated or not. */
+const GENDER_BY_TITLE: Record<string, Gender> = {
+  ນ: 'female',
+  'ນ.': 'female',
+  ນາງ: 'female',
+  ນາງສາວ: 'female',
+  'ດ.ຍ.': 'female',
+  'ms.': 'female',
+  'mrs.': 'female',
+  ທ: 'male',
+  'ທ.': 'male',
+  ທ້າວ: 'male',
+  'ດ.ຊ.': 'male',
+  'mr.': 'male',
+};
+
+/**
+ * The register's gender column, or `null` when it does not say.
+ *
+ * Returns `null` rather than a catch-all so the caller reports the row — the
+ * official form has two boxes, and filing a blank cell under a third would make
+ * "nobody has told us yet" indistinguishable from an answer. This mirrors
+ * `parseSourceDate`, which refuses an unreadable date for the same reason.
+ */
+export function parseGender(value: string | null | undefined): Gender | null {
   const normalized = (value ?? '').trim().toLowerCase();
   if (['ຍິງ', 'f', 'female'].includes(normalized)) return 'female';
   if (['ຊາຍ', 'm', 'male'].includes(normalized)) return 'male';
-  return 'other';
+  return null;
+}
+
+/**
+ * The gender implied by the honorific the register wrote in front of the name.
+ *
+ * A fallback for a blank gender column, not a preference: the column is the
+ * school's own answer, and a title only agrees with it. Worth reading because
+ * the register carries the honorific on nearly every name, so a row missing one
+ * field usually still carries the other.
+ */
+export function genderFromTitle(title: string | null | undefined): Gender | null {
+  const key = (title ?? '').trim();
+  return GENDER_BY_TITLE[key] ?? GENDER_BY_TITLE[key.toLowerCase()] ?? null;
 }
 
 /**

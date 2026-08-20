@@ -16,8 +16,31 @@ export type PersonType = (typeof PERSON_TYPES)[number];
 export const USER_STATUSES = tuple('active', 'inactive', 'suspended');
 export type UserStatus = (typeof USER_STATUSES)[number];
 
-export const GENDERS = tuple('male', 'female', 'other');
+/**
+ * The two boxes the Lao register actually has.
+ *
+ * There is no third option on the official form, so an unreadable cell is a row
+ * to report rather than a value to store — `parseGender` returns `null` and the
+ * importer reports it, the same way `parseSourceDate` refuses to guess a date.
+ * A catch-all `other` was worse than a refusal: it filed "nobody has told us
+ * yet" under an answer, and both the MoES tally and the honorific derived from
+ * it then quietly excluded the row.
+ */
+export const GENDERS = tuple('male', 'female');
 export type Gender = (typeof GENDERS)[number];
+
+/**
+ * The honorific the register writes for each gender — `ນາງ` and `ທ້າວ`.
+ *
+ * The register's own sheets abbreviate the same two words four ways (`ນາງ`,
+ * `ນ.`, `ທ້າວ`, `ທ.`, plus blanks), which is typing rather than meaning. Since
+ * the title is fully determined by the gender, it is derived on read as a
+ * virtual instead of stored, so the two can never disagree.
+ */
+export const TITLE_BY_GENDER: Record<Gender, string> = {
+  male: 'ທ້າວ',
+  female: 'ນາງ',
+};
 
 /**
  * `new` is the pre-placement state: registered at the office but not yet in a
@@ -38,6 +61,59 @@ export const STUDENT_STATUSES = tuple(
   'suspended',
 );
 export type StudentStatus = (typeof STUDENT_STATUSES)[number];
+
+/**
+ * The mass organisations a student is enrolled into — `ກອງເດັກນ້ອຍ`,
+ * `ສະຫະພັນຊາວໜຸ່ມ`, `ສະຫະພັນແມ່ຍິງ`.
+ *
+ * Membership is an act with a date, not a property of the person, so it is
+ * never derived from `gender` or age: a girl in ມ.1 is a student but not yet in
+ * the women's union, and the MoES report wants the member count and the female
+ * student count as two separate figures. A student holds several at once — a
+ * girl in ມ.5 is in both `youth` and `women` — and `children` gives way to
+ * `youth` at around fifteen, which is history worth keeping rather than an
+ * overwrite. Hence a list, not a field.
+ */
+export const STUDENT_ORGANIZATIONS = tuple('children', 'youth', 'women');
+export type StudentOrganization = (typeof STUDENT_ORGANIZATIONS)[number];
+
+// ── Health ──────────────────────────────────────────────────────────────────
+
+/**
+ * The vaccines given through a school campaign here.
+ *
+ * `hpv` and `td` are the ones the health centre brings for girls of a given age;
+ * `mr` and `je` are given to whole cohorts. Which students a round covers is a
+ * property of the campaign, never of the vaccine — so the next whole-school
+ * round needs no new value here, and nothing in this list implies a gender.
+ */
+export const VACCINES = tuple('hpv', 'td', 'mr', 'je', 'covid', 'other');
+export type Vaccine = (typeof VACCINES)[number];
+
+/**
+ * What happened to one student for one dose.
+ *
+ * `refused`, `absent` and `contraindicated` are recorded rather than left as a
+ * missing row, because "no record" would otherwise mean both "not vaccinated"
+ * and "never asked" — and the follow-up list is built from exactly that
+ * difference. `scheduled` is the state between a campaign being planned and the
+ * health centre arriving.
+ */
+export const VACCINATION_STATUSES = tuple(
+  'scheduled',
+  'administered',
+  'refused',
+  'absent',
+  'contraindicated',
+);
+export type VaccinationStatus = (typeof VACCINATION_STATUSES)[number];
+
+/** `ໃບຍິນຍອມ` from the guardian, which a dose may not be given without. */
+export const CONSENT_STATUSES = tuple('pending', 'given', 'refused');
+export type ConsentStatus = (typeof CONSENT_STATUSES)[number];
+
+export const VACCINATION_CAMPAIGN_STATUSES = tuple('planned', 'active', 'completed', 'cancelled');
+export type VaccinationCampaignStatus = (typeof VACCINATION_CAMPAIGN_STATUSES)[number];
 
 export const TEACHER_STATUSES = tuple('active', 'on_leave', 'resigned', 'retired');
 export type TeacherStatus = (typeof TEACHER_STATUSES)[number];
@@ -258,6 +334,10 @@ export const PERMISSION_RESOURCES = tuple(
   'feedback',
   'audit-logs',
   'settings',
+  // Health data is gated on its own resource rather than riding on `students`:
+  // the office maintains the register, but a child's HPV record is the nurse's,
+  // and one permission for both would mean granting either to grant the other.
+  'vaccinations',
 );
 export type PermissionResource = (typeof PERMISSION_RESOURCES)[number];
 
@@ -265,6 +345,10 @@ export type PermissionResource = (typeof PERMISSION_RESOURCES)[number];
 
 export const AUDIT_ACTIONS = tuple(
   'create',
+  // Recorded for health data only. Reading a child's vaccination history is
+  // itself the sensitive act, so it leaves a trail; ordinary reads do not, or
+  // every list request would drown the log.
+  'read',
   'update',
   'delete',
   'login',

@@ -19,6 +19,8 @@ import { SubjectsModule } from './subjects/subjects.module';
 import { SubjectsService } from './subjects/subjects.service';
 import { TeachersModule } from './teachers/teachers.module';
 import { TeachersService } from './teachers/teachers.service';
+import { VaccinationsModule } from './vaccinations/vaccinations.module';
+import { VaccinationsService } from './vaccinations/vaccinations.service';
 
 /**
  * Does the DI graph of the subject-group modules actually resolve?
@@ -55,6 +57,8 @@ const MODELS = [
   'Teacher',
   'TeachingAssignment',
   'User',
+  'Vaccination',
+  'VaccinationCampaign',
 ];
 
 /**
@@ -133,6 +137,15 @@ describe('module wiring', () => {
   it('resolves lesson plans with every model the compliance matrix reads', async () => {
     const app = await build([LessonPlansModule]);
     expect(app.get(LessonPlansService)).toBeInstanceOf(LessonPlansService);
+    await app.close();
+  });
+
+  // Builds a campaign roll from students and enrolments without importing
+  // StudentsModule or EnrollmentsModule — it registers those two models itself,
+  // which is the kind of arrangement that only fails at boot.
+  it('resolves vaccinations, which read students and enrolments directly', async () => {
+    const app = await build([VaccinationsModule]);
+    expect(app.get(VaccinationsService)).toBeInstanceOf(VaccinationsService);
     await app.close();
   });
 });

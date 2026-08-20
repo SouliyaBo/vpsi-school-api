@@ -524,6 +524,64 @@ describe('Academic operations (e2e)', () => {
       expect(response.body.schedule).toHaveLength(1);
     });
 
+    it('names the grade level and the department on the subject list', async () => {
+      // Both are refs. Left unresolved the list renders "—" for the grade and
+      // "not yet assigned to a department" for the group on *every* row, however
+      // carefully each subject was filed — which is indistinguishable from the
+      // school never having filed them.
+      const response = await http().get('/api/subjects?limit=100').set(auth(token)).expect(200);
+      const math = response.body.data.find((s: { code: string }) => s.code === 'MATH-M4');
+
+      expect(math.gradeLevelId).toMatchObject({ code: 'm4' });
+      expect(typeof math.subjectGroupId).toBe('object');
+      expect(math.subjectGroupId.nameLo).toBeTruthy();
+    });
+
+    /** The reported bug: the department was filed, and the list kept saying it was not. */
+    it('shows a department on the list the moment it is assigned', async () => {
+      const groups = await http().get('/api/subject-groups?limit=100').set(auth(token)).expect(200);
+      const group = groups.body.data[0] as { id: string; nameLo: string };
+      expect(group).toBeDefined();
+
+      // Its own subject, so nothing else in the file depends on how it is filed.
+      const subjectId = await http()
+        .post('/api/subjects')
+        .set(auth(token))
+        .send({ code: 'GRP-TEST', nameLo: 'ວິຊາທົດລອງ', gradeLevelId: gradeLevelId })
+        .expect(201)
+        .then((response) => response.body.id as string);
+
+      const rowFor = async () => {
+        const list = await http()
+          .get('/api/subjects?limit=100&search=GRP-TEST')
+          .set(auth(token))
+          .expect(200);
+        return list.body.data.find((s: { code: string }) => s.code === 'GRP-TEST') as {
+          subjectGroupId: { id: string; nameLo: string } | null;
+        };
+      };
+
+      // Unfiled to start with, which is what the list should say.
+      expect((await rowFor()).subjectGroupId).toBeNull();
+
+      await http()
+        .patch(`/api/subjects/${subjectId}`)
+        .set(auth(token))
+        .send({ subjectGroupId: group.id })
+        .expect(200);
+
+      const filed = await rowFor();
+      expect(filed.subjectGroupId).toMatchObject({ id: group.id, nameLo: group.nameLo });
+
+      // And back off again, so the column is not simply always populated.
+      await http()
+        .patch(`/api/subjects/${subjectId}`)
+        .set(auth(token))
+        .send({ subjectGroupId: null })
+        .expect(200);
+      expect((await rowFor()).subjectGroupId).toBeNull();
+    });
+
     it('rejects a teacher double-booked at the same time', async () => {
       const response = await http()
         .post('/api/teaching-assignments')

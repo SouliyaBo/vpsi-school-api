@@ -5,8 +5,11 @@ import {
   GUARDIAN_RELATIONSHIPS,
   Gender,
   GuardianRelationship,
+  STUDENT_ORGANIZATIONS,
   STUDENT_STATUSES,
+  StudentOrganization,
   StudentStatus,
+  TITLE_BY_GENDER,
 } from 'src/common/constants/enums';
 import { baseSchemaOptions, LAO_COLLATION, SoftDeletableDocument } from './base.schema';
 
@@ -46,23 +49,38 @@ export class StudentGuardianLink {
 
 export const StudentGuardianLinkSchema = SchemaFactory.createForClass(StudentGuardianLink);
 
+/**
+ * One mass-organisation membership — `ກອງເດັກນ້ອຍ`, `ສະຫະພັນຊາວໜຸ່ມ`,
+ * `ສະຫະພັນແມ່ຍິງ`.
+ *
+ * Only the fact and the date, which is what the school's own tally needs. Card
+ * numbers, units and positions are held by the organisation itself rather than
+ * the school office, so recording them here would mean maintaining a second
+ * copy of a register nobody here writes.
+ */
+@Schema({ _id: false })
+export class StudentOrganizationMembership {
+  @Prop({ type: String, required: true, enum: STUDENT_ORGANIZATIONS })
+  organization: StudentOrganization;
+
+  /**
+   * `ວັນເຂົ້າ`. Required: a membership with no date cannot be counted into a
+   * school year, which is the only way the figure is ever asked for.
+   */
+  @Prop({ type: Date, required: true })
+  joinedDate: Date;
+}
+
+export const StudentOrganizationMembershipSchema = SchemaFactory.createForClass(
+  StudentOrganizationMembership,
+);
+
 export type StudentDocument = HydratedDocument<Student>;
 
 @Schema({ collection: 'students', ...baseSchemaOptions })
 export class Student extends SoftDeletableDocument {
   @Prop({ type: String, required: true, trim: true })
   studentCode: string;
-
-  /**
-   * Honorific as the office writes it — `ນ.`, `ທ້າວ`, `ນາງ`.
-   *
-   * Kept apart from `firstNameLo` because the register carries it on every name
-   * and a title folded into the given name breaks both search and sorting.
-   * Free text rather than an enum: the school abbreviates inconsistently, and
-   * rejecting a spelling would only push it back into the name field.
-   */
-  @Prop({ type: String, default: null, trim: true })
-  title?: string | null;
 
   @Prop({ type: String, required: true, trim: true })
   firstNameLo: string;
@@ -138,6 +156,10 @@ export class Student extends SoftDeletableDocument {
   @Prop({ type: [StudentGuardianLinkSchema], default: [] })
   guardians: StudentGuardianLink[];
 
+  /** At most one entry per organisation — enforced in StudentsService. */
+  @Prop({ type: [StudentOrganizationMembershipSchema], default: [] })
+  organizations: StudentOrganizationMembership[];
+
   @Prop({ type: Date, default: null })
   admissionDate?: Date | null;
 
@@ -154,9 +176,21 @@ StudentSchema.virtual('fullNameLo').get(function (this: Student) {
   return `${this.firstNameLo} ${this.lastNameLo}`;
 });
 
+/**
+ * `ນາງ` or `ທ້າວ`, read off the gender rather than stored.
+ *
+ * Still kept out of `firstNameLo`: a honorific folded into the given name
+ * breaks both search and sorting, which is why the importer strips it.
+ */
+StudentSchema.virtual('title').get(function (this: Student) {
+  return TITLE_BY_GENDER[this.gender];
+});
+
 StudentSchema.index({ studentCode: 1 }, { unique: true });
 StudentSchema.index({ villageId: 1, status: 1 });
 StudentSchema.index({ 'guardians.guardianId': 1 });
+// Counts members per organisation without touching the documents themselves.
+StudentSchema.index({ 'organizations.organization': 1, 'organizations.joinedDate': 1 });
 StudentSchema.index({ status: 1, lastNameLo: 1 }, { collation: LAO_COLLATION });
 // Text index for name search. MongoDB has no Lao-specific text analyzer, so this
 // behaves as whitespace tokenization — adequate for the "type part of a name" case.

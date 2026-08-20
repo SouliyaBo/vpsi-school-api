@@ -18,12 +18,31 @@ import {
   GUARDIAN_RELATIONSHIPS,
   Gender,
   GuardianRelationship,
+  STUDENT_ORGANIZATIONS,
   STUDENT_STATUSES,
+  StudentOrganization,
   StudentStatus,
 } from 'src/common/constants/enums';
 import { PaginationQueryDto } from 'src/common/dto/pagination.dto';
 import { IsLaoPhone } from 'src/common/utils/phone';
 import { CreateGuardianDto } from 'src/modules/guardians/dto/guardian.dto';
+
+/**
+ * One mass-organisation membership on the way in — the fact and the date.
+ *
+ * Never inferred from `gender` or age: the women's union count and the female
+ * student count are two different figures, and deriving one from the other
+ * would make the first uncorrectable.
+ */
+export class StudentOrganizationInputDto {
+  @ApiProperty({ enum: STUDENT_ORGANIZATIONS })
+  @IsIn(STUDENT_ORGANIZATIONS)
+  organization: StudentOrganization;
+
+  @ApiProperty({ example: '2024-09-01', description: 'ວັນເຂົ້າ' })
+  @IsDateString()
+  joinedDate: string;
+}
 
 /**
  * Links a student to a guardian.
@@ -72,12 +91,6 @@ export class CreateStudentDto {
   @IsNotEmpty()
   @MaxLength(30)
   studentCode: string;
-
-  @ApiPropertyOptional({ example: 'ນ.', description: 'Honorific, kept out of the given name' })
-  @IsString()
-  @IsOptional()
-  @MaxLength(20)
-  title?: string;
 
   @ApiProperty({ example: 'ນາງ' })
   @IsString()
@@ -162,10 +175,16 @@ export class CreateStudentDto {
   @ValidateNested({ each: true })
   @Type(() => StudentGuardianInputDto)
   guardians: StudentGuardianInputDto[];
+
+  @ApiPropertyOptional({ type: [StudentOrganizationInputDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StudentOrganizationInputDto)
+  @IsOptional()
+  organizations?: StudentOrganizationInputDto[];
 }
 
 export class UpdateStudentDto {
-  @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(20) title?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(80) firstNameLo?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(80) lastNameLo?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(80) firstNameEn?: string;
@@ -206,6 +225,16 @@ export class UpdateStudentDto {
   status?: StudentStatus;
 
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(1000) notes?: string;
+
+  @ApiPropertyOptional({
+    type: [StudentOrganizationInputDto],
+    description: 'Replaces the whole list when given. Omit to leave memberships untouched.',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StudentOrganizationInputDto)
+  @IsOptional()
+  organizations?: StudentOrganizationInputDto[];
 }
 
 /** Replaces the whole guardian list — simpler and safer than per-element patching. */

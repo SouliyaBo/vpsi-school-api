@@ -23,6 +23,8 @@
     "seed:roles": "ts-node -r tsconfig-paths/register src/database/seeds/run-seed.ts roles",
     "import:students": "ts-node -r tsconfig-paths/register src/database/imports/run-student-import.ts",
     "import:teachers": "ts-node -r tsconfig-paths/register src/database/imports/run-teacher-import.ts",
+    "migrate:student-title": "ts-node -r tsconfig-paths/register src/database/migrations/run-drop-student-title.ts",
+    "storage:check": "ts-node -r tsconfig-paths/register src/modules/storage/run-storage-check.ts",
     "worker": "WORKER_MODE=true node dist/main"
   },
   "dependencies": {
