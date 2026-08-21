@@ -30,11 +30,19 @@ import { periodsOnDate, toUtcMidnight } from '../attendances/attendances.service
 import { ClassroomsService } from '../classrooms/classrooms.service';
 import { SemestersService } from '../semesters/semesters.service';
 import {
+  buildWeeklyCoverage,
+  weekWindow,
+  type CoverageAssignment,
+  type CoverageWritten,
+  type WeeklyCoverage,
+} from './behavior-week';
+import {
   BehaviorEntryDto,
   CreateBehaviorLogDto,
   MonthlySheetQueryDto,
   QueryBehaviorLogsDto,
   UpdateBehaviorLogDto,
+  WeeklyCoverageQueryDto,
 } from './dto/behavior-log.dto';
 
 /** A classroom carrying its grade, so `ມ.1/ກ` can be rendered without a lookup. */
@@ -509,7 +517,208 @@ export class BehaviorLogsService {
     }));
   }
 
+  /**
+   * Who has written nothing this week — the register read the other way round.
+   *
+   * The other three reads all start from rows that exist, so none of them can
+   * report the class nobody wrote about; this one starts from the timetable and
+   * matches the register into it. Two callers, one shape: the academic office
+   * asks about the whole school, and a teacher asks about themselves, which is
+   * `teacherId` pinned to their own record rather than a separate report.
+   *
+   * The summary is computed before `outstandingOnly` narrows the rows, so the
+   * headline numbers say what the week looks like rather than how long the list
+   * on screen is.
+   */
+  async getWeeklyCoverage(
+    query: WeeklyCoverageQueryDto,
+    options: { teacherId?: string | null; noLessons?: boolean } = {},
+  ): Promise<WeeklyCoverage> {
+    const teacherId = options.teacherId ?? query.teacherId ?? null;
+
+    // A named semester is honoured even when it is not the active one, so a head
+    // can look back at a closed term; otherwise the active term is the question.
+    const semester = query.semesterId
+      ? await this.semesters.findOne(query.semesterId)
+      : await this.semesters.findActive();
+
+    const window = weekWindow(query.weekOf ?? new Date(), new Date(), semester);
+
+    const assignments =
+      semester && !options.noLessons
+        ? await this.loadWeekAssignments(semester._id, { ...query, teacherId })
+        : [];
+    const written = await this.loadWrittenRows(
+      assignments.map((assignment) => assignment.teachingAssignmentId),
+      window.weekStart,
+      window.weekEnd,
+    );
+
+    const coverage = buildWeeklyCoverage(
+      window,
+      assignments,
+      written,
+      semester
+        ? {
+            id: semester._id.toString(),
+            nameLo: semester.nameLo,
+            nameEn: semester.nameEn ?? null,
+          }
+        : null,
+    );
+
+    if (!query.outstandingOnly) return coverage;
+    return { ...coverage, rows: coverage.rows.filter((row) => row.status === 'missing') };
+  }
+
+  /**
+   * The signed-in teacher's own week.
+   *
+   * An office account holds the permission but is nobody on the timetable, so it
+   * gets an empty week rather than the school's — the screen this feeds is the
+   * teacher's own reminder, and showing them everyone else's gaps there would be
+   * a different report in the same place. `teacherId` is read off the session,
+   * never the query, so the route cannot be pointed at a colleague.
+   */
+  async getMyWeeklyCoverage(
+    query: WeeklyCoverageQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<WeeklyCoverage & { teacherId: string | null }> {
+    const teacherId = actor.personType === 'teacher' ? actor.personId : null;
+
+    const coverage = await this.getWeeklyCoverage(
+      // `teacherId` and `classroomId` are dropped from the query on purpose: this
+      // route answers for the session's own teacher and nobody else, so there is
+      // nothing here a client could widen.
+      { weekOf: query.weekOf, semesterId: query.semesterId },
+      // No teacher on the session means no lessons of their own — an unfiltered
+      // read would hand a teacher-shaped screen the whole school's gaps.
+      { teacherId, noLessons: !teacherId },
+    );
+    return { ...coverage, teacherId };
+  }
+
   // ── internals ─────────────────────────────────────────────────────────────
+
+  /**
+   * The timetable rows a week's coverage is measured against.
+   *
+   * Populated rather than aggregated for the same reason as the lesson-plan
+   * matrix: one row per teacher per class per subject is a small collection, and
+   * the names are wanted on every row anyway.
+   */
+  private async loadWeekAssignments(
+    semesterId: Types.ObjectId,
+    query: Omit<WeeklyCoverageQueryDto, 'teacherId'> & { teacherId: string | null },
+  ): Promise<CoverageAssignment[]> {
+    const filter: Record<string, unknown> = { semesterId, isActive: true, deletedAt: null };
+    if (query.teacherId) filter.teacherId = new Types.ObjectId(query.teacherId);
+    if (query.classroomId) filter.classroomId = new Types.ObjectId(query.classroomId);
+
+    const assignments = await this.assignmentModel
+      .find(filter)
+      .populate('teacherId', TEACHER_NAME)
+      .populate('subjectId', 'code nameLo nameEn')
+      .populate(CLASSROOM_WITH_GRADE)
+      .lean()
+      .exec();
+
+    const rows: CoverageAssignment[] = [];
+    for (const assignment of assignments) {
+      const teacher = assignment.teacherId as unknown as {
+        _id: Types.ObjectId;
+        teacherCode?: string | null;
+        firstNameLo: string;
+        lastNameLo: string;
+      } | null;
+      const subject = assignment.subjectId as unknown as {
+        _id: Types.ObjectId;
+        code?: string | null;
+        nameLo: string;
+        nameEn?: string | null;
+      } | null;
+      const classroom = assignment.classroomId as unknown as {
+        _id: Types.ObjectId;
+        name: string;
+        gradeLevelId?: { code?: string | null } | null;
+      } | null;
+
+      // A soft-deleted teacher, subject or class leaves the populate null, and a
+      // gap nobody owns is not something the office can chase — so it is dropped
+      // rather than reported against an empty name.
+      if (!teacher || !subject || !classroom) continue;
+
+      rows.push({
+        teachingAssignmentId: assignment._id.toString(),
+        teacherId: teacher._id.toString(),
+        teacherCode: teacher.teacherCode ?? null,
+        teacherName: `${teacher.firstNameLo} ${teacher.lastNameLo}`.trim(),
+        subjectId: subject._id.toString(),
+        subjectCode: subject.code ?? null,
+        subjectNameLo: subject.nameLo,
+        subjectNameEn: subject.nameEn ?? null,
+        classroomId: classroom._id.toString(),
+        classroomName: classroom.name,
+        gradeLevelCode: classroom.gradeLevelId?.code ?? null,
+        // Passed whole rather than reduced to weekdays: a rotating period is not
+        // counted, and that rule belongs with the counting.
+        schedule: assignment.schedule.map((period) => ({
+          dayOfWeek: period.dayOfWeek,
+          isRotating: period.isRotating,
+        })),
+      });
+    }
+
+    return rows;
+  }
+
+  /**
+   * What the register holds for those lessons inside the week.
+   *
+   * Counted as rows, not records: `groupId` is what a teacher writes, and a row
+   * naming six students is one entry in the register rather than six.
+   */
+  private async loadWrittenRows(
+    teachingAssignmentIds: string[],
+    weekStart: Date,
+    weekEnd: Date,
+  ): Promise<CoverageWritten[]> {
+    if (teachingAssignmentIds.length === 0) return [];
+
+    const rows = await this.model
+      .aggregate<{
+        _id: Types.ObjectId;
+        groupIds: Types.ObjectId[];
+        studentsNoted: number;
+        lastDate: Date;
+      }>([
+        {
+          $match: {
+            teachingAssignmentId: {
+              $in: teachingAssignmentIds.map((id) => new Types.ObjectId(id)),
+            },
+            date: { $gte: weekStart, $lte: weekEnd },
+            deletedAt: null,
+          },
+        },
+        {
+          $group: {
+            _id: '$teachingAssignmentId',
+            groupIds: { $addToSet: '$groupId' },
+            studentsNoted: { $sum: { $cond: [{ $eq: ['$studentId', null] }, 0, 1] } },
+            lastDate: { $max: '$date' },
+          },
+        },
+      ])
+      .exec();
+
+    return rows.map((row) => ({
+      teachingAssignmentId: row._id.toString(),
+      rows: row.groupIds.length,
+      studentsNoted: row.studentsNoted,
+      lastDate: row.lastDate.toISOString().slice(0, 10),
+    }));
+  }
 
   /** Trims the entries, refuses duplicates, and refuses a row that says nothing. */
   private normalizeEntries(

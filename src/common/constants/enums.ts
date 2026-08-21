@@ -63,8 +63,19 @@ export const STUDENT_STATUSES = tuple(
 export type StudentStatus = (typeof STUDENT_STATUSES)[number];
 
 /**
- * The mass organisations a student is enrolled into — `ກອງເດັກນ້ອຍ`,
- * `ສະຫະພັນຊາວໜຸ່ມ`, `ສະຫະພັນແມ່ຍິງ`.
+ * The statuses that make up the current roll — the children the school is
+ * teaching right now.
+ *
+ * `no_certificate` sits beside `active` because declining the certificate says
+ * nothing about attendance: the child is still in a classroom, still on the
+ * score sheets, and still expected in a roster. Only the certificate module
+ * cares about the difference.
+ */
+export const CURRENT_ROLL_STUDENT_STATUSES = tuple('active', 'no_certificate');
+
+/**
+ * The mass organisations a student is enrolled into — `ເຍົາວະຊົນ`,
+ * `ເຂົ້າຊາວໜຸ່ມ`, `ເຂົ້າແມ່ຍິງ`.
  *
  * Membership is an act with a date, not a property of the person, so it is
  * never derived from `gender` or age: a girl in ມ.1 is a student but not yet in

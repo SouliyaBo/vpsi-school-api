@@ -50,8 +50,8 @@ export class StudentGuardianLink {
 export const StudentGuardianLinkSchema = SchemaFactory.createForClass(StudentGuardianLink);
 
 /**
- * One mass-organisation membership — `ກອງເດັກນ້ອຍ`, `ສະຫະພັນຊາວໜຸ່ມ`,
- * `ສະຫະພັນແມ່ຍິງ`.
+ * One mass-organisation membership — `ເຍົາວະຊົນ`, `ເຂົ້າຊາວໜຸ່ມ`,
+ * `ເຂົ້າແມ່ຍິງ`.
  *
  * Only the fact and the date, which is what the school's own tally needs. Card
  * numbers, units and positions are held by the organisation itself rather than

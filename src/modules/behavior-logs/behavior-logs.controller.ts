@@ -19,6 +19,7 @@ import {
   MonthlySheetQueryDto,
   QueryBehaviorLogsDto,
   UpdateBehaviorLogDto,
+  WeeklyCoverageQueryDto,
 } from './dto/behavior-log.dto';
 
 /**
@@ -54,6 +55,39 @@ export class BehaviorLogsController {
   })
   monthlySheet(@Query() query: MonthlySheetQueryDto) {
     return this.service.getMonthlySheet(query);
+  }
+
+  @Get('weekly-coverage')
+  @RequirePermissions({ resource: 'behavior-logs', action: 'manage' })
+  @ApiOperation({
+    summary: 'Which class and which teacher wrote nothing this week',
+    description:
+      'Crosses the timetable with the register, so a lesson nobody wrote about shows as a gap — ' +
+      'which the plain list cannot report, since it only holds rows that exist. Defaults to ' +
+      'this week and the active semester, and is measured up to today, so a lesson later in ' +
+      'the week is not yet owed. Rotating periods are left out: both arrangements of a swap ' +
+      'are on the timetable, so it cannot say which teacher took which class. `manage` rather ' +
+      'than `read`: this is oversight of other ' +
+      'people’s work, held by the administrator and the head of academic affairs — a teacher ' +
+      'reads their own week from `weekly-coverage/mine`.',
+  })
+  weeklyCoverage(@Query() query: WeeklyCoverageQueryDto) {
+    return this.service.getWeeklyCoverage(query);
+  }
+
+  @Get('weekly-coverage/mine')
+  @RequirePermissions({ resource: 'behavior-logs', action: 'read' })
+  @ApiOperation({
+    summary: 'The signed-in teacher’s own week — what they have not written up yet',
+    description:
+      'The same report narrowed to the teacher on the session, never to a teacher named by the ' +
+      'client. An account that is not a teacher gets an empty week rather than the school’s.',
+  })
+  myWeeklyCoverage(
+    @Query() query: WeeklyCoverageQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.getMyWeeklyCoverage(query, actor);
   }
 
   @Get('entry-context')

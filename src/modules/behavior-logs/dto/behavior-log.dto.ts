@@ -1,8 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsInt,
   IsMongoId,
@@ -132,6 +133,45 @@ export class QueryBehaviorLogsDto extends PaginationQueryDto {
   @IsDateString()
   @IsOptional()
   to?: string;
+}
+
+/**
+ * The week the coverage report is read for.
+ *
+ * Every field is optional so the plain call answers the question that is asked
+ * almost every time — "this week, the whole school" — without the client having
+ * to work out which Monday it is or which semester is active.
+ */
+export class WeeklyCoverageQueryDto {
+  @ApiPropertyOptional({
+    example: '2025-11-06',
+    description: 'Any date in the week. Defaults to today; snapped to the Monday of that week.',
+  })
+  @IsDateString()
+  @IsOptional()
+  weekOf?: string;
+
+  @ApiPropertyOptional({ description: 'Defaults to the active semester' })
+  @IsMongoId()
+  @IsOptional()
+  semesterId?: string;
+
+  @ApiPropertyOptional() @IsMongoId() @IsOptional() classroomId?: string;
+
+  @ApiPropertyOptional({ description: 'The teacher the timetable names for the lesson' })
+  @IsMongoId()
+  @IsOptional()
+  teacherId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Return only the lessons with nothing recorded. The summary still counts the whole ' +
+      'week, so the headline numbers do not move when the list is narrowed.',
+  })
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  @IsOptional()
+  outstandingOnly?: boolean;
 }
 
 /** The month the printable sheet covers. */

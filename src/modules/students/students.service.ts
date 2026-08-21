@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
-import type { StudentStatus } from 'src/common/constants/enums';
+import { CURRENT_ROLL_STUDENT_STATUSES, type StudentStatus } from 'src/common/constants/enums';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
@@ -142,11 +142,17 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     // classroom/grade filters and the placement filter); collected here so the
     // second never silently overwrites the first.
     const idConstraints: Record<string, unknown>[] = [];
-    // The current roll is what a list of students is for, so `active` is the
-    // default rather than the whole register — a graduated or transferred child
-    // stays on file and reachable by id, but no longer turns up in a roster, a
-    // picker, or a headcount unless asked for by name. `all` opts out.
-    if (query.status !== 'all') filter.status = query.status ?? 'active';
+    // The current roll is what a list of students is for, so the default is the
+    // children still being taught rather than the whole register — a graduated
+    // or transferred child stays on file and reachable by id, but no longer
+    // turns up in a roster, a picker, or a headcount unless asked for by name.
+    // `no_certificate` belongs on that roll: it records a declined certificate,
+    // not a departure. `all` opts out, and a real status narrows to itself.
+    if (query.status === undefined || query.status === 'current') {
+      filter.status = { $in: [...CURRENT_ROLL_STUDENT_STATUSES] };
+    } else if (query.status !== 'all') {
+      filter.status = query.status;
+    }
     if (query.gender) filter.gender = query.gender;
     if (query.villageId) filter.villageId = new Types.ObjectId(query.villageId);
     if (query.guardianId) {
@@ -664,7 +670,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
   /**
    * One entry per organisation.
    *
-   * A student joins `ສະຫະພັນຊາວໜຸ່ມ` once; a second entry for it is a duplicate
+   * A student joins `ເຂົ້າຊາວໜຸ່ມ` once; a second entry for it is a duplicate
    * of the same fact with a different date, which would double every member
    * count taken off this list.
    */
