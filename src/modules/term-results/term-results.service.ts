@@ -19,9 +19,29 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { AttendancesService } from '../attendances/attendances.service';
 import { ConductScoresService } from '../conduct-scores/conduct-scores.service';
+import { LAO_MONTHS, MARK_MAX as MONTHLY_MARK_MAX } from '../monthly-marks/monthly-grading';
+import {
+  MonthlyMarksService,
+  type MonthlySubjectMark,
+} from '../monthly-marks/monthly-marks.service';
 import { ScoreComponentsService } from '../score-components/score-components.service';
 import { SettingsService } from '../settings/settings.service';
 import { QueryTermResultsDto } from './dto/term-result.dto';
+import { resultsDiffer, type ComparableResult, type ComparableSubject } from './result-diff';
+
+/** What `.lean()` gives back for a term result — the fields compared here. */
+type LeanTermResult = Pick<
+  TermResult,
+  | 'average'
+  | 'gpa'
+  | 'grade'
+  | 'subjectsPassed'
+  | 'subjectsFailed'
+  | 'conductGrade'
+  | 'isProvisional'
+  | 'rank'
+  | 'subjects'
+>;
 import {
   COMPUTATION_VERSION,
   ComponentInput,
@@ -29,15 +49,58 @@ import {
   DEFAULT_PASSING_PERCENTAGE,
   GradeBand,
   assignRanks,
+  computeSubjectFromMark,
   computeSubjectResult,
   computeTermResult,
+  round2,
 } from './grading';
+
+/** A stored result narrowed to the figures a family would notice changing. */
+function toComparableResult(stored: TermResultDocument | LeanTermResult): ComparableResult {
+  return {
+    average: stored.average,
+    gpa: stored.gpa,
+    grade: stored.grade,
+    subjectsPassed: stored.subjectsPassed,
+    subjectsFailed: stored.subjectsFailed,
+    conductGrade: stored.conductGrade ?? null,
+    isProvisional: stored.isProvisional,
+    rank: stored.rank ?? null,
+    subjects: stored.subjects.map(toComparableSubject),
+  };
+}
+
+/** The fields of a subject a family would notice changing. */
+function toComparableSubject(subject: {
+  subjectId: Types.ObjectId | string;
+  percentage: number;
+  grade: string;
+  isPassed: boolean;
+  isIncomplete?: boolean;
+}): ComparableSubject {
+  return {
+    subjectId: subject.subjectId.toString(),
+    percentage: subject.percentage,
+    grade: subject.grade,
+    isPassed: subject.isPassed,
+    isIncomplete: subject.isIncomplete ?? false,
+  };
+}
+
+/** How the sheet names its two term-level figures, as printed on a report card. */
+const EXAM_LABEL_LO = 'ສອບເສັງພາກ';
+const BONUS_LABEL_LO = 'ເພີ່ມ';
 
 export interface ComputeSummary {
   classroomId: string;
   semesterId: string;
   studentsProcessed: number;
   provisionalCount: number;
+  /**
+   * Published results the recomputation moved, and which are therefore no longer
+   * published. They have to be released again deliberately.
+   */
+  withdrawn: number;
   skipped: { studentId: string; reason: string }[];
 }
 
@@ -51,6 +114,7 @@ export class TermResultsService {
     @InjectModel(Enrollment.name) private readonly enrollmentModel: Model<EnrollmentDocument>,
     @InjectModel(Subject.name) private readonly subjectModel: Model<SubjectDocument>,
     private readonly components: ScoreComponentsService,
+    private readonly monthlyMarks: MonthlyMarksService,
     private readonly conduct: ConductScoresService,
     private readonly attendances: AttendancesService,
     private readonly settings: SettingsService,
@@ -156,13 +220,33 @@ export class TermResultsService {
       semesterId,
       studentsProcessed: 0,
       provisionalCount: 0,
+      withdrawn: 0,
       skipped: [],
     };
 
     // Subject metadata is shared across the whole class — fetch once.
     const subjectCache = new Map<string, SubjectDocument>();
 
-    const computed: { studentId: string; average: number; documentId: Types.ObjectId }[] = [];
+    /**
+     * The school's own 10-point sheet, for the whole class in two queries.
+     *
+     * Most subjects here are marked on it rather than on weighted components, so
+     * this is the primary source and the components are the fallback — see
+     * `subjectFromMonthlyMark`. Loaded outside the loop because it is one read
+     * for the class, not one per student.
+     */
+    const monthlyByStudent = await this.monthlyMarks.getClassroomSubjectMarks(
+      classroomId,
+      semesterId,
+    );
+
+    const computed: {
+      studentId: string;
+      average: number;
+      documentId: Types.ObjectId;
+      previousRank: number | null;
+      isPublished: boolean;
+    }[] = [];
 
     for (const enrollment of roster) {
       try {
@@ -179,7 +263,10 @@ export class TermResultsService {
           .lean()
           .exec();
 
-        if (scores.length === 0) {
+        const monthly = monthlyByStudent.get(enrollment.studentId.toString()) ?? [];
+        const monthlyBySubject = new Map(monthly.map((row) => [row.subjectId, row]));
+
+        if (scores.length === 0 && monthly.length === 0) {
           summary.skipped.push({
             studentId: enrollment.studentId.toString(),
             reason: 'no scores recorded',
@@ -187,7 +274,7 @@ export class TermResultsService {
           continue;
         }
 
-        // Group the student's scores by subject.
+        // Group the student's component scores by subject.
         const bySubject = new Map<string, typeof scores>();
         for (const score of scores) {
           const key = score.subjectId.toString();
@@ -196,13 +283,29 @@ export class TermResultsService {
 
         const subjectResults: TermResultSubject[] = [];
 
-        for (const [subjectId, subjectScores] of bySubject) {
+        // Both instruments, one list of subjects: a school part-way through the
+        // move from components to the monthly sheet has some of each, and a
+        // report card that showed only one of them would be missing subjects.
+        const subjectIds = new Set([...bySubject.keys(), ...monthlyBySubject.keys()]);
+
+        for (const subjectId of subjectIds) {
+          const subjectScores = bySubject.get(subjectId) ?? [];
           let subject = subjectCache.get(subjectId);
           if (!subject) {
             const loaded = await this.subjectModel.findById(subjectId).exec();
             if (!loaded) continue;
             subject = loaded;
             subjectCache.set(subjectId, loaded);
+          }
+
+          const monthlyMark = monthlyBySubject.get(subjectId);
+          if (monthlyMark) {
+            // Marked on the school's own sheet: ພາກຮຽນ is the whole story, and
+            // there are no weights left to check.
+            subjectResults.push(
+              this.subjectFromMonthlyMark(monthlyMark, subject, scale, defaultPassing),
+            );
+            continue;
           }
 
           // Weights must total 100 for the mark to mean anything.
@@ -293,6 +396,44 @@ export class TermResultsService {
         const isProvisional = subjectResults.some((s) => s.isIncomplete);
         if (isProvisional) summary.provisionalCount += 1;
 
+        // Read before writing: a published result that the recomputation moves
+        // has to be withdrawn, and that cannot be decided from the new figures
+        // alone.
+        const existing = await this.model
+          .findOne({
+            studentId: enrollment.studentId,
+            semesterId: new Types.ObjectId(semesterId),
+            deletedAt: null,
+          })
+          .lean()
+          .exec();
+
+        const next = {
+          average: term.average,
+          gpa: term.gpa,
+          grade: term.grade,
+          subjectsPassed: term.subjectsPassed,
+          subjectsFailed: term.subjectsFailed,
+          conductGrade,
+          isProvisional,
+          rank: existing?.rank ?? null,
+          subjects: subjectResults.map(toComparableSubject),
+        };
+
+        /**
+         * Publication is withdrawn rather than quietly overwritten.
+         *
+         * A result a family has already been shown is a statement the school
+         * made. Recomputing it in place would change that statement with nothing
+         * to show for it — so when the figures actually move, the result goes
+         * back to unpublished and has to be released again deliberately. A
+         * recomputation that changes nothing leaves publication alone, which is
+         * what keeps "rerun the class after one correction" safe.
+         */
+        const withdrawn =
+          Boolean(existing?.isPublished) && resultsDiffer(toComparableResult(existing!), next);
+        if (withdrawn) summary.withdrawn += 1;
+
         const saved = await this.model
           .findOneAndUpdate(
             {
@@ -320,6 +461,12 @@ export class TermResultsService {
                 computedAt: new Date(),
                 computationVersion: COMPUTATION_VERSION,
                 deletedAt: null,
+                // Freshly computed from the marks as they stand.
+                isStale: false,
+                staleSince: null,
+                ...(withdrawn
+                  ? { isPublished: false, publishedAt: null, unpublishedAt: new Date() }
+                  : {}),
               },
             },
             { upsert: true, new: true, setDefaultsOnInsert: true },
@@ -330,6 +477,8 @@ export class TermResultsService {
           studentId: enrollment.studentId.toString(),
           average: term.average,
           documentId: saved._id,
+          previousRank: existing?.rank ?? null,
+          isPublished: saved.isPublished,
         });
         summary.studentsProcessed += 1;
       } catch (error) {
@@ -345,7 +494,7 @@ export class TermResultsService {
       }
     }
 
-    await this.applyRanks(computed);
+    summary.withdrawn += await this.applyRanks(computed);
 
     await this.audit.record({
       action: 'update',
@@ -357,15 +506,20 @@ export class TermResultsService {
         semesterId,
         studentsProcessed: summary.studentsProcessed,
         provisionalCount: summary.provisionalCount,
+        withdrawn: summary.withdrawn,
         skippedCount: summary.skipped.length,
         computationVersion: COMPUTATION_VERSION,
       },
-      reason: 'term results computed',
+      reason:
+        summary.withdrawn > 0
+          ? `term results computed; publication withdrawn from ${summary.withdrawn} changed result(s)`
+          : 'term results computed',
     });
 
     this.logger.log(
       `Computed term results for classroom ${classroomId}: ` +
-        `${summary.studentsProcessed} processed, ${summary.skipped.length} skipped`,
+        `${summary.studentsProcessed} processed, ${summary.skipped.length} skipped, ` +
+        `${summary.withdrawn} withdrawn from publication`,
     );
 
     return summary;
@@ -374,26 +528,37 @@ export class TermResultsService {
   /**
    * Publishes a classroom's results.
    *
-   * Provisional results are held back — releasing a mark computed from partial
-   * scores would show a student a grade that is going to change.
+   * Two kinds of result are held back, for the same reason: releasing a figure
+   * that is going to change is worse than releasing nothing.
+   *
+   *  - **provisional** — computed from marks that are not all in;
+   *  - **stale** — a mark has changed since the result was computed, so the
+   *    stored figure is already out of date and publishing it would put a number
+   *    in front of a family that the register no longer agrees with.
+   *
+   * The second is why `isStale` exists: without it, publishing after a late
+   * correction quietly released yesterday's arithmetic.
    */
   async publish(
     classroomId: string,
     semesterId: string,
     actor: AuthenticatedUser,
     ip: string | null,
-  ): Promise<{ published: number; withheld: number }> {
+  ): Promise<{ published: number; withheld: number; withheldStale: number }> {
     const filter = {
       classroomId: new Types.ObjectId(classroomId),
       semesterId: new Types.ObjectId(semesterId),
       deletedAt: null,
     };
 
-    const withheld = await this.model.countDocuments({ ...filter, isProvisional: true }).exec();
+    const [provisional, stale] = await Promise.all([
+      this.model.countDocuments({ ...filter, isProvisional: true }).exec(),
+      this.model.countDocuments({ ...filter, isProvisional: false, isStale: true }).exec(),
+    ]);
 
     const outcome = await this.model
       .updateMany(
-        { ...filter, isProvisional: false, isPublished: false },
+        { ...filter, isProvisional: false, isStale: false, isPublished: false },
         { $set: { isPublished: true, publishedAt: new Date() } },
       )
       .exec();
@@ -403,12 +568,25 @@ export class TermResultsService {
       entityType: 'termResults',
       userId: actor.sub,
       username: actor.username,
-      newValue: { classroomId, semesterId, published: outcome.modifiedCount, withheld },
+      newValue: {
+        classroomId,
+        semesterId,
+        published: outcome.modifiedCount,
+        withheldProvisional: provisional,
+        withheldStale: stale,
+      },
       ip,
-      reason: 'term results published',
+      reason:
+        stale > 0
+          ? `term results published; ${stale} withheld as out of date since the last computation`
+          : 'term results published',
     });
 
-    return { published: outcome.modifiedCount, withheld };
+    return {
+      published: outcome.modifiedCount,
+      withheld: provisional + stale,
+      withheldStale: stale,
+    };
   }
 
   /** Class ranking, newest computation first. */
@@ -426,23 +604,117 @@ export class TermResultsService {
 
   // ── Internals ─────────────────────────────────────────────────────────────
 
-  /** Writes ranks in one bulk operation once every average is known. */
+  /**
+   * One subject as the monthly sheet marked it, in the shape the report card
+   * reads.
+   *
+   * The months and the exam are carried through as components so a report card
+   * can print the breakdown the school actually recognises — ກັນຍາ, ຕຸລາ, ພະຈິກ,
+   * ສອບເສັງ — rather than a bare term mark. Their weights say how the mark was
+   * arrived at: the three months share half of it and the exam is the other half.
+   *
+   * `ເພີ່ມ` is carried at weight zero, because that is what it is: points added on
+   * top of a mark that is already out of 10, not a share of it.
+   */
+  private subjectFromMonthlyMark(
+    mark: MonthlySubjectMark,
+    subject: SubjectDocument,
+    scale: readonly GradeBand[],
+    defaultPassing: number,
+  ): TermResultSubject {
+    const outcome = computeSubjectFromMark(mark.mark, mark.isComplete, {
+      scale,
+      passingPercentage: subject.passingPercentage ?? defaultPassing,
+    });
+
+    const monthWeight = mark.monthScores.length > 0 ? round2(50 / mark.monthScores.length) : 0;
+    const components = [
+      ...mark.monthScores.map((month) => ({
+        componentId: null,
+        nameLo: LAO_MONTHS[month.month] ?? String(month.month),
+        score: month.score,
+        maxScore: MONTHLY_MARK_MAX,
+        weight: monthWeight,
+        weightedScore: round2(((month.score ?? 0) / MONTHLY_MARK_MAX) * monthWeight),
+      })),
+      {
+        componentId: null,
+        nameLo: EXAM_LABEL_LO,
+        score: mark.examScore,
+        maxScore: MONTHLY_MARK_MAX,
+        weight: 50,
+        weightedScore: round2(((mark.examScore ?? 0) / MONTHLY_MARK_MAX) * 50),
+      },
+      ...(mark.bonus
+        ? [
+            {
+              componentId: null,
+              nameLo: BONUS_LABEL_LO,
+              score: mark.bonus,
+              maxScore: MONTHLY_MARK_MAX,
+              weight: 0,
+              weightedScore: round2(mark.bonus * 10),
+            },
+          ]
+        : []),
+    ];
+
+    return {
+      subjectId: subject._id,
+      subjectNameLo: subject.nameLo,
+      credits: subject.credits,
+      components,
+      ...outcome,
+    } as TermResultSubject;
+  }
+
+  /**
+   * Writes ranks in one bulk operation once every average is known.
+   *
+   * A rank is printed on the report card and is not a property of the student
+   * alone — one late correction two rows up moves it. So a published result whose
+   * rank changes is withdrawn here on the same terms as one whose marks changed:
+   * the card in the family's hands no longer says what the school says.
+   */
   private async applyRanks(
-    computed: { studentId: string; average: number; documentId: Types.ObjectId }[],
-  ): Promise<void> {
-    if (computed.length === 0) return;
+    computed: {
+      studentId: string;
+      average: number;
+      documentId: Types.ObjectId;
+      previousRank: number | null;
+      isPublished: boolean;
+    }[],
+  ): Promise<number> {
+    if (computed.length === 0) return 0;
 
     const ranks = assignRanks(computed);
     const totalStudents = computed.length;
+    let withdrawn = 0;
 
     await this.model.bulkWrite(
-      computed.map((entry) => ({
-        updateOne: {
-          filter: { _id: entry.documentId },
-          update: { $set: { rank: ranks.get(entry.studentId) ?? null, totalStudents } },
-        },
-      })),
+      computed.map((entry) => {
+        const rank = ranks.get(entry.studentId) ?? null;
+        const rankMoved = entry.isPublished && rank !== entry.previousRank;
+        if (rankMoved) withdrawn += 1;
+
+        return {
+          updateOne: {
+            filter: { _id: entry.documentId },
+            update: {
+              $set: {
+                rank,
+                totalStudents,
+                ...(rankMoved
+                  ? { isPublished: false, publishedAt: null, unpublishedAt: new Date() }
+                  : {}),
+              },
+            },
+          },
+        };
+      }),
     );
+
+    return withdrawn;
   }
 
   /** Grade boundaries from settings, falling back to the built-in scale. */

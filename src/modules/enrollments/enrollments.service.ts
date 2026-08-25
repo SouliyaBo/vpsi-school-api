@@ -7,7 +7,7 @@ import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
-import { STUDENT_NAME_SELECT } from 'src/common/utils/student-name';
+import { ROSTER_STUDENT_SELECT } from 'src/common/utils/current-roll';
 import { Enrollment, EnrollmentDocument, Student, StudentDocument } from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -113,8 +113,12 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
         })
         // `studentNameLo` on the row is the register name snapshotted at placement.
         // The student is joined so a roster can also show what the class calls the
-        // child, which is what a teacher reads down the column looking for.
-        .populate('studentId', STUDENT_NAME_SELECT)
+        // child, which is what a teacher reads down the column looking for — and
+        // their status, so a caller can tell an enrollment nobody has closed yet
+        // from a child still in the room. The rows are not filtered by it here:
+        // this is the placement screen's roster, and an enrollment left open
+        // behind a departed student is exactly what it exists to fix.
+        .populate('studentId', ROSTER_STUDENT_SELECT)
         .sort({ rollNumber: 1 })
         .exec()
     );

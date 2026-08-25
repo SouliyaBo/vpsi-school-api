@@ -35,6 +35,7 @@ import {
   DEFAULT_CERTIFICATE_LAYOUT,
   DEFAULT_REPORT_CARD_LAYOUT,
 } from 'src/modules/reports/pdf/layout.types';
+import { DEFAULT_SEMESTER_MONTHS } from 'src/modules/monthly-marks/monthly-grading';
 import { DEFAULT_GRADE_SCALE, DEFAULT_PASSING_PERCENTAGE } from 'src/modules/term-results/grading';
 import { ROLE_SEEDS } from './role-permissions';
 
@@ -264,6 +265,24 @@ export class SeedService {
         category: 'grading',
         isPublic: false,
         description: 'Grade bands. Changing this should be paired with a COMPUTATION_VERSION bump.',
+      },
+      {
+        key: 'grading.reportMarkScale',
+        value: 10,
+        category: 'grading',
+        isPublic: false,
+        description:
+          'What marks are printed out of on a report card. The school marks out of 10; the ' +
+          'stored figure stays a percentage so classes can still be ranked and averaged.',
+      },
+      {
+        key: 'grading.semesterMonths',
+        value: DEFAULT_SEMESTER_MONTHS,
+        category: 'grading',
+        isPublic: false,
+        description:
+          'The calendar months each term collects on the monthly mark sheet, keyed by ' +
+          'semester number. The school runs ກັນຍາ–ພະຈິກ and ກຸມພາ–ເມສາ.',
       },
       {
         key: 'grading.passingPercentage',

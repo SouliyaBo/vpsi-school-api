@@ -1105,6 +1105,66 @@ describe('Academic operations (e2e)', () => {
       expect(rosterRow?.studentId.nickname).toBe('ລິຕ້າ');
     });
 
+    /**
+     * A student's status and their enrollment's status are written by different
+     * acts: the office marks a child as dropped, transferred or suspended without
+     * closing the placement that put them in a room. The sheet is a roll to call,
+     * so it follows the child; the placement roster is what the office fixes the
+     * stale enrollment from, so it keeps showing the row.
+     */
+    it('leaves a student the office has taken off the roll off the sheet', async () => {
+      const leaverId = await createStudent('S-LEAVE-001', 'ຄຳຫລ້າ');
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: leaverId, classroomId })
+        .expect(201);
+
+      // Its own lesson, on a day and a teacher+subject pairing no other test
+      // claims, so the sheet under test does not depend on what ran before it.
+      await http()
+        .post('/api/teaching-assignments')
+        .set(auth(token))
+        .send({
+          teacherId: otherTeacherId,
+          subjectId: mathSubjectId,
+          classroomId,
+          semesterId,
+          schedule: [{ dayOfWeek: 3, startTime: '15:10', endTime: '16:00', room: 'R101' }],
+        })
+        .expect(201);
+
+      // 2025-09-17 is the Wednesday that lesson falls on.
+      const namedOnSheet = async () => {
+        const sheet = await http()
+          .get(`/api/attendances/daily-sheet?classroomId=${classroomId}&date=2025-09-17`)
+          .set(auth(token))
+          .expect(200);
+        return sheet.body.lessons.some((lesson: { entries: { studentId: string }[] }) =>
+          lesson.entries.some((entry) => entry.studentId === leaverId),
+        );
+      };
+
+      expect(await namedOnSheet()).toBe(true);
+
+      await http()
+        .patch(`/api/students/${leaverId}`)
+        .set(auth(token))
+        .send({ status: 'dropped' })
+        .expect(200);
+
+      expect(await namedOnSheet()).toBe(false);
+
+      // The enrollment is still open, and the placement screen still says so.
+      const roster = await http()
+        .get(`/api/enrollments/classroom/${classroomId}/roster`)
+        .set(auth(token))
+        .expect(200);
+      expect(
+        roster.body.some((row: { studentCode: string }) => row.studentCode === 'S-LEAVE-001'),
+      ).toBe(true);
+    });
+
     it('records a roll call', async () => {
       const response = await http()
         .post('/api/attendances')

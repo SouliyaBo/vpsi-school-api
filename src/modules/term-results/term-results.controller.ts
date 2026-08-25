@@ -97,7 +97,10 @@ export class TermResultsController {
     summary: 'Compute synchronously (small classes, and integration tests)',
     description:
       'Bypasses the queue and returns the summary directly. Use the queued endpoint for ' +
-      'anything large — this one holds the request open for the whole computation.',
+      'anything large — this one holds the request open for the whole computation. A ' +
+      'published result whose figures the recomputation moves is withdrawn rather than ' +
+      'overwritten in place, and counted in `withdrawn`; one that comes out identical stays ' +
+      'published.',
   })
   computeSync(@Body() dto: ComputeTermResultsDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.service.computeForClassroom(dto.classroomId, dto.semesterId, actor);
@@ -109,8 +112,9 @@ export class TermResultsController {
   @ApiOperation({
     summary: 'Publish a classroom’s results',
     description:
-      'Provisional results — those computed from incomplete scores — are withheld and ' +
-      'reported in the `withheld` count.',
+      'Two kinds of result are withheld and reported in `withheld`: provisional ones, ' +
+      'computed from marks that are not all in, and stale ones, where a mark has changed ' +
+      'since the result was computed. Recompute the class first to release those.',
   })
   publish(
     @Body() dto: ComputeTermResultsDto,

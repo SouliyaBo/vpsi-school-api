@@ -238,6 +238,17 @@ export class Subject extends SoftDeletableDocument {
   @Prop({ type: Number, default: 0, min: 0 })
   hoursPerWeek: number;
 
+  /**
+   * The strands this subject is marked in, when the monthly sheet splits it.
+   *
+   * ວິທະຍາສາດທຳມະຊາດ is kept as ຟີຊິກ / ເຄມີ / ຊີວະ, each scored out of 10 and
+   * averaged into the month. Empty for an ordinary subject, which is marked once
+   * a month. Names rather than ids: they are columns on a form, not records
+   * anyone maintains — see `MonthlyMark.strand`.
+   */
+  @Prop({ type: [String], default: [] })
+  strands: string[];
+
   /** Percentage of `maxScore` required to pass. Falls back to the global setting. */
   @Prop({ type: Number, default: null, min: 0, max: 100 })
   passingPercentage?: number | null;

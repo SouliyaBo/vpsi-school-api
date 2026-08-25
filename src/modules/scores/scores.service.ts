@@ -17,6 +17,7 @@ import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { ScoreComponentsService } from '../score-components/score-components.service';
 import { SemestersService } from '../semesters/semesters.service';
 import { TeachingAssignmentsService } from '../teaching-assignments/teaching-assignments.service';
+import { TermResultStalenessService } from '../term-results/term-result-staleness.service';
 import {
   BatchSaveResultDto,
   BatchSaveScoresDto,
@@ -38,6 +39,7 @@ export class ScoresService {
     private readonly audit: AuditLogsService,
     private readonly tx: TransactionHelper,
     private readonly scope: RecordScopeService,
+    private readonly staleness: TermResultStalenessService,
   ) {}
 
   async findAll(
@@ -162,6 +164,7 @@ export class ScoresService {
     const enrolled = new Map(roster.map((e) => [e.studentId.toString(), e]));
 
     const result: BatchSaveResultDto = { saved: 0, skipped: 0, errors: [] };
+    const touched: string[] = [];
 
     for (const entry of dto.entries) {
       try {
@@ -188,6 +191,7 @@ export class ScoresService {
           ),
         );
         result.saved += 1;
+        touched.push(entry.studentId);
       } catch (error) {
         result.skipped += 1;
         result.errors.push({
@@ -200,6 +204,19 @@ export class ScoresService {
                 : 'unknown error',
         });
       }
+    }
+
+    // Whatever was computed from these marks is now out of date and says so
+    // until the office recomputes the class.
+    if (touched.length > 0) {
+      await this.staleness.markStale(
+        {
+          studentIds: touched,
+          classroomId: dto.classroomId,
+          semesterId: component.semesterId,
+        },
+        `scores saved for component ${component.nameLo}`,
+      );
     }
 
     return result;

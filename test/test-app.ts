@@ -35,6 +35,7 @@ import { StudentsModule } from 'src/modules/students/students.module';
 import { SubjectsModule } from 'src/modules/subjects/subjects.module';
 import { TeachersModule } from 'src/modules/teachers/teachers.module';
 import { TeachingAssignmentsModule } from 'src/modules/teaching-assignments/teaching-assignments.module';
+import { MonthlyMarksModule } from 'src/modules/monthly-marks/monthly-marks.module';
 import { TermResultsService } from 'src/modules/term-results/term-results.service';
 import { UsersModule } from 'src/modules/users/users.module';
 import { Module } from '@nestjs/common';
@@ -97,6 +98,9 @@ import { TermResultsQueueService } from 'src/modules/term-results/term-results.q
     SubjectsModule,
     ConductScoresModule,
     AttendancesModule,
+    // The term result reads the monthly marks, so the real module's dependency
+    // has to be here too — the stub only stands in for the queue.
+    MonthlyMarksModule,
   ],
   controllers: [TermResultsController],
   providers: [

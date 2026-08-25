@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ClientIp, CurrentUser, RequirePermissions } from 'src/common/decorators';
+import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { AttendancesService } from './attendances.service';
 import {
@@ -34,6 +35,25 @@ export class AttendancesController {
   })
   dailySheet(@Query('classroomId') classroomId: string, @Query('date') date: string) {
     return this.service.getDailySheet(classroomId, date);
+  }
+
+  @Get('coverage')
+  @RequirePermissions({ resource: 'attendances', action: 'manage' })
+  @ApiOperation({
+    summary: 'Which teacher has not marked the roll',
+    description:
+      'Crosses the timetable with the roll call, so a lesson nobody marked shows as a gap — ' +
+      'which the plain list cannot report, since it only holds records that exist. Defaults ' +
+      'to this week and the term the window falls in, and is measured up to today, so a ' +
+      'lesson later in the week is not yet owed. Unlike the behaviour register, attendance is ' +
+      'owed once for every lesson day: a teacher who marked Monday and skipped Wednesday is ' +
+      'reported behind, and the days they missed come back with the row. Rotating periods are ' +
+      'left out: both arrangements of a swap are on the timetable, so it cannot say which ' +
+      'teacher took which class. `manage` rather than `read`, because this is oversight of ' +
+      'other people’s work — held by the administrator and the head of academic affairs.',
+  })
+  coverage(@Query() query: CoverageQueryDto) {
+    return this.service.getCoverage(query);
   }
 
   @Get('summary/student/:studentId/semester/:semesterId')

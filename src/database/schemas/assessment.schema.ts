@@ -409,8 +409,12 @@ BehaviorLogSchema.index({ studentId: 1, semesterId: 1 });
 /** One component's contribution inside a subject result. */
 @Schema({ _id: false })
 export class TermResultComponent {
-  @Prop({ type: Types.ObjectId, ref: 'ScoreComponent', required: true })
-  componentId: Types.ObjectId;
+  /**
+   * The component this line came from, or `null` for a line of the monthly mark
+   * sheet — ກັນຍາ and ສອບເສັງພາກ are columns on a form, not records anyone keeps.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'ScoreComponent', default: null })
+  componentId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true })
   nameLo: string;
@@ -551,6 +555,28 @@ export class TermResult extends SoftDeletableDocument {
 
   @Prop({ type: Date, default: null })
   publishedAt?: Date | null;
+
+  /**
+   * A mark this result was computed from has changed since.
+   *
+   * The result is *derived*, so nothing updates it when a teacher corrects a
+   * cell — it simply goes quietly out of date, which is the worse failure of the
+   * two. The mark-entry paths raise this flag, computing clears it, and the
+   * office is shown which classes it is waiting on.
+   */
+  @Prop({ type: Boolean, default: false })
+  isStale: boolean;
+
+  /** When the first change since the last computation landed. */
+  @Prop({ type: Date, default: null })
+  staleSince?: Date | null;
+
+  /**
+   * The last time publication was withdrawn because a recomputation changed the
+   * figures a family had already been shown.
+   */
+  @Prop({ type: Date, default: null })
+  unpublishedAt?: Date | null;
 }
 
 export const TermResultSchema = SchemaFactory.createForClass(TermResult);
@@ -560,3 +586,151 @@ TermResultSchema.index(
 );
 // Ranking scan: already sorted, so the rank pass is an index walk.
 TermResultSchema.index({ classroomId: 1, semesterId: 1, average: -1 });
+
+// ── Monthly mark (ຄະແນນປະຈຳເດືອນ) ────────────────────────────────────────────
+
+export type MonthlyMarkDocument = HydratedDocument<MonthlyMark>;
+
+/**
+ * One student's month on the school's own mark sheet, out of 10.
+ *
+ * Kept apart from `Score` because it is a different instrument, not a different
+ * shape of the same one: `Score` is a mark against a component whose weight the
+ * school chooses, while this form is fixed — ຂື້ນຫ້ອງ 1, ປື້ມ 1, ກິດຈະກຳ 2,
+ * ກວດກາ 6, every subject, every month — and it is read as a hierarchy (month →
+ * three months → term → year) that a flat list of weights cannot express.
+ *
+ * Every cell is nullable so "not written yet" stays distinguishable from a mark
+ * of zero: the first is a gap a teacher still owes, the second is what a student
+ * earned. A month with all four blank is not stored at all.
+ */
+@Schema({ collection: 'monthlyMarks', ...baseSchemaOptions })
+export class MonthlyMark extends SoftDeletableDocument {
+  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  studentId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  subjectId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  classroomId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  semesterId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  schoolYearId: Types.ObjectId;
+
+  /** Calendar month, 1–12. Which ones a term collects is a school setting. */
+  @Prop({ type: Number, required: true, min: 1, max: 12 })
+  month: number;
+
+  /**
+   * The strand within a subject taught as several — ຟີຊິກ / ເຄມີ / ຊີວະ inside
+   * ວິທະຍາສາດທຳມະຊາດ, each scored out of 10 and averaged into the month.
+   *
+   * `null` for an ordinary subject, which then has exactly one row per month.
+   * Held as the name the sheet uses rather than an id: the strands are columns
+   * on a form, not records anyone maintains.
+   */
+  @Prop({ type: String, default: null, trim: true })
+  strand?: string | null;
+
+  /** ຂື້ນຫ້ອງ, out of 1. */
+  @Prop({ type: Number, default: null, min: 0, max: 1 })
+  attendance?: number | null;
+
+  /** ປື້ມ, out of 1. */
+  @Prop({ type: Number, default: null, min: 0, max: 1 })
+  notebook?: number | null;
+
+  /** ກິດຈະກຳ, out of 2. */
+  @Prop({ type: Number, default: null, min: 0, max: 2 })
+  activity?: number | null;
+
+  /** ກວດກາ, out of 6. */
+  @Prop({ type: Number, default: null, min: 0, max: 6 })
+  test?: number | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  recordedBy: Types.ObjectId;
+
+  /** Submitted for the month; further edits need the lock lifted. */
+  @Prop({ type: Boolean, default: false })
+  isLocked: boolean;
+
+  @Prop({ type: Date, default: null })
+  lockedAt?: Date | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  lockedBy?: Types.ObjectId | null;
+}
+
+export const MonthlyMarkSchema = SchemaFactory.createForClass(MonthlyMark);
+// One row per student per subject per month — per strand where a subject has
+// them. `strand: null` participates in the key, so an ordinary subject cannot
+// end up with two rows for the same month.
+MonthlyMarkSchema.index(
+  { studentId: 1, subjectId: 1, semesterId: 1, month: 1, strand: 1 },
+  { unique: true, partialFilterExpression: { deletedAt: null } },
+);
+// The entry grid and the term sheet both read a class at a time.
+MonthlyMarkSchema.index({ classroomId: 1, subjectId: 1, semesterId: 1, month: 1 });
+
+// ── Subject term mark (ສອບເສັງພາກ ແລະ ເພີ່ມ) ─────────────────────────────────
+
+export type SubjectTermMarkDocument = HydratedDocument<SubjectTermMark>;
+
+/**
+ * The two figures a term carries beside the months: the semester exam and the
+ * bonus.
+ *
+ * A separate document rather than columns on the monthly row, because they
+ * belong to the term as a whole — a single exam sat once, not one per month —
+ * and because the exam is often entered by the office after the teacher has
+ * closed their months.
+ */
+@Schema({ collection: 'subjectTermMarks', ...baseSchemaOptions })
+export class SubjectTermMark extends SoftDeletableDocument {
+  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  studentId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  subjectId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  classroomId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  semesterId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  schoolYearId: Types.ObjectId;
+
+  /** ສອບເສັງພາກ, out of 10. Zero is a mark; `null` is "has not sat it". */
+  @Prop({ type: Number, default: null, min: 0, max: 10 })
+  examScore?: number | null;
+
+  /** ເພີ່ມ — added to the term mark, which is then capped at 10. */
+  @Prop({ type: Number, default: null, min: 0, max: 10 })
+  bonus?: number | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  recordedBy: Types.ObjectId;
+
+  @Prop({ type: Boolean, default: false })
+  isLocked: boolean;
+
+  @Prop({ type: Date, default: null })
+  lockedAt?: Date | null;
+
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  lockedBy?: Types.ObjectId | null;
+}
+
+export const SubjectTermMarkSchema = SchemaFactory.createForClass(SubjectTermMark);
+SubjectTermMarkSchema.index(
+  { studentId: 1, subjectId: 1, semesterId: 1 },
+  { unique: true, partialFilterExpression: { deletedAt: null } },
+);
+SubjectTermMarkSchema.index({ classroomId: 1, subjectId: 1, semesterId: 1 });

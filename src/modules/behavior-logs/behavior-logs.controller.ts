@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ClientIp, CurrentUser, RequirePermissions } from 'src/common/decorators';
+import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BehaviorLogsService } from './behavior-logs.service';
 import {
@@ -19,7 +20,6 @@ import {
   MonthlySheetQueryDto,
   QueryBehaviorLogsDto,
   UpdateBehaviorLogDto,
-  WeeklyCoverageQueryDto,
 } from './dto/behavior-log.dto';
 
 /**
@@ -71,7 +71,7 @@ export class BehaviorLogsController {
       'people’s work, held by the administrator and the head of academic affairs — a teacher ' +
       'reads their own week from `weekly-coverage/mine`.',
   })
-  weeklyCoverage(@Query() query: WeeklyCoverageQueryDto) {
+  weeklyCoverage(@Query() query: CoverageQueryDto) {
     return this.service.getWeeklyCoverage(query);
   }
 
@@ -83,10 +83,7 @@ export class BehaviorLogsController {
       'The same report narrowed to the teacher on the session, never to a teacher named by the ' +
       'client. An account that is not a teacher gets an empty week rather than the school’s.',
   })
-  myWeeklyCoverage(
-    @Query() query: WeeklyCoverageQueryDto,
-    @CurrentUser() actor: AuthenticatedUser,
-  ) {
+  myWeeklyCoverage(@Query() query: CoverageQueryDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.service.getMyWeeklyCoverage(query, actor);
   }
 

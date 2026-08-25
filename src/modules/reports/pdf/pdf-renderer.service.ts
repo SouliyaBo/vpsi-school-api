@@ -21,6 +21,15 @@ export interface ReportData {
     schoolYearCode: string;
     semesterLo: string;
   };
+  /**
+   * What the marks on this report are out of.
+   *
+   * Stored marks are always a percentage, because that is what ranks a class and
+   * averages across subjects. Schools that mark out of 10 — this one keeps a
+   * 10-point monthly sheet — read `8.31`, not `83.10%`, so the figure is scaled
+   * and the column relabelled at the last moment rather than stored twice.
+   */
+  markScale?: number;
   subjects: {
     nameLo: string;
     credits: number;
@@ -74,6 +83,24 @@ const SUBJECT_COLUMNS = {
   result: 0.1,
 } as const;
 
+/**
+ * A stored percentage as the school reads it.
+ *
+ * Marks are stored out of 100 so a class can be ranked and a GPA taken across
+ * subjects marked in different ways; a school on a 10-point sheet prints 8.31.
+ */
+export function toMarkScale(percentage: number, data: { markScale?: number }): number {
+  const scale = data.markScale ?? 100;
+  return scale === 100 ? percentage : Math.round(((percentage * scale) / 100) * 100) / 100;
+}
+
+/** `ຄະແນນ (%)` at full scale, `ຄະແນນ (10)` on a 10-point sheet. */
+export function markLabel(data: { markScale?: number }, locale: 'lo' | 'en'): string {
+  const scale = data.markScale ?? 100;
+  if (scale === 100) return LABELS.percentage[locale];
+  return `${LABELS.markOutOf[locale]} (${scale})`;
+}
+
 const LABELS: Record<string, { lo: string; en: string }> = {
   studentCode: { lo: 'ລະຫັດນັກຮຽນ', en: 'Student code' },
   fullName: { lo: 'ຊື່ ແລະ ນາມສະກຸນ', en: 'Full name' },
@@ -88,6 +115,7 @@ const LABELS: Record<string, { lo: string; en: string }> = {
   subject: { lo: 'ວິຊາ', en: 'Subject' },
   credits: { lo: 'ໜ່ວຍກິດ', en: 'Credits' },
   percentage: { lo: 'ຄະແນນ (%)', en: 'Score (%)' },
+  markOutOf: { lo: 'ຄະແນນ', en: 'Score' },
   grade: { lo: 'ເກຣດ', en: 'Grade' },
   gradePoint: { lo: 'ແນນ', en: 'Point' },
   result: { lo: 'ຜົນ', en: 'Result' },
@@ -625,7 +653,7 @@ export class PdfRendererService {
         : []),
       {
         key: 'percentage',
-        label: LABELS.percentage[locale],
+        label: markLabel(data, locale),
         fraction: SUBJECT_COLUMNS.percentage,
         align: 'right',
       },
@@ -690,7 +718,7 @@ export class PdfRendererService {
       const values: Record<string, string> = {
         name: subject.nameLo,
         credits: String(subject.credits),
-        percentage: subject.percentage.toFixed(2),
+        percentage: toMarkScale(subject.percentage, data).toFixed(2),
         grade: subject.grade,
         gradePoint: subject.gradePoint.toFixed(1),
         result: subject.isPassed ? LABELS.passed[locale] : LABELS.failed[locale],
@@ -763,7 +791,7 @@ export class PdfRendererService {
     if (section.showAverage !== false) {
       rows.push([
         LABELS.average[locale],
-        `${data.summary.average.toFixed(2)}  (${data.summary.grade})`,
+        `${toMarkScale(data.summary.average, data).toFixed(2)}  (${data.summary.grade})`,
       ]);
     }
     if (section.showGpa) rows.push([LABELS.gpa[locale], data.summary.gpa.toFixed(2)]);

@@ -18,6 +18,7 @@ import { AttendancesModule } from './modules/attendances/attendances.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BehaviorLogsModule } from './modules/behavior-logs/behavior-logs.module';
+import { MonthlyMarksModule } from './modules/monthly-marks/monthly-marks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
 import { ClassroomsModule } from './modules/classrooms/classrooms.module';
@@ -156,6 +157,7 @@ import { UsersModule } from './modules/users/users.module';
     ConductScoresModule,
     AttendancesModule,
     BehaviorLogsModule,
+    MonthlyMarksModule,
     TermResultsModule,
     VaccinationsModule,
 

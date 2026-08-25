@@ -10,6 +10,8 @@ import { BehaviorLogsModule } from './behavior-logs/behavior-logs.module';
 import { BehaviorLogsService } from './behavior-logs/behavior-logs.service';
 import { LessonPlansModule } from './lesson-plans/lesson-plans.module';
 import { LessonPlansService } from './lesson-plans/lesson-plans.service';
+import { MonthlyMarksModule } from './monthly-marks/monthly-marks.module';
+import { MonthlyMarksService } from './monthly-marks/monthly-marks.service';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
 import { StorageModule } from './storage/storage.module';
@@ -46,6 +48,7 @@ const MODELS = [
   'LessonPlanMonth',
   'LessonPlanTask',
   'Location',
+  'MonthlyMark',
   'Notification',
   'Role',
   'SchoolYear',
@@ -54,8 +57,12 @@ const MODELS = [
   'Student',
   'Subject',
   'SubjectGroup',
+  'SubjectTermMark',
   'Teacher',
   'TeachingAssignment',
+  // Every mark-entry module flags stored term results as out of date, which puts
+  // this model in their graph without their owning it.
+  'TermResult',
   'User',
   'Vaccination',
   'VaccinationCampaign',
@@ -131,6 +138,12 @@ describe('module wiring', () => {
   it('resolves behavior logs, which reach for classrooms, semesters and the roster', async () => {
     const app = await build([BehaviorLogsModule]);
     expect(app.get(BehaviorLogsService)).toBeInstanceOf(BehaviorLogsService);
+    await app.close();
+  });
+
+  it('resolves monthly marks, which cross the roster with the timetable', async () => {
+    const app = await build([MonthlyMarksModule]);
+    expect(app.get(MonthlyMarksService)).toBeInstanceOf(MonthlyMarksService);
     await app.close();
   });
 

@@ -46,6 +46,22 @@ export class SemestersService extends BaseCrudService<SemesterDocument> {
       .exec();
   }
 
+  /**
+   * The term running at some point between `from` and `to`.
+   *
+   * For reports read by picking a date: the term a past week belongs to is a
+   * property of that week, not of which term happens to be active today. Asked
+   * as an overlap rather than "contains this date" so a week straddling the end
+   * of one term and the start of the next still resolves to one of them; the
+   * later of the two wins, which in that week is the term being taught into.
+   */
+  async findForRange(from: Date, to: Date): Promise<SemesterDocument | null> {
+    return this.model
+      .findOne({ deletedAt: null, startDate: { $lte: to }, endDate: { $gte: from } })
+      .sort({ startDate: -1 })
+      .exec();
+  }
+
   async getActiveOrFail(): Promise<SemesterDocument> {
     const active = await this.findActive();
     if (!active) throw AppException.badRequest('schoolYear.notActive');

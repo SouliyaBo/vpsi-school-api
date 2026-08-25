@@ -10,6 +10,7 @@ import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { ClassroomsService } from '../classrooms/classrooms.service';
 import { SemestersService } from '../semesters/semesters.service';
 import { conductGradeFor } from '../term-results/grading';
+import { TermResultStalenessService } from '../term-results/term-result-staleness.service';
 import { QueryConductScoresDto, UpsertConductScoreDto } from './dto/conduct-score.dto';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class ConductScoresService {
     private readonly classrooms: ClassroomsService,
     private readonly audit: AuditLogsService,
     private readonly scope: RecordScopeService,
+    private readonly staleness: TermResultStalenessService,
   ) {}
 
   async findAll(
@@ -111,6 +113,7 @@ export class ConductScoresService {
         ip,
       });
 
+      await this.flagTermResult(values.studentId, values.semesterId, 'conduct score updated');
       return updated!;
     }
 
@@ -125,7 +128,20 @@ export class ConductScoresService {
       ip,
     });
 
+    await this.flagTermResult(values.studentId, values.semesterId, 'conduct score recorded');
     return created;
+  }
+
+  /**
+   * The conduct grade is printed on the report card, so a change to it dates the
+   * stored term result exactly as a mark does.
+   */
+  private async flagTermResult(
+    studentId: Types.ObjectId,
+    semesterId: Types.ObjectId,
+    reason: string,
+  ): Promise<void> {
+    await this.staleness.markStale({ studentIds: [studentId], semesterId }, reason);
   }
 
   /**

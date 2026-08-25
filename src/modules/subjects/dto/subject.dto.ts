@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsMongoId,
@@ -64,6 +66,20 @@ export class CreateSubjectDto {
   hoursPerWeek?: number;
 
   @ApiPropertyOptional({
+    type: [String],
+    example: ['ຟີຊິກ', 'ເຄມີ', 'ຊີວະ'],
+    description:
+      'The strands the monthly mark sheet splits this subject into, each marked out of 10 ' +
+      'and averaged into the month. Leave empty for a subject marked as a whole.',
+  })
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(60, { each: true })
+  @IsOptional()
+  strands?: string[];
+
+  @ApiPropertyOptional({
     description: 'Percentage needed to pass. Falls back to the global grading setting.',
   })
   @Type(() => Number)
@@ -112,6 +128,20 @@ export class UpdateSubjectDto {
   @Min(0)
   @IsOptional()
   hoursPerWeek?: number;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['ຟີຊິກ', 'ເຄມີ', 'ຊີວະ'],
+    description:
+      'The strands the monthly mark sheet splits this subject into, each marked out of 10 ' +
+      'and averaged into the month. Leave empty for a subject marked as a whole.',
+  })
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(60, { each: true })
+  @IsOptional()
+  strands?: string[];
 
   @ApiPropertyOptional()
   @Type(() => Number)

@@ -5,6 +5,7 @@ import { TermResult, TermResultSchema } from 'src/database/schemas';
 import { AttendancesModule } from '../attendances/attendances.module';
 import { ConductScoresModule } from '../conduct-scores/conduct-scores.module';
 import { EnrollmentsModule } from '../enrollments/enrollments.module';
+import { MonthlyMarksModule } from '../monthly-marks/monthly-marks.module';
 import { ScoreComponentsModule } from '../score-components/score-components.module';
 import { ScoresModule } from '../scores/scores.module';
 import { SubjectsModule } from '../subjects/subjects.module';
@@ -27,6 +28,8 @@ import { TermResultsService } from './term-results.service';
     SubjectsModule,
     ConductScoresModule,
     AttendancesModule,
+    // The school's own 10-point sheet, which most subjects are marked on.
+    MonthlyMarksModule,
   ],
   controllers: [TermResultsController],
   providers: [TermResultsService, TermResultsQueueService, TermResultsProcessor],

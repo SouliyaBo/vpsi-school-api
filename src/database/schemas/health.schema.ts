@@ -72,7 +72,7 @@ export type VaccinationCampaignDocument = HydratedDocument<VaccinationCampaign>;
 
 @Schema({ collection: 'vaccinationCampaigns', ...baseSchemaOptions })
 export class VaccinationCampaign extends SoftDeletableDocument {
-  /** As the school announces it — `ວັກແຊງ HPV ເຂັມທີ 1, ພະຈິກ 2026`. */
+  /** As the school announces it — `ວັກຊີນ HPV ເຂັມທີ 1, ພະຈິກ 2026`. */
   @Prop({ type: String, required: true, trim: true })
   nameLo: string;
 

@@ -97,6 +97,7 @@ export class ReportDataService {
         schoolYearCode: schoolYear?.code ?? '—',
         semesterLo: semester?.nameLo ?? '—',
       },
+      markScale: await this.resolveMarkScale(),
       subjects: termResult.subjects.map((subject) => ({
         nameLo: subject.subjectNameLo,
         credits: subject.credits,
@@ -241,6 +242,18 @@ export class ReportDataService {
       .exec();
 
     return results.map((result) => result.studentId.toString());
+  }
+
+  /**
+   * What marks are printed out of.
+   *
+   * The stored figure is always a percentage; this only decides how it is read
+   * back. Defaults to 100 so a school that has not said otherwise keeps the
+   * report card it had.
+   */
+  private async resolveMarkScale(): Promise<number> {
+    const configured = await this.settings.getValue<number>('grading.reportMarkScale');
+    return typeof configured === 'number' && configured > 0 ? configured : 100;
   }
 
   private async resolveSchoolName(): Promise<string> {

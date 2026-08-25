@@ -62,7 +62,7 @@ export class CampaignEligibilityDto {
 }
 
 export class CreateCampaignDto {
-  @ApiProperty({ example: 'ວັກແຊງ HPV ເຂັມທີ 1' })
+  @ApiProperty({ example: 'ວັກຊີນ HPV ເຂັມທີ 1' })
   @IsString()
   @MaxLength(200)
   nameLo: string;

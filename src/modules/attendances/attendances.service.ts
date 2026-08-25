@@ -2,9 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { AttendanceStatus } from 'src/common/constants/enums';
+import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import { loadCoverageAssignments } from 'src/common/lesson-coverage/coverage-assignments';
+import {
+  buildCoverage,
+  dayWindow,
+  resolveCoverageSemester,
+  weekWindow,
+  type CoverageWritten,
+  type LessonCoverage,
+} from 'src/common/lesson-coverage/lesson-coverage';
 import {
   Attendance,
   AttendanceDocument,
@@ -16,6 +26,7 @@ import {
 } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
+import { isOnCurrentRoll, ROSTER_STUDENT_SELECT } from 'src/common/utils/current-roll';
 import { nicknameOf, populatedStudent, STUDENT_NAME_SELECT } from 'src/common/utils/student-name';
 import { SemestersService } from '../semesters/semesters.service';
 import { round2 } from '../term-results/grading';
@@ -125,6 +136,115 @@ export class AttendancesService {
     ]);
 
     return new PaginatedResponse(data, total, query.page, query.limit);
+  }
+
+  /**
+   * Which teacher has not marked the roll — the register read the other way round.
+   *
+   * Every other read here starts from records that exist, so none of them can show
+   * the lesson nobody marked: an unmarked class is not an absent student, it is the
+   * absence of a roll call, and that is what the academic office is chasing. So the
+   * expected set comes from the timetable and the marked days are matched into it.
+   *
+   * The same report as the behaviour register's, and deliberately the same code —
+   * with one rule changed. Attendance is owed once for *every* lesson day, not once
+   * per window: a teacher who marked Monday and skipped Wednesday is behind, and
+   * the register's "one entry is enough" rule would clear them.
+   *
+   * The summary is computed before `outstandingOnly` narrows the rows, so the
+   * headline numbers say what the window looks like rather than how long the list
+   * on screen is.
+   */
+  async getCoverage(
+    query: CoverageQueryDto,
+    options: { teacherId?: string | null; noLessons?: boolean } = {},
+  ): Promise<LessonCoverage> {
+    const teacherId = options.teacherId ?? query.teacherId ?? null;
+    const now = new Date();
+    // One day or one week, the same report — see `CoverageQueryDto`. Built twice
+    // because the term is read off the window and the window carries the term's
+    // bounds; the first pass only needs the dates, which the term cannot move.
+    const windowFor = (semester?: { startDate: Date; endDate: Date } | null) =>
+      query.date
+        ? dayWindow(query.date, now, semester)
+        : weekWindow(query.weekOf ?? now, now, semester);
+
+    // A named semester is honoured even when it is not the active one, so a head
+    // can look back at a closed term; otherwise the term is read off the window
+    // that was asked for rather than assumed to be the active one.
+    const semester = query.semesterId
+      ? await this.semesters.findOne(query.semesterId)
+      : await resolveCoverageSemester(this.semesters, windowFor());
+
+    const window = windowFor(semester);
+
+    const assignments =
+      semester && !options.noLessons
+        ? await loadCoverageAssignments(this.assignmentModel, semester._id, {
+            teacherId,
+            classroomId: query.classroomId,
+          })
+        : [];
+    const marked = await this.loadMarkedDays(
+      assignments.map((assignment) => assignment.teachingAssignmentId),
+      window.start,
+      window.end,
+    );
+
+    const coverage = buildCoverage(window, assignments, marked, {
+      covered: 'everyLessonDay',
+      semester: semester
+        ? { id: semester._id.toString(), nameLo: semester.nameLo, nameEn: semester.nameEn ?? null }
+        : null,
+    });
+
+    if (!query.outstandingOnly) return coverage;
+    return { ...coverage, rows: coverage.rows.filter((row) => row.status === 'missing') };
+  }
+
+  /**
+   * Which days each lesson was marked on, inside the window.
+   *
+   * Grouped by day rather than by record: one roll call writes a record per
+   * student, and `record()` keys its upsert on (student, date, assignment) — so a
+   * day is the unit that was either marked or not, whatever the period.
+   */
+  private async loadMarkedDays(
+    teachingAssignmentIds: string[],
+    from: Date,
+    to: Date,
+  ): Promise<CoverageWritten[]> {
+    if (teachingAssignmentIds.length === 0) return [];
+
+    const rows = await this.model
+      .aggregate<{ _id: Types.ObjectId; dates: Date[]; studentsNoted: number }>([
+        {
+          $match: {
+            teachingAssignmentId: {
+              $in: teachingAssignmentIds.map((id) => new Types.ObjectId(id)),
+            },
+            date: { $gte: from, $lte: to },
+            deletedAt: null,
+          },
+        },
+        {
+          $group: {
+            _id: '$teachingAssignmentId',
+            dates: { $addToSet: '$date' },
+            studentsNoted: { $sum: 1 },
+          },
+        },
+      ])
+      .exec();
+
+    return rows.map((row) => ({
+      teachingAssignmentId: row._id.toString(),
+      // One roll call, however many students it named — which is what makes this
+      // comparable with the register's rows.
+      entries: row.dates.length,
+      studentsNoted: row.studentsNoted,
+      dates: row.dates.map((date) => date.toISOString().slice(0, 10)),
+    }));
   }
 
   /**
@@ -433,8 +553,9 @@ export class AttendancesService {
         })
         // The enrollment carries a snapshot of the register name but no nickname,
         // and the nickname is what the teacher calling the roll recognises — so
-        // the student is joined for it rather than read off the snapshot.
-        .populate('studentId', STUDENT_NAME_SELECT)
+        // the student is joined for it rather than read off the snapshot. The
+        // join also carries the status the roll is filtered by.
+        .populate('studentId', ROSTER_STUDENT_SELECT)
         .sort({ rollNumber: 1 })
         .lean()
         .exec(),
@@ -458,6 +579,11 @@ export class AttendancesService {
         .exec(),
     ]);
 
+    // The sheet is a roll to call, not a list of enrollments: a student the
+    // office has marked as gone still holds an `active` enrollment until someone
+    // closes it, and their name should not be read out.
+    const onRoll = roster.filter((enrollment) => isOnCurrentRoll(enrollment.studentId));
+
     // Keyed by lesson, not by student: the same student appears once per lesson,
     // so a student-keyed map would silently drop all but one of them.
     const byLessonAndStudent = new Map(
@@ -480,7 +606,7 @@ export class AttendancesService {
           room: slot.room ?? null,
           subject: assignment.subjectId,
           teacher: assignment.teacherId,
-          entries: roster.map((enrollment) => {
+          entries: onRoll.map((enrollment) => {
             const student = populatedStudent(enrollment.studentId);
             const studentId = student?._id.toString() ?? String(enrollment.studentId);
             const record = byLessonAndStudent.get(`${assignmentId}:${studentId}`);

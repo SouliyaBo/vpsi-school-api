@@ -4,7 +4,13 @@ import {
   ReportLayout,
 } from './layout.types';
 import { isLaoFontAvailable, resetFontCache } from './font-resolver';
-import { PdfRendererService, ReportData, segmentByScript } from './pdf-renderer.service';
+import {
+  markLabel,
+  PdfRendererService,
+  ReportData,
+  segmentByScript,
+  toMarkScale,
+} from './pdf-renderer.service';
 
 describe('segmentByScript', () => {
   it('returns nothing for an empty string', () => {
@@ -65,6 +71,30 @@ describe('segmentByScript', () => {
           .join(''),
       ).toBe(sample);
     }
+  });
+});
+
+/**
+ * The school marks out of 10, and its report card has to read that way — while
+ * the stored figure stays a percentage, because that is what ranks a class and
+ * averages across subjects marked either way.
+ */
+describe('toMarkScale', () => {
+  it('leaves a percentage alone when nothing says otherwise', () => {
+    expect(toMarkScale(83.1, {})).toBe(83.1);
+    expect(markLabel({}, 'lo')).toBe('ຄະແນນ (%)');
+  });
+
+  it('reads a stored percentage back as the 10-point mark it came from', () => {
+    // ເກວະລິນ's ພາກຮຽນ: entered as 8.31, stored as 83.1, printed as 8.31.
+    expect(toMarkScale(83.1, { markScale: 10 })).toBe(8.31);
+    expect(markLabel({ markScale: 10 }, 'lo')).toBe('ຄະແນນ (10)');
+    expect(markLabel({ markScale: 10 }, 'en')).toBe('Score (10)');
+  });
+
+  it('rounds to two decimals rather than trailing a float', () => {
+    expect(toMarkScale(48.9, { markScale: 10 })).toBe(4.89);
+    expect(toMarkScale(66.67, { markScale: 10 })).toBe(6.67);
   });
 });
 

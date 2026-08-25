@@ -133,6 +133,41 @@ export function computeSubjectResult(
   };
 }
 
+/**
+ * The 10-point monthly sheet expressed in the same terms as a weighted subject.
+ *
+ * `ພາກຮຽນ` is already the whole story for a subject marked on the school's own
+ * form — there are no components left to weigh — so this is a translation rather
+ * than a computation: a mark of 8.31 out of 10 is 83.1 out of 100, and the grade,
+ * the grade point and the pass are read off the same scale every other subject
+ * uses. Keeping one canonical percentage is what lets a class be ranked and a GPA
+ * be taken across subjects marked either way.
+ *
+ * A subject still waiting on a month or on the exam has no mark yet. It comes back
+ * as zero *and* incomplete — never as a fail — which is what holds the whole term
+ * result back from publication.
+ */
+export function computeSubjectFromMark(
+  mark: number | null,
+  isComplete: boolean,
+  options: { scale?: readonly GradeBand[]; passingPercentage?: number; markMax?: number } = {},
+): Omit<SubjectComputation, 'components'> {
+  const scale = options.scale ?? DEFAULT_GRADE_SCALE;
+  const passingPercentage = options.passingPercentage ?? DEFAULT_PASSING_PERCENTAGE;
+  const markMax = options.markMax ?? 10;
+
+  const percentage = mark === null || markMax <= 0 ? 0 : round2((mark / markMax) * 100);
+  const band = gradeFor(percentage, scale);
+
+  return {
+    percentage,
+    grade: band.grade,
+    gradePoint: band.gradePoint,
+    isPassed: mark !== null && percentage >= passingPercentage,
+    isIncomplete: !isComplete || mark === null,
+  };
+}
+
 export interface SubjectSummary {
   credits: number;
   percentage: number;

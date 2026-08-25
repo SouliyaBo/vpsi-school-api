@@ -1,10 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
+import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import { loadCoverageAssignments } from 'src/common/lesson-coverage/coverage-assignments';
+import {
+  buildCoverage,
+  dayWindow,
+  resolveCoverageSemester,
+  weekWindow,
+  type CoverageWritten,
+  type LessonCoverage,
+} from 'src/common/lesson-coverage/lesson-coverage';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
+import {
+  isOnCurrentRoll,
+  ROSTER_STUDENT_PROJECTION,
+  ROSTER_STUDENT_SELECT,
+} from 'src/common/utils/current-roll';
 import {
   nicknameOf,
   populatedStudent,
@@ -18,6 +33,7 @@ import {
   BehaviorLogDocument,
   Enrollment,
   EnrollmentDocument,
+  SemesterDocument,
   TeachingAssignment,
   TeachingAssignmentDocument,
 } from 'src/database/schemas';
@@ -30,19 +46,11 @@ import { periodsOnDate, toUtcMidnight } from '../attendances/attendances.service
 import { ClassroomsService } from '../classrooms/classrooms.service';
 import { SemestersService } from '../semesters/semesters.service';
 import {
-  buildWeeklyCoverage,
-  weekWindow,
-  type CoverageAssignment,
-  type CoverageWritten,
-  type WeeklyCoverage,
-} from './behavior-week';
-import {
   BehaviorEntryDto,
   CreateBehaviorLogDto,
   MonthlySheetQueryDto,
   QueryBehaviorLogsDto,
   UpdateBehaviorLogDto,
-  WeeklyCoverageQueryDto,
 } from './dto/behavior-log.dto';
 
 /** A classroom carrying its grade, so `ມ.1/ກ` can be rendered without a lookup. */
@@ -233,8 +241,9 @@ export class BehaviorLogsService {
           deletedAt: null,
         })
         // The nickname is not on the enrollment snapshot, and the picker this
-        // roster fills is where a teacher looks for the child they mean.
-        .populate('studentId', STUDENT_NAME_SELECT)
+        // roster fills is where a teacher looks for the child they mean. The
+        // join also carries the status the roster is filtered by.
+        .populate('studentId', ROSTER_STUDENT_SELECT)
         .sort({ rollNumber: 1 })
         .lean()
         .exec(),
@@ -271,16 +280,21 @@ export class BehaviorLogsService {
     return {
       date: normalized.toISOString().slice(0, 10),
       lessons,
-      roster: roster.map((enrollment) => {
-        const student = populatedStudent(enrollment.studentId);
-        return {
-          studentId: student?._id.toString() ?? String(enrollment.studentId),
-          studentCode: enrollment.studentCode,
-          studentNameLo: enrollment.studentNameLo,
-          studentNickname: nicknameOf(student),
-          rollNumber: enrollment.rollNumber ?? null,
-        };
-      }),
+      // The picker offers the class as it stands today, so a student the office
+      // has marked as gone is left off it — their `active` enrollment outlives
+      // them leaving until someone closes it.
+      roster: roster
+        .filter((enrollment) => isOnCurrentRoll(enrollment.studentId))
+        .map((enrollment) => {
+          const student = populatedStudent(enrollment.studentId);
+          return {
+            studentId: student?._id.toString() ?? String(enrollment.studentId),
+            studentCode: enrollment.studentCode,
+            studentNameLo: enrollment.studentNameLo,
+            studentNickname: nicknameOf(student),
+            rollNumber: enrollment.rollNumber ?? null,
+          };
+        }),
     };
   }
 
@@ -469,7 +483,12 @@ export class BehaviorLogsService {
         entries: number;
         withAction: number;
         lastDate: Date;
-        student: { studentCode: string; firstNameLo: string; lastNameLo: string }[];
+        student: {
+          studentCode: string;
+          firstNameLo: string;
+          lastNameLo: string;
+          status: string;
+        }[];
       }>([
         {
           $match: {
@@ -499,22 +518,27 @@ export class BehaviorLogsService {
             localField: '_id',
             foreignField: '_id',
             as: 'student',
-            pipeline: [{ $project: STUDENT_NAME_PROJECTION }],
+            pipeline: [{ $project: { ...STUDENT_NAME_PROJECTION, ...ROSTER_STUDENT_PROJECTION } }],
           },
         },
         { $sort: { withAction: -1, entries: -1 } },
       ])
       .exec();
 
-    return rows.map((row) => ({
-      studentId: row._id.toString(),
-      studentCode: row.student[0]?.studentCode ?? null,
-      studentNameLo: registerName(row.student[0]),
-      studentNickname: nicknameOf(row.student[0]),
-      entries: row.entries,
-      withAction: row.withAction,
-      lastDate: row.lastDate.toISOString().slice(0, 10),
-    }));
+    // A tally is read as "who to speak to", so it lists the class as it stands
+    // today: a student the office has marked as gone drops off it, while the
+    // rows they earned stay in the register they were written into.
+    return rows
+      .filter((row) => isOnCurrentRoll(row.student[0]))
+      .map((row) => ({
+        studentId: row._id.toString(),
+        studentCode: row.student[0]?.studentCode ?? null,
+        studentNameLo: registerName(row.student[0]),
+        studentNickname: nicknameOf(row.student[0]),
+        entries: row.entries,
+        withAction: row.withAction,
+        lastDate: row.lastDate.toISOString().slice(0, 10),
+      }));
   }
 
   /**
@@ -527,45 +551,55 @@ export class BehaviorLogsService {
    * `teacherId` pinned to their own record rather than a separate report.
    *
    * The summary is computed before `outstandingOnly` narrows the rows, so the
-   * headline numbers say what the week looks like rather than how long the list
+   * headline numbers say what the window looks like rather than how long the list
    * on screen is.
    */
   async getWeeklyCoverage(
-    query: WeeklyCoverageQueryDto,
+    query: CoverageQueryDto,
     options: { teacherId?: string | null; noLessons?: boolean } = {},
-  ): Promise<WeeklyCoverage> {
+  ): Promise<LessonCoverage> {
     const teacherId = options.teacherId ?? query.teacherId ?? null;
 
+    const now = new Date();
+    // One day or one week, the same report — see `CoverageQueryDto`. Built
+    // twice because the term is read off the window and the window carries the
+    // term's bounds; the first pass only needs the dates, which the term cannot
+    // move.
+    const windowFor = (semester?: SemesterDocument | null) =>
+      query.date
+        ? dayWindow(query.date, now, semester)
+        : weekWindow(query.weekOf ?? now, now, semester);
+
     // A named semester is honoured even when it is not the active one, so a head
-    // can look back at a closed term; otherwise the active term is the question.
+    // can look back at a closed term; otherwise the term is read off the window
+    // that was asked for rather than assumed to be the active one.
     const semester = query.semesterId
       ? await this.semesters.findOne(query.semesterId)
-      : await this.semesters.findActive();
+      : await resolveCoverageSemester(this.semesters, windowFor());
 
-    const window = weekWindow(query.weekOf ?? new Date(), new Date(), semester);
+    const window = windowFor(semester);
 
     const assignments =
       semester && !options.noLessons
-        ? await this.loadWeekAssignments(semester._id, { ...query, teacherId })
+        ? await loadCoverageAssignments(this.assignmentModel, semester._id, {
+            teacherId,
+            classroomId: query.classroomId,
+          })
         : [];
     const written = await this.loadWrittenRows(
       assignments.map((assignment) => assignment.teachingAssignmentId),
-      window.weekStart,
-      window.weekEnd,
+      window.start,
+      window.end,
     );
 
-    const coverage = buildWeeklyCoverage(
-      window,
-      assignments,
-      written,
-      semester
-        ? {
-            id: semester._id.toString(),
-            nameLo: semester.nameLo,
-            nameEn: semester.nameEn ?? null,
-          }
+    const coverage = buildCoverage(window, assignments, written, {
+      // A behaviour note is written when there is something to note, so one row
+      // anywhere in the window is the whole of what the register is owed.
+      covered: 'anyEntry',
+      semester: semester
+        ? { id: semester._id.toString(), nameLo: semester.nameLo, nameEn: semester.nameEn ?? null }
         : null,
-    );
+    });
 
     if (!query.outstandingOnly) return coverage;
     return { ...coverage, rows: coverage.rows.filter((row) => row.status === 'missing') };
@@ -581,15 +615,17 @@ export class BehaviorLogsService {
    * never the query, so the route cannot be pointed at a colleague.
    */
   async getMyWeeklyCoverage(
-    query: WeeklyCoverageQueryDto,
+    query: CoverageQueryDto,
     actor: AuthenticatedUser,
-  ): Promise<WeeklyCoverage & { teacherId: string | null }> {
+  ): Promise<LessonCoverage & { teacherId: string | null }> {
     const teacherId = actor.personType === 'teacher' ? actor.personId : null;
 
     const coverage = await this.getWeeklyCoverage(
       // `teacherId` and `classroomId` are dropped from the query on purpose: this
       // route answers for the session's own teacher and nobody else, so there is
-      // nothing here a client could widen.
+      // nothing here a client could widen. `date` is dropped too: this one is the
+      // teacher's *week*, which is the span they are chased over — a day of it
+      // says nothing about what is still owed by Friday.
       { weekOf: query.weekOf, semesterId: query.semesterId },
       // No teacher on the session means no lessons of their own — an unfiltered
       // read would hand a teacher-shaped screen the whole school's gaps.
@@ -601,87 +637,15 @@ export class BehaviorLogsService {
   // ── internals ─────────────────────────────────────────────────────────────
 
   /**
-   * The timetable rows a week's coverage is measured against.
-   *
-   * Populated rather than aggregated for the same reason as the lesson-plan
-   * matrix: one row per teacher per class per subject is a small collection, and
-   * the names are wanted on every row anyway.
-   */
-  private async loadWeekAssignments(
-    semesterId: Types.ObjectId,
-    query: Omit<WeeklyCoverageQueryDto, 'teacherId'> & { teacherId: string | null },
-  ): Promise<CoverageAssignment[]> {
-    const filter: Record<string, unknown> = { semesterId, isActive: true, deletedAt: null };
-    if (query.teacherId) filter.teacherId = new Types.ObjectId(query.teacherId);
-    if (query.classroomId) filter.classroomId = new Types.ObjectId(query.classroomId);
-
-    const assignments = await this.assignmentModel
-      .find(filter)
-      .populate('teacherId', TEACHER_NAME)
-      .populate('subjectId', 'code nameLo nameEn')
-      .populate(CLASSROOM_WITH_GRADE)
-      .lean()
-      .exec();
-
-    const rows: CoverageAssignment[] = [];
-    for (const assignment of assignments) {
-      const teacher = assignment.teacherId as unknown as {
-        _id: Types.ObjectId;
-        teacherCode?: string | null;
-        firstNameLo: string;
-        lastNameLo: string;
-      } | null;
-      const subject = assignment.subjectId as unknown as {
-        _id: Types.ObjectId;
-        code?: string | null;
-        nameLo: string;
-        nameEn?: string | null;
-      } | null;
-      const classroom = assignment.classroomId as unknown as {
-        _id: Types.ObjectId;
-        name: string;
-        gradeLevelId?: { code?: string | null } | null;
-      } | null;
-
-      // A soft-deleted teacher, subject or class leaves the populate null, and a
-      // gap nobody owns is not something the office can chase — so it is dropped
-      // rather than reported against an empty name.
-      if (!teacher || !subject || !classroom) continue;
-
-      rows.push({
-        teachingAssignmentId: assignment._id.toString(),
-        teacherId: teacher._id.toString(),
-        teacherCode: teacher.teacherCode ?? null,
-        teacherName: `${teacher.firstNameLo} ${teacher.lastNameLo}`.trim(),
-        subjectId: subject._id.toString(),
-        subjectCode: subject.code ?? null,
-        subjectNameLo: subject.nameLo,
-        subjectNameEn: subject.nameEn ?? null,
-        classroomId: classroom._id.toString(),
-        classroomName: classroom.name,
-        gradeLevelCode: classroom.gradeLevelId?.code ?? null,
-        // Passed whole rather than reduced to weekdays: a rotating period is not
-        // counted, and that rule belongs with the counting.
-        schedule: assignment.schedule.map((period) => ({
-          dayOfWeek: period.dayOfWeek,
-          isRotating: period.isRotating,
-        })),
-      });
-    }
-
-    return rows;
-  }
-
-  /**
-   * What the register holds for those lessons inside the week.
+   * What the register holds for those lessons inside the window.
    *
    * Counted as rows, not records: `groupId` is what a teacher writes, and a row
    * naming six students is one entry in the register rather than six.
    */
   private async loadWrittenRows(
     teachingAssignmentIds: string[],
-    weekStart: Date,
-    weekEnd: Date,
+    from: Date,
+    to: Date,
   ): Promise<CoverageWritten[]> {
     if (teachingAssignmentIds.length === 0) return [];
 
@@ -690,14 +654,14 @@ export class BehaviorLogsService {
         _id: Types.ObjectId;
         groupIds: Types.ObjectId[];
         studentsNoted: number;
-        lastDate: Date;
+        dates: Date[];
       }>([
         {
           $match: {
             teachingAssignmentId: {
               $in: teachingAssignmentIds.map((id) => new Types.ObjectId(id)),
             },
-            date: { $gte: weekStart, $lte: weekEnd },
+            date: { $gte: from, $lte: to },
             deletedAt: null,
           },
         },
@@ -706,7 +670,9 @@ export class BehaviorLogsService {
             _id: '$teachingAssignmentId',
             groupIds: { $addToSet: '$groupId' },
             studentsNoted: { $sum: { $cond: [{ $eq: ['$studentId', null] }, 0, 1] } },
-            lastDate: { $max: '$date' },
+            // The days written on, so the report can name them — one row can
+            // name six students, hence the set rather than a count.
+            dates: { $addToSet: '$date' },
           },
         },
       ])
@@ -714,9 +680,9 @@ export class BehaviorLogsService {
 
     return rows.map((row) => ({
       teachingAssignmentId: row._id.toString(),
-      rows: row.groupIds.length,
+      entries: row.groupIds.length,
       studentsNoted: row.studentsNoted,
-      lastDate: row.lastDate.toISOString().slice(0, 10),
+      dates: row.dates.map((date) => date.toISOString().slice(0, 10)),
     }));
   }
 

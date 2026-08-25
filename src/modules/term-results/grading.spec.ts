@@ -1,5 +1,6 @@
 import {
   ComponentInput,
+  computeSubjectFromMark,
   DEFAULT_GRADE_SCALE,
   GradeBand,
   assignRanks,
@@ -280,5 +281,55 @@ describe('conductGradeFor', () => {
     [0, 'poor'],
   ])('maps %s to %s', (score, expected) => {
     expect(conductGradeFor(score)).toBe(expected);
+  });
+});
+
+/**
+ * The school marks on its own 10-point sheet, so most subjects arrive as a single
+ * ພາກຮຽນ rather than as components. What matters is that both roads meet: the
+ * stored percentage has to mean the same thing either way, or a class cannot be
+ * ranked and a GPA cannot be taken across the two.
+ */
+describe('computeSubjectFromMark', () => {
+  it('carries a 10-point mark onto the same 0–100 scale', () => {
+    // ເກວະລິນ's ພາກຮຽນ I on the real sheet.
+    expect(computeSubjectFromMark(8.2, true)).toMatchObject({
+      percentage: 82,
+      grade: 'A',
+      isPassed: true,
+      isIncomplete: false,
+    });
+  });
+
+  it("fails a mark under 5, which is the school's own pass line", () => {
+    // ສີວິໄຊ: 4.89 out of 10 is the mark the sheet highlights in red.
+    expect(computeSubjectFromMark(4.89, true)).toMatchObject({
+      percentage: 48.9,
+      grade: 'F',
+      isPassed: false,
+    });
+  });
+
+  it('honours a subject-specific pass mark', () => {
+    expect(computeSubjectFromMark(5.5, true, { passingPercentage: 60 }).isPassed).toBe(false);
+  });
+
+  it('holds an unmarked subject back rather than failing it', () => {
+    // No exam sat yet: zero for the arithmetic, but flagged so the term result
+    // cannot be published on it.
+    expect(computeSubjectFromMark(null, false)).toMatchObject({
+      percentage: 0,
+      isPassed: false,
+      isIncomplete: true,
+    });
+  });
+
+  it('flags a mark that exists but is not final', () => {
+    // Two of three months in: there is a figure, and it is going to move.
+    expect(computeSubjectFromMark(7.5, false)).toMatchObject({
+      percentage: 75,
+      isPassed: true,
+      isIncomplete: true,
+    });
   });
 });
