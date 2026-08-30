@@ -4,6 +4,7 @@ import { ClientSession, Model, Types } from 'mongoose';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import { ConductGrade } from 'src/common/constants/enums';
 import { ConductScore, ConductScoreDocument } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
@@ -94,6 +95,9 @@ export class ConductScoresService {
       score: dto.score,
       grade: conductGradeFor(dto.score),
       remark: dto.remark ?? null,
+      // Typed in by a person, so it outranks anything the deduction ledger
+      // would compute — see `applyFromDeductions`.
+      source: 'manual' as const,
       recordedBy: new Types.ObjectId(actor.sub),
     };
 
@@ -142,6 +146,94 @@ export class ConductScoresService {
     reason: string,
   ): Promise<void> {
     await this.staleness.markStale({ studentIds: [studentId], semesterId }, reason);
+  }
+
+  /**
+   * Publishes a term's conduct score from the deduction ledger.
+   *
+   * The school's rule sheet makes the term mark a consequence rather than a
+   * judgement: 100 at the start of the term, less what the published rules have
+   * cost. So the ledger writes the mark, and the report card needs no second act
+   * of data entry to agree with the discipline record.
+   *
+   * It will not touch a row someone entered by hand. A mark the office set is a
+   * decision — a child forgiven their deductions, or marked down for something
+   * the sheet has no number for — and having the next 5-point deduction quietly
+   * reverse it would make the office's own screen untrustworthy. Returns whether
+   * it wrote, so the caller can say so.
+   */
+  async applyFromDeductions(input: {
+    studentId: Types.ObjectId;
+    semesterId: Types.ObjectId;
+    schoolYearId: Types.ObjectId;
+    classroomId: Types.ObjectId;
+    score: number;
+    actor: AuthenticatedUser;
+    ip: string | null;
+  }): Promise<{ written: boolean; score: number; grade: ConductGrade }> {
+    const grade = conductGradeFor(input.score);
+    const existing = await this.model
+      .findOne({
+        studentId: input.studentId,
+        semesterId: input.semesterId,
+        periodType: 'semester',
+        periodValue: 1,
+        deletedAt: null,
+      })
+      .exec();
+
+    if (existing && existing.source === 'manual') {
+      return { written: false, score: existing.score, grade: existing.grade };
+    }
+
+    // Nothing has changed, so neither the audit trail nor the term result needs
+    // to hear about it — a class of thirty is re-published on every deduction.
+    if (existing && existing.score === input.score) {
+      return { written: false, score: existing.score, grade: existing.grade };
+    }
+
+    const values = {
+      studentId: input.studentId,
+      semesterId: input.semesterId,
+      schoolYearId: input.schoolYearId,
+      classroomId: input.classroomId,
+      periodType: 'semester' as const,
+      // The sheet runs one 100-point account per term, so there is only ever a
+      // first of them.
+      periodValue: 1,
+      score: input.score,
+      grade,
+      source: 'deductions' as const,
+      recordedBy: new Types.ObjectId(input.actor.sub),
+    };
+
+    const written = await this.model
+      .findOneAndUpdate(
+        {
+          studentId: input.studentId,
+          semesterId: input.semesterId,
+          periodType: 'semester',
+          periodValue: 1,
+          deletedAt: null,
+        },
+        { $set: values },
+        { new: true, upsert: true },
+      )
+      .exec();
+
+    await this.audit.record({
+      action: existing ? 'update' : 'create',
+      entityType: 'conductScores',
+      entityId: written._id,
+      userId: input.actor.sub,
+      username: input.actor.username,
+      oldValue: existing ? { score: existing.score, grade: existing.grade } : undefined,
+      newValue: { score: values.score, grade: values.grade, source: values.source },
+      ip: input.ip,
+    });
+
+    await this.flagTermResult(input.studentId, input.semesterId, 'conduct deduction recorded');
+    return { written: true, score: values.score, grade };
   }
 
   /**

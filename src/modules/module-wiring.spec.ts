@@ -8,6 +8,8 @@ import { TransactionHelper } from '../database/transaction.helper';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { BehaviorLogsModule } from './behavior-logs/behavior-logs.module';
 import { BehaviorLogsService } from './behavior-logs/behavior-logs.service';
+import { ConductDeductionsModule } from './conduct-deductions/conduct-deductions.module';
+import { ConductDeductionsService } from './conduct-deductions/conduct-deductions.service';
 import { LessonPlansModule } from './lesson-plans/lesson-plans.module';
 import { LessonPlansService } from './lesson-plans/lesson-plans.service';
 import { MonthlyMarksModule } from './monthly-marks/monthly-marks.module';
@@ -41,6 +43,9 @@ const MODELS = [
   'BehaviorLog',
   'CalendarEvent',
   'Classroom',
+  'ConductDeduction',
+  'ConductRule',
+  'ConductScore',
   'Enrollment',
   'GradeLevel',
   'Guardian',
@@ -138,6 +143,14 @@ describe('module wiring', () => {
   it('resolves behavior logs, which reach for classrooms, semesters and the roster', async () => {
     const app = await build([BehaviorLogsModule]);
     expect(app.get(BehaviorLogsService)).toBeInstanceOf(BehaviorLogsService);
+    await app.close();
+  });
+
+  // Publishes the term's conduct score as a side effect of taking points, which
+  // puts ConductScoresService in its graph without its owning that collection.
+  it('resolves conduct deductions, which publish the conduct score they compute', async () => {
+    const app = await build([ConductDeductionsModule]);
+    expect(app.get(ConductDeductionsService)).toBeInstanceOf(ConductDeductionsService);
     await app.close();
   });
 

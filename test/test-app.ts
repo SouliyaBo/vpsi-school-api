@@ -18,6 +18,7 @@ import { AttendancesModule } from 'src/modules/attendances/attendances.module';
 import { AuditLogsModule } from 'src/modules/audit-logs/audit-logs.module';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { ClassroomsModule } from 'src/modules/classrooms/classrooms.module';
+import { ConductDeductionsModule } from 'src/modules/conduct-deductions/conduct-deductions.module';
 import { ConductScoresModule } from 'src/modules/conduct-scores/conduct-scores.module';
 import { EnrollmentsModule } from 'src/modules/enrollments/enrollments.module';
 import { GradeLevelsModule } from 'src/modules/grade-levels/grade-levels.module';
@@ -219,6 +220,7 @@ export async function createTestApp(): Promise<TestContext> {
       ScoreComponentsModule,
       ScoresModule,
       ConductScoresModule,
+      ConductDeductionsModule,
       AttendancesModule,
 
       // The real modules are imported and then overridden below, so that a

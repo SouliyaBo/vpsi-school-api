@@ -5,8 +5,10 @@ import {
   AttendanceStatus,
   CONDUCT_GRADES,
   CONDUCT_PERIOD_TYPES,
+  CONDUCT_SCORE_SOURCES,
   ConductGrade,
   ConductPeriodType,
+  ConductScoreSource,
   GRADES,
   Grade,
   SCORE_COMPONENT_TYPES,
@@ -190,6 +192,18 @@ export class ConductScore extends SoftDeletableDocument {
 
   @Prop({ type: String, default: null })
   remark?: string | null;
+
+  /**
+   * `deductions` when this row was computed from the deduction ledger, `manual`
+   * when someone typed it in.
+   *
+   * The ledger only ever overwrites its own rows: a mark the office set by hand
+   * is a decision, and the next 5-point deduction must not silently reverse it.
+   * Defaults to `manual` so every row written before the ledger existed keeps
+   * the protection.
+   */
+  @Prop({ type: String, required: true, enum: CONDUCT_SCORE_SOURCES, default: 'manual' })
+  source: ConductScoreSource;
 
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;

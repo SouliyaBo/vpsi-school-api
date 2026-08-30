@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { flattenOfficialLocations } from 'src/database/locations/location-matching';
 import { ADMIN_USERNAME, TestContext, auth, createTestApp, login } from './test-app';
 
 /**
@@ -118,23 +119,35 @@ describe('Academic operations (e2e)', () => {
     it('returns the province → district → village hierarchy', async () => {
       const response = await http().get('/api/locations/tree').set(auth(token)).expect(200);
 
-      expect(response.body).toHaveLength(1);
-      expect(response.body[0].type).toBe('province');
-      expect(response.body[0].children[0].type).toBe('district');
-      expect(response.body[0].children[0].children[0].type).toBe('village');
+      expect(response.body).toHaveLength(18);
+
+      // Villages hang off the capital's districts — the official list has them
+      // for Vientiane Capital only, so that is where all three levels appear.
+      const capital = response.body.find(
+        (province: { nameLo: string }) => province.nameLo === 'ນະຄອນຫຼວງວຽງຈັນ',
+      );
+      expect(capital.type).toBe('province');
+      expect(capital.children).toHaveLength(9);
+      expect(capital.children[0].type).toBe('district');
+      expect(capital.children[0].children[0].type).toBe('village');
     });
 
     it('finds every village under a province via the ancestors index', async () => {
       const tree = await http().get('/api/locations/tree').set(auth(token)).expect(200);
-      const provinceId = tree.body[0].id;
+      const capital = tree.body.find(
+        (province: { nameLo: string }) => province.nameLo === 'ນະຄອນຫຼວງວຽງຈັນ',
+      );
 
       const response = await http()
-        .get(`/api/locations?ancestorId=${provinceId}&type=village&limit=50`)
+        .get(`/api/locations?ancestorId=${capital.id}&type=village&limit=50`)
         .set(auth(token))
         .expect(200);
 
-      // Four villages across two districts, reached in one query.
-      expect(response.body.meta.total).toBe(4);
+      // Every village of the capital, across nine districts, in one query.
+      const expected = flattenOfficialLocations().filter(
+        (row) => row.type === 'village' && row.parentCode?.startsWith('01'),
+      ).length;
+      expect(response.body.meta.total).toBe(expected);
     });
 
     it('rejects a village whose parent is a province rather than a district', async () => {
@@ -1317,6 +1330,249 @@ describe('Academic operations (e2e)', () => {
       expect(records.body.meta.total).toBe(1);
       expect(records.body.data[0].score).toBe(85);
       expect(records.body.data[0].grade).toBe('very_good');
+    });
+  });
+
+  /**
+   * ຕັດຄະແນນອຸປະນິໄສ — the discipline ledger.
+   *
+   * The whole promise of the feature is arithmetic nobody has to do by hand: the
+   * rule decides the cost, the ledger decides the balance, the balance decides
+   * the rung, and the term's conduct mark follows without a second act of data
+   * entry. That chain is what these assert, end to end.
+   */
+  describe('conduct deductions', () => {
+    // Inside the seeded term (2025-09-01 – 2026-01-31), and in the past.
+    const day = '2025-09-16';
+    let ruleId: string;
+    let deductionStudentId: string;
+
+    beforeAll(async () => {
+      ruleId = await http()
+        .post('/api/conduct-rules')
+        .set(auth(token))
+        .send({
+          code: 'E2E-2.1',
+          points: 10,
+          nameLo: 'ໃຊ້ໂທລະສັບໃນເວລາຮຽນ',
+          nameEn: 'Using a phone during class',
+        })
+        .expect(201)
+        .then((response) => response.body.id as string);
+
+      deductionStudentId = await createStudent('S-DED-001', 'ຄຳຫລ້າ');
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: deductionStudentId, classroomId })
+        .expect(201);
+    });
+
+    it('takes the rule’s points, and says which rung that reaches', async () => {
+      const response = await http()
+        .post('/api/conduct-deductions')
+        .set(auth(token))
+        .send({ classroomId, ruleId, date: day, studentIds: [deductionStudentId] })
+        .expect(201);
+
+      expect(response.body.recorded).toBe(1);
+      const outcome = response.body.students[0];
+      expect(outcome.deducted).toBe(10);
+      expect(outcome.remaining).toBe(90);
+      // ຂັ້ນຫ້ອງ: handled by the homeroom teacher, and nobody else yet.
+      expect(outcome.level).toBe('classroom');
+      expect(outcome.notify).toEqual(['homeroomTeacher', 'student']);
+    });
+
+    it('publishes the balance as the term’s conduct score', async () => {
+      const scores = await http()
+        .get(`/api/conduct-scores?studentId=${deductionStudentId}&semesterId=${semesterId}`)
+        .set(auth(token))
+        .expect(200);
+
+      const term = scores.body.data.find(
+        (row: { periodType: string }) => row.periodType === 'semester',
+      );
+      expect(term.score).toBe(90);
+      expect(term.grade).toBe('excellent');
+      // Marked as the ledger's, which is what stops a later deduction from
+      // overwriting a figure the office set by hand.
+      expect(term.source).toBe('deductions');
+    });
+
+    it('lists the whole roll, so a clean record is visible as one', async () => {
+      const standing = await http()
+        .get(`/api/conduct-deductions/summary/classroom/${classroomId}/semester/${semesterId}`)
+        .set(auth(token))
+        .expect(200);
+
+      const deducted = standing.body.find(
+        (row: { studentId: string }) => row.studentId === deductionStudentId,
+      );
+      expect(deducted).toMatchObject({ deducted: 10, remaining: 90, level: 'classroom' });
+
+      // Somebody else in the same room who has done nothing: on the full 100,
+      // and on the page rather than missing from it.
+      const clean = standing.body.find(
+        (row: { studentId: string }) => row.studentId !== deductionStudentId,
+      );
+      expect(clean.remaining).toBe(100);
+      expect(clean.level).toBe('none');
+      // Worst first, which is the order it is acted on.
+      expect(standing.body[0].deducted).toBeGreaterThanOrEqual(
+        standing.body[standing.body.length - 1].deducted,
+      );
+    });
+
+    it('escalates to the guardians once the term’s total passes ຂັ້ນ 1', async () => {
+      const response = await http()
+        .post('/api/conduct-deductions')
+        .set(auth(token))
+        .send({ classroomId, ruleId, date: day, studentIds: [deductionStudentId] })
+        .expect(201);
+
+      const outcome = response.body.students[0];
+      expect(outcome.deducted).toBe(20);
+      expect(outcome.remaining).toBe(80);
+      expect(outcome.level).toBe('level1');
+      expect(outcome.notify).toContain('guardian');
+    });
+
+    it('refuses a rule that has been applied to be deleted, and withdraws instead', async () => {
+      await http().delete(`/api/conduct-rules/${ruleId}`).set(auth(token)).expect(409);
+
+      await http()
+        .patch(`/api/conduct-rules/${ruleId}`)
+        .set(auth(token))
+        .send({ isActive: false })
+        .expect(200);
+
+      // Withdrawn means it stops being offered, not that history changes.
+      await http()
+        .post('/api/conduct-deductions')
+        .set(auth(token))
+        .send({ classroomId, ruleId, date: day, studentIds: [deductionStudentId] })
+        .expect(400);
+
+      await http()
+        .patch(`/api/conduct-rules/${ruleId}`)
+        .set(auth(token))
+        .send({ isActive: true })
+        .expect(200);
+    });
+
+    it('gives the points back when a deduction is withdrawn, with the reason kept', async () => {
+      const ledger = await http()
+        .get(`/api/conduct-deductions/student/${deductionStudentId}/semester/${semesterId}`)
+        .set(auth(token))
+        .expect(200);
+
+      expect(ledger.body.entries).toHaveLength(2);
+      expect(ledger.body.remaining).toBe(80);
+
+      const revoked = await http()
+        .delete(`/api/conduct-deductions/${ledger.body.entries[0].id}`)
+        .set(auth(token))
+        .send({ reason: 'ບັນທຶກຜິດຄົນ' })
+        .expect(200);
+
+      expect(revoked.body.deducted).toBe(10);
+      expect(revoked.body.remaining).toBe(90);
+      // The published mark follows the ledger back up.
+      expect(revoked.body.level).toBe('classroom');
+
+      const after = await http()
+        .get(`/api/conduct-deductions/student/${deductionStudentId}/semester/${semesterId}`)
+        .set(auth(token))
+        .expect(200);
+      expect(after.body.entries).toHaveLength(1);
+
+      const score = await http()
+        .get(`/api/conduct-scores?studentId=${deductionStudentId}&semesterId=${semesterId}`)
+        .set(auth(token))
+        .expect(200);
+      expect(
+        score.body.data.find((row: { periodType: string }) => row.periodType === 'semester').score,
+      ).toBe(90);
+    });
+
+    /**
+     * The sheet is read whole by the screen that records against it, so how the
+     * list endpoint answers is not a detail: a page it refuses, or a withdrawn
+     * rule it hands back, both surface as a teacher picking the wrong line.
+     */
+    it('serves the sheet in its printed order, without the withdrawn items', async () => {
+      const cheapId = await http()
+        .post('/api/conduct-rules')
+        .set(auth(token))
+        .send({ code: 'E2E-1.1', points: 5, nameLo: 'ນຸ່ງເຄື່ອງບໍ່ຖືກລະບຽບ' })
+        .expect(201)
+        .then((response) => response.body.id as string);
+
+      await http()
+        .patch(`/api/conduct-rules/${cheapId}`)
+        .set(auth(token))
+        .send({ isActive: false })
+        .expect(200);
+
+      // The page size the screen asks for. Above the API's cap this is a 400,
+      // not a shorter page — and the screen would render that as an empty sheet.
+      const inForce = await http().get('/api/conduct-rules?limit=100').set(auth(token)).expect(200);
+
+      const codes = inForce.body.data.map((rule: { code: string }) => rule.code);
+      expect(codes).toContain('E2E-2.1');
+      expect(codes).not.toContain('E2E-1.1');
+
+      // Cheapest column first, which is how the sheet is printed and read.
+      const points = inForce.body.data.map((rule: { points: number }) => rule.points);
+      expect(points).toEqual([...points].sort((a: number, b: number) => a - b));
+
+      // And within a column, where the number says — a rule the office adds
+      // must not land above the one before it just because it was typed later.
+      await http()
+        .post('/api/conduct-rules')
+        .set(auth(token))
+        .send({ code: 'E2E-2.9', points: 10, nameLo: 'ອອກຈາກຫ້ອງໂດຍບໍ່ໄດ້ຮັບອະນຸຍາດ' })
+        .expect(201);
+
+      const reread = await http().get('/api/conduct-rules?limit=100').set(auth(token)).expect(200);
+      const tenPointColumn = reread.body.data
+        .filter((rule: { points: number; code: string }) => rule.code.startsWith('E2E-2.'))
+        .map((rule: { code: string }) => rule.code);
+      expect(tenPointColumn).toEqual(['E2E-2.1', 'E2E-2.9']);
+
+      const withWithdrawn = await http()
+        .get('/api/conduct-rules?limit=100&includeWithdrawn=true')
+        .set(auth(token))
+        .expect(200);
+      expect(withWithdrawn.body.data.map((rule: { code: string }) => rule.code)).toContain(
+        'E2E-1.1',
+      );
+
+      // `false` has to mean false. Cast with `Boolean(value)` it would not:
+      // every non-empty string is truthy, so the office would be shown rules
+      // that are no longer in force.
+      const explicitlyFalse = await http()
+        .get('/api/conduct-rules?limit=100&includeWithdrawn=false')
+        .set(auth(token))
+        .expect(200);
+      expect(explicitlyFalse.body.data.map((rule: { code: string }) => rule.code)).not.toContain(
+        'E2E-1.1',
+      );
+    });
+
+    it('refuses a deduction dated outside every term, and one in the future', async () => {
+      await http()
+        .post('/api/conduct-deductions')
+        .set(auth(token))
+        .send({ classroomId, ruleId, date: '2019-05-05', studentIds: [deductionStudentId] })
+        .expect(400);
+
+      await http()
+        .post('/api/conduct-deductions')
+        .set(auth(token))
+        .send({ classroomId, ruleId, date: '2099-05-05', studentIds: [deductionStudentId] })
+        .expect(400);
     });
   });
 

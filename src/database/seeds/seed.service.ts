@@ -7,6 +7,8 @@ import {
   CalendarEventDocument,
   Classroom,
   ClassroomDocument,
+  ConductRule,
+  ConductRuleDocument,
   GradeLevel,
   GradeLevelDocument,
   ReportTemplate,
@@ -37,36 +39,9 @@ import {
 } from 'src/modules/reports/pdf/layout.types';
 import { DEFAULT_SEMESTER_MONTHS } from 'src/modules/monthly-marks/monthly-grading';
 import { DEFAULT_GRADE_SCALE, DEFAULT_PASSING_PERCENTAGE } from 'src/modules/term-results/grading';
+import { flattenOfficialLocations } from 'src/database/locations/location-matching';
+import { CONDUCT_RULE_SEEDS } from './conduct-rules';
 import { ROLE_SEEDS } from './role-permissions';
-
-/** Sample Lao locations — one province with two districts and four villages. */
-const LOCATION_SEEDS = [
-  {
-    nameLo: 'ນະຄອນຫຼວງວຽງຈັນ',
-    nameEn: 'Vientiane Capital',
-    code: 'VTE',
-    districts: [
-      {
-        nameLo: 'ເມືອງຈັນທະບູລີ',
-        nameEn: 'Chanthabuly',
-        code: 'VTE-CTB',
-        villages: [
-          { nameLo: 'ບ້ານໂພນສະຫວັນ', nameEn: 'Ban Phonsavan' },
-          { nameLo: 'ບ້ານສີສະເກດ', nameEn: 'Ban Sisaket' },
-        ],
-      },
-      {
-        nameLo: 'ເມືອງສີໂຄດຕະບອງ',
-        nameEn: 'Sikhottabong',
-        code: 'VTE-SKB',
-        villages: [
-          { nameLo: 'ບ້ານດົງປ່າແລບ', nameEn: 'Ban Dongpalep' },
-          { nameLo: 'ບ້ານໜອງບອນ', nameEn: 'Ban Nongbon' },
-        ],
-      },
-    ],
-  },
-];
 
 const GRADE_LEVEL_SEEDS = [
   { code: 'm1', nameLo: 'ມັດທະຍົມສຶກສາປີທີ 1', nameEn: 'Grade 7', level: 1, isExitLevel: false },
@@ -190,6 +165,8 @@ export class SeedService {
     private readonly reportTemplateModel: Model<ReportTemplateDocument>,
     @InjectModel(CalendarEvent.name)
     private readonly calendarEventModel: Model<CalendarEventDocument>,
+    @InjectModel(ConductRule.name)
+    private readonly conductRuleModel: Model<ConductRuleDocument>,
   ) {}
 
   async run(): Promise<void> {
@@ -210,6 +187,7 @@ export class SeedService {
     await this.seedClassrooms(schoolYear, gradeLevels, teachers);
     await this.seedReportTemplates();
     await this.seedCalendarEvents(schoolYear);
+    await this.seedConductRules();
 
     this.logger.log('Seed complete.');
   }
@@ -423,73 +401,86 @@ export class SeedService {
     }
   }
 
+  /**
+   * The official address list: 18 provinces, 149 districts, and the villages of
+   * Vientiane Capital.
+   *
+   * Not sample data — a school records where its students live from day one, and
+   * a placeholder tree is what the register was typed into last time, which took
+   * a migration to undo. Keyed by the official `code`, so this is an update on a
+   * database that already has it and the full list on one that does not.
+   * `npm run import:locations` is the same write with the merge machinery a
+   * migration needs; this is the plain version for a fresh database.
+   */
   private async seedLocations(): Promise<void> {
-    let count = 0;
+    const official = flattenOfficialLocations();
+    const idByCode = new Map<string, Types.ObjectId>();
 
-    for (const provinceSeed of LOCATION_SEEDS) {
-      const province = await this.locationModel
-        .findOneAndUpdate(
-          { nameLo: provinceSeed.nameLo, type: 'province' },
-          {
-            $set: {
-              nameEn: provinceSeed.nameEn,
-              code: provinceSeed.code,
-              type: 'province',
-              parentId: null,
-              ancestors: [],
-              depth: 0,
-              deletedAt: null,
-            },
-          },
-          { upsert: true, new: true, setDefaultsOnInsert: true },
-        )
-        .exec();
-      count += 1;
+    for (const type of ['province', 'district', 'village'] as const) {
+      const rows = official.filter((row) => row.type === type);
 
-      for (const districtSeed of provinceSeed.districts) {
-        const district = await this.locationModel
-          .findOneAndUpdate(
-            { nameLo: districtSeed.nameLo, type: 'district' },
-            {
-              $set: {
-                nameEn: districtSeed.nameEn,
-                code: districtSeed.code,
-                type: 'district',
-                parentId: province._id,
-                ancestors: [province._id],
-                depth: 1,
-                deletedAt: null,
-              },
-            },
-            { upsert: true, new: true, setDefaultsOnInsert: true },
-          )
-          .exec();
-        count += 1;
+      await this.locationModel.bulkWrite(
+        rows.map((row) => {
+          // Root-first, which is what the ancestors index relies on: a village
+          // carries its province as well as its district.
+          const parentId = row.parentCode ? idByCode.get(row.parentCode) : undefined;
+          const provinceId =
+            row.type === 'village' ? idByCode.get(row.code.slice(0, 2)) : undefined;
+          const ancestors = [provinceId, parentId].filter(
+            (id): id is Types.ObjectId => id !== undefined,
+          );
 
-        for (const village of districtSeed.villages) {
-          await this.locationModel
-            .updateOne(
-              { nameLo: village.nameLo, type: 'village' },
-              {
+          return {
+            updateOne: {
+              filter: { code: row.code },
+              update: {
                 $set: {
-                  nameEn: village.nameEn,
-                  type: 'village',
-                  parentId: district._id,
-                  // Root-first, which is what the ancestors index relies on.
-                  ancestors: [province._id, district._id],
-                  depth: 2,
+                  nameLo: row.nameLo,
+                  type: row.type,
+                  parentId: parentId ?? null,
+                  ancestors,
+                  depth: { province: 0, district: 1, village: 2 }[row.type],
                   deletedAt: null,
                 },
               },
-              { upsert: true },
-            )
-            .exec();
-          count += 1;
-        }
-      }
+              upsert: true,
+            },
+          };
+        }),
+      );
+
+      const written = await this.locationModel
+        .find({ type, code: { $in: rows.map((row) => row.code) } })
+        .select('_id code')
+        .lean()
+        .exec();
+
+      for (const doc of written) idByCode.set(doc.code!, doc._id);
     }
 
-    this.logger.log(`Locations: ${count}`);
+    this.logger.log(`Locations: ${official.length}`);
+  }
+
+  /**
+   * The discipline rule sheet, as far as it has been transcribed.
+   *
+   * Inserted and then left alone — `$setOnInsert`, unlike every other seed here
+   * — because this is the one table the school owns rather than the system: the
+   * director reissues the sheet each year, and a seed that reasserted itself on
+   * every deploy would quietly undo the office's own wording. Rules missing from
+   * this list are added on the ລະບຽບ screen, which is the same act.
+   */
+  private async seedConductRules(): Promise<void> {
+    for (const seed of CONDUCT_RULE_SEEDS) {
+      await this.conductRuleModel
+        .updateOne(
+          { code: seed.code },
+          { $setOnInsert: { ...seed, isActive: true, deletedAt: null } },
+          { upsert: true },
+        )
+        .exec();
+    }
+    this.logger.log(`Conduct rules: ${CONDUCT_RULE_SEEDS.length}`);
   }
 
   private async seedGradeLevels(): Promise<Map<string, GradeLevelDocument>> {

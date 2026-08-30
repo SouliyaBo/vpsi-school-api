@@ -207,6 +207,54 @@ export type ConductGrade = (typeof CONDUCT_GRADES)[number];
 export const CONDUCT_PERIOD_TYPES = tuple('monthly', 'semester', 'yearly');
 export type ConductPeriodType = (typeof CONDUCT_PERIOD_TYPES)[number];
 
+/**
+ * Where a conduct score came from.
+ *
+ * The school runs a deduction ledger — every child starts a term on 100 and
+ * loses points against a published rule — so the term's conduct score is a
+ * consequence of that ledger rather than a judgement typed in at the end. The
+ * two still coexist: `manual` is a mark the office set itself, and the ledger
+ * refuses to overwrite one, because a headteacher's own decision must not be
+ * undone by the next deduction.
+ */
+export const CONDUCT_SCORE_SOURCES = tuple('manual', 'deductions');
+export type ConductScoreSource = (typeof CONDUCT_SCORE_SOURCES)[number];
+
+/**
+ * How far a child's deductions have to be escalated, per the school's own
+ * ໝາຍເຫດ on the rule sheet.
+ *
+ * Named for the rungs the sheet names — `classroom` is ຂັ້ນຫ້ອງ, then ຂັ້ນ 1, 2
+ * and 3 — rather than for what each rung means, so the ladder can be read
+ * against the paper it came from. `review` is the last line: at a full 100 the
+ * child's place at the school is reconsidered.
+ */
+export const CONDUCT_ESCALATION_LEVELS = tuple(
+  'none',
+  'classroom',
+  'level1',
+  'level2',
+  'level3',
+  'review',
+);
+export type ConductEscalationLevel = (typeof CONDUCT_ESCALATION_LEVELS)[number];
+
+/**
+ * Who the sheet says must be told at each rung.
+ *
+ * Kept as parties rather than as a sentence so the screen can render the list in
+ * either language, and so a rung's audience is comparable between rungs.
+ */
+export const CONDUCT_NOTIFY_PARTIES = tuple(
+  'homeroomTeacher',
+  'student',
+  'disciplineCommittee',
+  'studentAffairs',
+  'guardian',
+  'director',
+);
+export type ConductNotifyParty = (typeof CONDUCT_NOTIFY_PARTIES)[number];
+
 export const ATTENDANCE_STATUSES = tuple('present', 'absent', 'late', 'excused', 'sick');
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 

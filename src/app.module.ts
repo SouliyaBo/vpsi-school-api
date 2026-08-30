@@ -22,6 +22,7 @@ import { MonthlyMarksModule } from './modules/monthly-marks/monthly-marks.module
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
 import { ClassroomsModule } from './modules/classrooms/classrooms.module';
+import { ConductDeductionsModule } from './modules/conduct-deductions/conduct-deductions.module';
 import { ConductScoresModule } from './modules/conduct-scores/conduct-scores.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { EnrollmentsModule } from './modules/enrollments/enrollments.module';
@@ -155,6 +156,7 @@ import { UsersModule } from './modules/users/users.module';
     ScoreComponentsModule,
     ScoresModule,
     ConductScoresModule,
+    ConductDeductionsModule,
     AttendancesModule,
     BehaviorLogsModule,
     MonthlyMarksModule,

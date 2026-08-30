@@ -25,3 +25,6 @@ docker/volumes/
 assets/fonts/*.ttf
 assets/fonts/*.ttc
 assets/fonts/*.otf
+
+# Pre-migration dumps written by the location import — restore aids, not source.
+data/backups/

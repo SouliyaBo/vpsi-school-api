@@ -58,7 +58,9 @@ function parseArgs(argv: string[]): Args | null {
 
 function print(logger: Logger, report: TeacherImportReport, dryRun: boolean): void {
   logger.log(`Teachers: ${report.teachersCreated} created, ${report.teachersUpdated} updated`);
-  logger.log(`Locations created: ${report.locationsCreated}`);
+  logger.log(
+    `Addresses the official location tree did not recognise: ${report.locationsUnresolved}`,
+  );
 
   if (report.codesIssued.length > 0) {
     logger.log(`Codes ${dryRun ? 'that would be' : ''} issued:`);

@@ -220,6 +220,32 @@ export const MESSAGES = {
     en: 'The same student is listed twice in one entry',
   },
 
+  // ── Conduct deductions (ຕັດຄະແນນອຸປະນິໄສ) ──────────────────────────────────
+  'conductRule.duplicateCode': {
+    lo: 'ມີລະບຽບຂໍ້ນີ້ຢູ່ແລ້ວ',
+    en: 'A rule with that number already exists',
+  },
+  'conductRule.inUse': {
+    lo: 'ລະບຽບຂໍ້ນີ້ຖືກນຳໃຊ້ຕັດຄະແນນແລ້ວ — ໃຫ້ປິດການນຳໃຊ້ແທນການລຶບ',
+    en: 'That rule has already been applied — withdraw it instead of deleting it',
+  },
+  'conductRule.withdrawn': {
+    lo: 'ລະບຽບຂໍ້ນີ້ຖືກປິດການນຳໃຊ້ແລ້ວ',
+    en: 'That rule is no longer in force',
+  },
+  'conductDeduction.futureDate': {
+    lo: 'ບໍ່ສາມາດຕັດຄະແນນລ່ວງໜ້າໄດ້',
+    en: 'Points cannot be deducted for a future date',
+  },
+  'conductDeduction.outsideSemester': {
+    lo: 'ວັນທີບໍ່ຢູ່ໃນພາກຮຽນໃດ',
+    en: 'That date does not fall within any semester',
+  },
+  'conductDeduction.duplicateStudent': {
+    lo: 'ມີຊື່ນັກຮຽນຊ້ຳກັນໃນລາຍການດຽວ',
+    en: 'The same student is listed twice in one entry',
+  },
+
   // ── Term results ──────────────────────────────────────────────────────────
   'termResult.noScores': {
     lo: 'ຍັງບໍ່ມີຄະແນນພຽງພໍທີ່ຈະຄິດໄລ່ຜົນການຮຽນ',

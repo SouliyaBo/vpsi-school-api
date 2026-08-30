@@ -1,11 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import {
-  laoSpellingVariants,
-  provinceLookupNames,
-  stripInvisible,
-} from 'src/common/utils/lao-text';
 import { LAO_PHONE_PATTERN, normalizeLaoPhone } from 'src/common/utils/phone';
 import {
   Classroom,
@@ -28,10 +23,13 @@ import {
   User,
   UserDocument,
 } from 'src/database/schemas';
+import {
+  LocationCache,
+  resolveOfficialVillage,
+} from 'src/database/locations/official-location-resolver';
 import { conductGradeFor } from 'src/modules/term-results/grading';
 import {
   guardianKey,
-  locationLookupName,
   genderFromTitle,
   parseGender,
   parseSourceDate,
@@ -60,7 +58,8 @@ export interface ImportReport {
   studentsUpdated: number;
   guardiansCreated: number;
   guardiansReused: number;
-  locationsCreated: number;
+  /** Addresses the official tree does not recognise; reported, never invented. */
+  locationsUnresolved: number;
   enrollmentsCreated: number;
   enrollmentsReused: number;
   conductScoresWritten: number;
@@ -68,8 +67,6 @@ export interface ImportReport {
   /** Things that imported but are worth a human look. */
   warnings: string[];
 }
-
-type LocationType = 'province' | 'district' | 'village';
 
 /** Where the run puts its students, resolved once before the rows are read. */
 interface Placement {
@@ -103,8 +100,8 @@ export class StudentImportService {
 
   /** Guardians already resolved in this run, keyed by `guardianKey`. */
   private readonly guardianCache = new Map<string, Types.ObjectId>();
-  /** Locations resolved in this run, keyed by `type:parentId:foldedName`. */
-  private readonly locationCache = new Map<string, Types.ObjectId>();
+  /** Addresses resolved in this run, keyed by the row's own spelling of them. */
+  private readonly locationCache: LocationCache = new Map();
 
   constructor(
     @InjectModel(Student.name) private readonly students: Model<StudentDocument>,
@@ -124,7 +121,7 @@ export class StudentImportService {
       studentsUpdated: 0,
       guardiansCreated: 0,
       guardiansReused: 0,
-      locationsCreated: 0,
+      locationsUnresolved: 0,
       enrollmentsCreated: 0,
       enrollmentsReused: 0,
       conductScoresWritten: 0,
@@ -176,7 +173,7 @@ export class StudentImportService {
         continue;
       }
 
-      const villageId = await this.resolveVillage(row, options, report);
+      const villageId = await this.resolveVillage(row, report);
       const links = await this.resolveGuardians(row, lastNameLo, options, report);
 
       if (links.length === 0) {
@@ -214,7 +211,9 @@ export class StudentImportService {
         phone: null,
         contactPhone: contact.contactPhone ?? null,
         contactName: contact.contactName ?? null,
-        villageId,
+        // Only when it resolved: writing the null of an address this run could
+        // not read would erase one the office had already put right by hand.
+        ...(villageId ? { villageId } : {}),
         notes: row.notes?.trim() || null,
         guardians: links,
       };
@@ -680,93 +679,29 @@ export class StudentImportService {
 
   // ── Locations ─────────────────────────────────────────────────────────────
 
-  /** province → district → village, creating whichever levels are not on file. */
+  /**
+   * The village the row names, if the official tree knows it.
+   *
+   * Never creates: the tree is the official list of provinces, districts and
+   * capital villages, and a name it does not carry is a spelling to fix rather
+   * than a place to add. Unresolved addresses are reported and the student's
+   * stored `villageId` is left exactly as it was.
+   */
   private async resolveVillage(
     row: SourceStudent,
-    options: ImportOptions,
     report: ImportReport,
   ): Promise<Types.ObjectId | null> {
-    const { province, district, village } = row.address ?? {};
-    if (!province?.trim() || !district?.trim() || !village?.trim()) return null;
-
-    const provinceId = await this.resolveLocation(province, 'province', null, [], options, report);
-    const districtId = await this.resolveLocation(
-      district,
-      'district',
-      provinceId,
-      [provinceId],
-      options,
-      report,
+    const resolved = await resolveOfficialVillage(
+      this.locations,
+      row.address ?? {},
+      this.locationCache,
     );
 
-    return this.resolveLocation(
-      village,
-      'village',
-      districtId,
-      [provinceId, districtId],
-      options,
-      report,
-    );
-  }
-
-  private async resolveLocation(
-    name: string,
-    type: LocationType,
-    parentId: Types.ObjectId | null,
-    ancestors: Types.ObjectId[],
-    options: ImportOptions,
-    report: ImportReport,
-  ): Promise<Types.ObjectId> {
-    // Zero-width characters ride along when a cell is pasted between
-    // applications; they match nothing and must not reach the tree.
-    const cleaned = stripInvisible(name).trim();
-    const folded = locationLookupName(cleaned, type);
-    const cacheKey = `${type}:${String(parentId ?? 'root')}:${folded}`;
-
-    const cached = this.locationCache.get(cacheKey);
-    if (cached) return cached;
-
-    // Two spellings vary independently and neither is wrong: the register drops
-    // the class word (`ບ້ານ`) that the seeded data keeps, and `ຳ` is typed both
-    // as one character and as two. Every combination is offered to the query, so
-    // the place is found however it was first written down.
-    const prefix = { province: 'ແຂວງ', district: 'ເມືອງ', village: 'ບ້ານ' }[type];
-    const bare = cleaned.startsWith(prefix) ? cleaned.slice(prefix.length) : cleaned;
-    // A province is also matched by its spelled-out form, so `ນະຄອນຫຼວງ` and
-    // `ນະຄອນຫຼວງວຽງຈັນ` resolve to the one place rather than to two.
-    const spellings = type === 'province' ? provinceLookupNames(bare) : laoSpellingVariants(bare);
-    const candidates = spellings.flatMap((spelling) => [spelling, `${prefix}${spelling}`]);
-
-    const existing = await this.locations
-      .findOne({ type, parentId, nameLo: { $in: candidates }, deletedAt: null })
-      .select('_id')
-      .exec();
-
-    if (existing) {
-      this.locationCache.set(cacheKey, existing._id);
-      return existing._id;
+    if (resolved.note) {
+      report.locationsUnresolved += 1;
+      report.warnings.push(`${row.student_id ?? '?'}: ${resolved.note}`);
     }
 
-    const depth = { province: 0, district: 1, village: 2 }[type];
-
-    if (options.dryRun) {
-      report.locationsCreated += 1;
-      const pretend = new Types.ObjectId();
-      this.locationCache.set(cacheKey, pretend);
-      return pretend;
-    }
-
-    // Stored as the school writes it, only without the invisible characters.
-    const created = await this.locations.create({
-      nameLo: cleaned,
-      type,
-      parentId,
-      ancestors,
-      depth,
-    });
-
-    this.locationCache.set(cacheKey, created._id);
-    report.locationsCreated += 1;
-    return created._id;
+    return resolved.villageId;
   }
 }

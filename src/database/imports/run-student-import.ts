@@ -60,7 +60,9 @@ function print(logger: Logger, report: ImportReport, dryRun: boolean): void {
   const verb = dryRun ? 'would be' : 'were';
   logger.log(`Students: ${report.studentsCreated} created, ${report.studentsUpdated} updated`);
   logger.log(`Guardians: ${report.guardiansCreated} created, ${report.guardiansReused} reused`);
-  logger.log(`Locations created: ${report.locationsCreated}`);
+  logger.log(
+    `Addresses the official location tree did not recognise: ${report.locationsUnresolved}`,
+  );
   logger.log(
     `Enrollments: ${report.enrollmentsCreated} created, ${report.enrollmentsReused} already in place`,
   );
