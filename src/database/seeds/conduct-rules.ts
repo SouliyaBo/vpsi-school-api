@@ -1,5 +1,5 @@
 /**
- * ລະບຽບການຕັດຄະແນນອຸປະນິໄສ — a starting rule sheet.
+ * ລະບຽບການຕັດຄະແນນກົດລະບຽບ — a starting rule sheet.
  *
  * The school's own sheet for 2026–2027 numbers its rules by the column they sit
  * in: `2.1` is the first rule in the ຕັດ 10 ຄະແນນ column. Those numbers are what

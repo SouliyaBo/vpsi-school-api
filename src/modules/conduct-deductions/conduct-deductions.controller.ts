@@ -10,7 +10,7 @@ import {
 } from './dto/conduct-deduction.dto';
 
 /**
- * ການຕັດຄະແນນອຸປະນິໄສ — the discipline ledger.
+ * ການຕັດຄະແນນກົດລະບຽບ — the discipline ledger.
  *
  * Filed under the `conduct-scores` permission rather than a resource of its own,
  * because it is not a second opinion about conduct: it is how this school

@@ -185,6 +185,27 @@ export class CreateStudentDto {
 }
 
 export class UpdateStudentDto {
+  /**
+   * Reissuing the register number, which only the office may do.
+   *
+   * Editable rather than frozen at intake because a child often joins a class
+   * before the school has the papers it needs to issue a real code — the office
+   * enters a stand-in, then replaces it here. `StudentsService.update` refuses
+   * the change from anyone without `students:manage` and re-syncs the copies
+   * held on enrollments, exam registrations and term results.
+   */
+  @ApiPropertyOptional({
+    example: 'S-2025-0001',
+    description:
+      'Only an account with `students:manage` may change this. Resending the ' +
+      'current code is always allowed, so the edit form may post the whole record.',
+  })
+  @IsString()
+  @IsOptional()
+  @IsNotEmpty()
+  @MaxLength(30)
+  studentCode?: string;
+
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(80) firstNameLo?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(80) lastNameLo?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(80) firstNameEn?: string;

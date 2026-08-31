@@ -3,7 +3,7 @@ import { HydratedDocument, Types } from 'mongoose';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
 /**
- * ການຕັດຄະແນນອຸປະນິໄສ — the discipline ledger.
+ * ການຕັດຄະແນນກົດລະບຽບ — the discipline ledger.
  *
  * The school publishes a rule sheet each year: every child starts a term on 100
  * conduct points and loses 5, 10, 15 or 20 of them per occurrence against a

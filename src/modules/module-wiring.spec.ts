@@ -47,6 +47,10 @@ const MODELS = [
   'ConductRule',
   'ConductScore',
   'Enrollment',
+  // StudentsService re-syncs the copy of `studentCode` these hold when the
+  // office reissues one, which puts them in the graph of anything reading the
+  // roster.
+  'ExamRegistration',
   'GradeLevel',
   'Guardian',
   'LessonPlan',

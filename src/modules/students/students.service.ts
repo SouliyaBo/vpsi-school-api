@@ -10,6 +10,8 @@ import { RecordScopeService } from 'src/common/services/record-scope.service';
 import {
   Enrollment,
   EnrollmentDocument,
+  ExamRegistration,
+  ExamRegistrationDocument,
   Guardian,
   GuardianDocument,
   Location,
@@ -20,6 +22,8 @@ import {
   StudentDocument,
   StudentGuardianLink,
   StudentOrganizationMembership,
+  TermResult,
+  TermResultDocument,
 } from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -62,6 +66,23 @@ export interface StudentListRow extends Record<string, unknown> {
 
 /** What a child can be on the day they are entered on the register. */
 const INTAKE_STATUSES: StudentStatus[] = ['new', 'active'];
+
+/**
+ * Whether the caller is the office rather than a teacher.
+ *
+ * `students:manage` is what separates them: admin and registrar hold it, while
+ * the teacher and academic-head roles hold only `students:update`. Read off the
+ * resolved matrix rather than the role code so a school that adds its own role
+ * decides this by granting a permission, not by being named in the source.
+ *
+ * No actor at all means no request behind the call — an import or a migration —
+ * and those are trusted.
+ */
+function mayManageStudents(actor?: AuthenticatedUser): boolean {
+  if (!actor) return true;
+  const grant = actor.permissions.find((permission) => permission.resource === 'students');
+  return grant?.actions.includes('manage') ?? false;
+}
 
 /**
  * Membership inputs as the document holds them — the ISO date becomes a `Date`.
@@ -120,6 +141,11 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     @InjectModel(Location.name) private readonly locationModel: Model<LocationDocument>,
     @InjectModel(Enrollment.name) private readonly enrollmentModel: Model<EnrollmentDocument>,
     @InjectModel(SchoolYear.name) private readonly schoolYearModel: Model<SchoolYearDocument>,
+    // Both denormalize `studentCode`; re-syncing them is what makes the code
+    // safe to correct — see `syncStudentCode`.
+    @InjectModel(ExamRegistration.name)
+    private readonly examRegistrationModel: Model<ExamRegistrationDocument>,
+    @InjectModel(TermResult.name) private readonly termResultModel: Model<TermResultDocument>,
     audit: AuditLogsService,
     private readonly scope: RecordScopeService,
     private readonly storage: StorageService,
@@ -503,6 +529,8 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       await this.assertStatusUnchanged(id, dto);
     }
 
+    const reissuingCode = await this.isCodeChange(id, dto, context.actor);
+
     if (dto.villageId) await this.assertVillage(dto.villageId);
     this.assertOneMembershipPerOrganization(dto.organizations);
 
@@ -515,7 +543,67 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     // got. An omitted field leaves the stored memberships alone.
     if (dto.organizations) patch.organizations = toMemberships(dto.organizations);
 
-    return this.updateDocument(id, patch, context);
+    if (!reissuingCode) return this.updateDocument(id, patch, context);
+
+    // A new code and the copies of it are one change, so they share a
+    // transaction: a register number that only half the school agrees on is
+    // worse than the stand-in it replaced.
+    return this.tx.run(async (session) => {
+      const updated = await this.updateDocument(id, patch, { ...context, session });
+      await this.syncStudentCode(updated, session);
+      return updated;
+    });
+  }
+
+  /**
+   * Whether this patch reissues the register number, and whether the caller may.
+   *
+   * The code is editable — not frozen at intake — because a child regularly
+   * joins a class before the school holds the papers it needs to issue one: the
+   * office enters a stand-in on the day, then replaces it here. What stays fixed
+   * is who may do it. `students:manage` is the office's grant, so a homeroom
+   * teacher can still correct a misspelt name but cannot renumber the register.
+   *
+   * Compared against what is stored rather than rejecting the field outright,
+   * for the same reason as `assertStatusUnchanged`: the edit form posts the whole
+   * record back, so an untouched code must still go through.
+   */
+  private async isCodeChange(
+    id: string,
+    dto: UpdateStudentDto,
+    actor?: AuthenticatedUser,
+  ): Promise<boolean> {
+    if (dto.studentCode === undefined) return false;
+
+    const current = await this.findOneOrFail(id);
+    // The schema trims on write, so an untrimmed resend of the same code is not
+    // a change and must not need the office's permission.
+    if (dto.studentCode.trim() === current.studentCode) return false;
+
+    if (!mayManageStudents(actor)) {
+      throw AppException.forbidden('student.codeIsOfficeOnly');
+    }
+    return true;
+  }
+
+  /**
+   * Pushes a reissued code into every row that denormalizes it.
+   *
+   * Enrollments, exam registrations and term results each keep a copy so a
+   * roster or a report card renders without a lookup. Soft-deleted rows are
+   * updated too: they are the school's history of this child, and history under
+   * a number the register no longer knows is unfindable.
+   *
+   * Sequential rather than `Promise.all` — a `ClientSession` cannot carry
+   * concurrent operations.
+   */
+  private async syncStudentCode(student: StudentDocument, session: ClientSession): Promise<void> {
+    const filter = { studentId: student._id };
+    const patch = { $set: { studentCode: student.studentCode } };
+
+    await this.enrollmentModel.updateMany(filter, patch, { session }).exec();
+    await this.examRegistrationModel.updateMany(filter, patch, { session }).exec();
+    await this.termResultModel.updateMany(filter, patch, { session }).exec();
   }
 
   /**

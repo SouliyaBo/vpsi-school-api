@@ -422,6 +422,62 @@ describe('RBAC (e2e)', () => {
         .expect(200);
     });
 
+    it('refuses a code change from a homeroom teacher', async () => {
+      const response = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ studentCode: 'S-RBAC-STOLEN' })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('student.codeIsOfficeOnly');
+    });
+
+    it('lets an unchanged code through, because the edit form posts it back', async () => {
+      const current = await http()
+        .get(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .expect(200);
+
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ studentCode: current.body.studentCode, nickname: 'ນ້ອຍນ້ອຍ' })
+        .expect(200);
+    });
+
+    it('lets the office reissue a code and re-syncs the copies of it', async () => {
+      const before = await http()
+        .get(`/api/students/${studentId}`)
+        .set(auth(tokens.registrar))
+        .expect(200);
+
+      const reissued = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.registrar))
+        .send({ studentCode: 'S-RBAC-REISSUED' })
+        .expect(200);
+
+      expect(reissued.body.studentCode).toBe('S-RBAC-REISSUED');
+
+      // The roster reads its own denormalized copy, so this is what proves the
+      // new number actually reached the class list rather than only the register.
+      const roster = await http()
+        .get(`/api/enrollments?studentId=${studentId}&limit=100`)
+        .set(auth(tokens.registrar))
+        .expect(200);
+
+      expect(roster.body.data.length).toBeGreaterThan(0);
+      for (const enrollment of roster.body.data) {
+        expect(enrollment.studentCode).toBe('S-RBAC-REISSUED');
+      }
+
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.registrar))
+        .send({ studentCode: before.body.studentCode })
+        .expect(200);
+    });
+
     it('lets a homeroom teacher add a student and place them in their own room', async () => {
       const created = await http()
         .post('/api/students')

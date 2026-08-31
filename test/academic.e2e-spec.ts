@@ -1334,7 +1334,7 @@ describe('Academic operations (e2e)', () => {
   });
 
   /**
-   * ຕັດຄະແນນອຸປະນິໄສ — the discipline ledger.
+   * ຕັດຄະແນນກົດລະບຽບ — the discipline ledger.
    *
    * The whole promise of the feature is arithmetic nobody has to do by hand: the
    * rule decides the cost, the ledger decides the balance, the balance decides

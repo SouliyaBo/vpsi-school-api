@@ -220,7 +220,7 @@ export const MESSAGES = {
     en: 'The same student is listed twice in one entry',
   },
 
-  // ── Conduct deductions (ຕັດຄະແນນອຸປະນິໄສ) ──────────────────────────────────
+  // ── Conduct deductions (ຕັດຄະແນນກົດລະບຽບ) ──────────────────────────────────
   'conductRule.duplicateCode': {
     lo: 'ມີລະບຽບຂໍ້ນີ້ຢູ່ແລ້ວ',
     en: 'A rule with that number already exists',
@@ -276,6 +276,10 @@ export const MESSAGES = {
   'student.statusIsOfficeOnly': {
     lo: 'ການປ່ຽນສະຖານະນັກຮຽນແມ່ນໜ້າທີ່ຂອງຫ້ອງທະບຽນ',
     en: 'Changing a student’s status is the registrar’s decision',
+  },
+  'student.codeIsOfficeOnly': {
+    lo: 'ການປ່ຽນລະຫັດນັກຮຽນແມ່ນໜ້າທີ່ຂອງຫ້ອງທະບຽນ',
+    en: 'Changing a student’s code is the registrar’s decision',
   },
 
   // ── Health ────────────────────────────────────────────────────────────────

@@ -35,7 +35,7 @@ import {
 } from './dto/conduct-deduction.dto';
 
 /**
- * ການຕັດຄະແນນອຸປະນິໄສ — the discipline ledger.
+ * ການຕັດຄະແນນກົດລະບຽບ — the discipline ledger.
  *
  * Every child starts a term on 100 conduct points and loses them against a
  * numbered rule on the school's published sheet. Three things follow from that,
