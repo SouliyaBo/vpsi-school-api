@@ -21,6 +21,7 @@ import {
 } from 'src/database/schemas';
 import { AttendancesModule } from '../attendances/attendances.module';
 import { PdfRendererService } from './pdf/pdf-renderer.service';
+import { StudyCertificateRenderer } from './pdf/study-certificate.renderer';
 import { ReportDataService } from './report-data.service';
 import { ReportTemplatesService } from './report-templates.service';
 import { ReportsController } from './reports.controller';
@@ -50,9 +51,16 @@ import { ReportsService } from './reports.service';
     ReportTemplatesService,
     ReportDataService,
     PdfRendererService,
+    StudyCertificateRenderer,
     ReportsQueueService,
     ReportsProcessor,
   ],
-  exports: [ReportsService, ReportDataService, PdfRendererService, ReportTemplatesService],
+  exports: [
+    ReportsService,
+    ReportDataService,
+    PdfRendererService,
+    StudyCertificateRenderer,
+    ReportTemplatesService,
+  ],
 })
 export class ReportsModule {}

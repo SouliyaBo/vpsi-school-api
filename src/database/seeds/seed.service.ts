@@ -208,6 +208,27 @@ export class SeedService {
    * Roles are matched by code, so a school's own custom roles are untouched; they
    * need the new resource granted through the roles API.
    */
+  /**
+   * Re-applies only the settings catalogue.
+   *
+   * Exists because the alternative is what actually happened: someone needed one
+   * new school setting, ran the full seed against a live database, and silently
+   * reverted a subject's name, a subject group's name and its head teacher, and
+   * un-deleted four subject groups the office had removed — none of which the
+   * seed audits, so the damage had to be reconstructed from the audit trail of
+   * the edits it overwrote.
+   *
+   * Settings are matched by key, so a value the office has since changed through
+   * the API **is** reset to the seeded default. That is a much smaller blast
+   * radius than `run()`, but it is not nothing: check `seedSettings` before
+   * running this on a database in use.
+   */
+  async syncSettings(): Promise<void> {
+    this.logger.log('Applying the settings catalogue…');
+    await this.seedSettings();
+    this.logger.log('Settings up to date.');
+  }
+
   async syncRoles(): Promise<void> {
     this.logger.log('Applying the permission matrix…');
     await this.seedRoles();
@@ -218,17 +239,90 @@ export class SeedService {
     const settings = [
       {
         key: 'school.nameLo',
-        value: 'ໂຮງຮຽນມັດທະຍົມສົມບູນ ວຽງຈັນ',
+        value: 'ໂຮງຮຽນ ມ.ສ ນານາຊາດ ວຽງຈັນພັດທະນາ',
         category: 'school',
         isPublic: true,
-        description: 'School name shown on reports and the login screen',
+        description: 'School name shown on reports, letterheads and the login screen',
       },
       {
         key: 'school.nameEn',
-        value: 'Vientiane Secondary School',
+        value: 'Vientiane Pattana School International',
         category: 'school',
         isPublic: true,
         description: 'School name in English',
+      },
+      {
+        key: 'school.nameFullLo',
+        // Deliberately without the word ໂຮງຮຽນ: the sentences of an official
+        // letter supply it themselves — ອຳນວຍການໂຮງຮຽນ …, ຮຽນທີ່ ໂຮງຮຽນ … — and a
+        // stored name that repeats it prints the word twice.
+        value: 'ມັດທະຍົມສົມບູນ ນານາຊາດ ວຽງຈັນພັດທະນາ',
+        category: 'school',
+        isPublic: false,
+        description: 'Spelled-out school name used inside letter sentences, without ໂຮງຮຽນ',
+      },
+      {
+        key: 'school.authorityLo',
+        value: 'ພະແນກສຶກສາທິການ ແລະ ກີລາ',
+        category: 'school',
+        isPublic: false,
+        description: 'The department named above the school on a letterhead',
+      },
+      {
+        key: 'school.provinceLo',
+        value: 'ນະຄອນຫຼວງວຽງຈັນ',
+        category: 'school',
+        isPublic: false,
+        description: 'Province printed on the letterhead',
+      },
+      {
+        key: 'school.phone',
+        value: '020 59163105',
+        category: 'school',
+        isPublic: true,
+        description: 'Office telephone number printed on letterheads',
+      },
+      {
+        key: 'school.addressLo',
+        value: 'ບ້ານ ຂຸນຕາທົ່ງ, ເມືອງ ສີໂຄດຕະບອງ ນະຄອນຫຼວງວຽງຈັນ',
+        category: 'school',
+        isPublic: true,
+        description: 'Where the school stands, as a letter states it',
+      },
+      {
+        key: 'school.principalTitleLo',
+        value: 'ອຳນວຍການໂຮງຮຽນ',
+        category: 'school',
+        isPublic: false,
+        description: 'Signature line under a letter',
+      },
+      {
+        key: 'school.documentCodeLo',
+        // The code after the slash in an outgoing letter number. Confirm the
+        // spelling against a signed letter before the series is in use: it is
+        // baked into every number issued and cannot be corrected afterwards
+        // without contradicting letters already in circulation.
+        value: 'ວຈພທນ(ຄນຮ)',
+        category: 'school',
+        isPublic: false,
+        description: 'Department code in an outgoing letter number, e.g. 99/ວຈພທນ(ຄນຮ)',
+      },
+      {
+        key: 'certificates.studyVerificationNumberPadding',
+        // 0 prints `99`, `100`; 3 prints `001`, `002`. The office's paper book
+        // decides which, and the two must not be mixed within one series.
+        value: 0,
+        category: 'certificates',
+        isPublic: false,
+        description: 'Digits to zero-pad a ໃບຢັ້ງຢືນການສຶກສາ number to; 0 for none',
+      },
+      {
+        key: 'certificates.studyVerificationStartNumber',
+        // The series continues the school's paper book rather than restarting.
+        value: 99,
+        category: 'certificates',
+        isPublic: false,
+        description: 'First ໃບຢັ້ງຢືນການສຶກສາ number; ignored once one has been issued',
       },
       {
         key: 'school.defaultLocale',

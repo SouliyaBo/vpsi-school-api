@@ -301,7 +301,19 @@ export const EXAM_REGISTRATION_STATUSES = tuple(
 );
 export type ExamRegistrationStatus = (typeof EXAM_REGISTRATION_STATUSES)[number];
 
-export const CERTIFICATE_TYPES = tuple('graduation', 'completion', 'achievement', 'participation');
+/**
+ * `study_verification` is `ໃບຢັ້ງຢືນການສຶກສາ` — the letter the office writes for a
+ * pupil who needs to prove to somebody outside the school that they study here.
+ * It is not an award, so it carries no marks and, unlike the other four, is
+ * rendered as a formal letter rather than as a certificate face.
+ */
+export const CERTIFICATE_TYPES = tuple(
+  'graduation',
+  'completion',
+  'achievement',
+  'participation',
+  'study_verification',
+);
 export type CertificateType = (typeof CERTIFICATE_TYPES)[number];
 
 // ── Communication ───────────────────────────────────────────────────────────

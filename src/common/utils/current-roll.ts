@@ -43,3 +43,21 @@ export function isOnCurrentRoll(ref: unknown): boolean {
   if (status === undefined || status === null) return true;
   return isCurrentRollStatus(status);
 }
+
+/**
+ * Whether a populated `studentId` ref names a student who is actually studying.
+ *
+ * The current roll minus one status: `no_certificate`. That child finished the
+ * year and declined the certificate, so they still belong on a roster and in the
+ * behaviour register, but the office rules they have no term left to sit — only
+ * ກຳລັງຮຽນ takes an exam and earns a mark. The mark sheets are drawn from this
+ * narrower list; every other roster screen keeps the wider one.
+ *
+ * Reads an unpopulated ref the same way `isOnCurrentRoll` does: no status to
+ * judge by means the row is kept rather than silently dropped.
+ */
+export function isStudying(ref: unknown): boolean {
+  const status = (ref as { status?: unknown } | null | undefined)?.status;
+  if (status === undefined || status === null) return true;
+  return status === 'active';
+}

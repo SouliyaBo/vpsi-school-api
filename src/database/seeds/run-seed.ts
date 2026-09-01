@@ -29,10 +29,16 @@ class SeedCliModule {}
  * `all` is a first-run operation: besides the roles it upserts settings, the
  * subject catalogue and a set of demo teachers, classrooms and locations, so on a
  * database already holding a school's data it resets the school name and the
- * timetable window and adds fixtures. `roles` re-applies only the permission
- * matrix, which is what a newly added resource needs and is safe at any time.
+ * timetable window and adds fixtures. **It has already cost this project a
+ * subject rename and four resurrected subject groups — do not run it against a
+ * database in use.**
+ *
+ * `roles` re-applies only the permission matrix, which is what a newly added
+ * resource needs and is safe at any time. `settings` re-applies only the settings
+ * catalogue — use it when a new setting key has to reach a live database, which
+ * is otherwise the reason people reach for `all`.
  */
-const STEPS = ['all', 'roles'] as const;
+const STEPS = ['all', 'roles', 'settings'] as const;
 type Step = (typeof STEPS)[number];
 
 function parseStep(argument: string | undefined): Step {
@@ -58,7 +64,9 @@ async function main(): Promise<void> {
 
   try {
     const seeder = app.get(SeedService);
-    await (step === 'roles' ? seeder.syncRoles() : seeder.run());
+    if (step === 'roles') await seeder.syncRoles();
+    else if (step === 'settings') await seeder.syncSettings();
+    else await seeder.run();
   } catch (error) {
     logger.error('Seeding failed', error instanceof Error ? error.stack : String(error));
     await app.close();

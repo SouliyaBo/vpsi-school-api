@@ -127,7 +127,22 @@ export class CreateStudentDto {
   @IsDateString()
   dateOfBirth: string;
 
-  @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(150) placeOfBirth?: string;
+  @ApiPropertyOptional({
+    description:
+      'Birthplace, held like the current address. May reference a province or a ' +
+      'district as well as a village — the official list carries villages for ' +
+      'Vientiane Capital only.',
+  })
+  @IsMongoId()
+  @IsOptional()
+  birthLocationId?: string;
+
+  @ApiPropertyOptional({ description: 'The part of the birthplace the tree cannot hold' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  birthAddressDetail?: string;
+
   @ApiPropertyOptional({ example: 'ລາວ' })
   @IsString()
   @IsOptional()
@@ -219,7 +234,22 @@ export class UpdateStudentDto {
   gender?: Gender;
 
   @ApiPropertyOptional() @IsDateString() @IsOptional() dateOfBirth?: string;
-  @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(150) placeOfBirth?: string;
+  @ApiPropertyOptional({
+    description:
+      'Birthplace, held like the current address. May reference a province or a ' +
+      'district as well as a village — the official list carries villages for ' +
+      'Vientiane Capital only.',
+  })
+  @IsMongoId()
+  @IsOptional()
+  birthLocationId?: string;
+
+  @ApiPropertyOptional({ description: 'The part of the birthplace the tree cannot hold' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  birthAddressDetail?: string;
+
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(60) nationality?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(60) ethnicity?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(30) nationalId?: string;

@@ -28,8 +28,32 @@ curl -Lo assets/fonts/NotoSansLao-Bold.ttf \
   https://github.com/notofonts/lao/raw/main/fonts/NotoSansLao/hinted/ttf/NotoSansLao-Bold.ttf
 ```
 
+### Phetsarath OT — required for official letters
+
+`ໃບຢັ້ງຢືນການສຶກສາ` and anything else the school signs is set in **Phetsarath
+OT**, the Lao government's own typeface, because that is what a signed Lao
+document looks like. Fetch it alongside Noto:
+
+```bash
+curl -Lo assets/fonts/Phetsarath-Regular.ttf \
+  https://raw.githubusercontent.com/google/fonts/main/ofl/phetsarath/Phetsarath-Regular.ttf
+curl -Lo assets/fonts/Phetsarath-Bold.ttf \
+  https://raw.githubusercontent.com/google/fonts/main/ofl/phetsarath/Phetsarath-Bold.ttf
+```
+
+Unlike Noto Sans Lao, Phetsarath **contains digits**, so a date and a telephone
+number are set in the same face as the words around them. It has **no Latin
+alphabet**, so a Latin word still falls back to Helvetica — which is why
+`study-certificate.renderer.ts` decides its own script boundary rather than
+reusing the report card's.
+
+Without it, letters fall back to whatever `resolveLaoFonts` finds and log a
+warning at startup: legible, but the digits change face mid-line.
+
 `font-resolver.ts` looks in this directory automatically. Alternatively point
-`PDF_FONT_PATH` (and optionally `PDF_FONT_BOLD_PATH`) at any suitable font.
+`PDF_FONT_PATH` / `PDF_FONT_BOLD_PATH` (report cards) or
+`PDF_OFFICIAL_FONT_PATH` / `PDF_OFFICIAL_FONT_BOLD_PATH` (official letters) at
+any suitable font.
 
 Files in this directory are git-ignored — fonts have their own licences and do
 not belong in the repository.
@@ -41,8 +65,9 @@ not belong in the repository.
 | Helvetica, Times, Courier (PDFKit built-ins) | No Lao glyphs at all — WinAnsi encoding only |
 | **Arial Unicode MS** (macOS `/System/Library/Fonts/Supplemental/`) | Has every Lao glyph but **no OpenType tables**, so marks are detached. Excluded from the default search on purpose; usable via `PDF_FONT_PATH` for a rough preview only |
 
-Suitable alternatives: **Noto Sans Lao** (recommended), **Phetsarath OT**,
-**Saysettha OT**.
+Suitable alternatives for report cards: **Noto Sans Lao** (recommended),
+**Phetsarath OT**, **Saysettha OT**. Official letters want Phetsarath OT
+specifically.
 
 ## Verifying a font
 

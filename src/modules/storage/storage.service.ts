@@ -162,6 +162,31 @@ export class StorageService implements OnModuleInit {
     );
   }
 
+  /**
+   * Reads an object back into memory.
+   *
+   * Returns `null` for a key that is not there rather than throwing, because a
+   * missing file is a normal state for a record whose rendering failed — the
+   * caller re-renders instead of erroring.
+   */
+  async getBuffer(key: string | null | undefined): Promise<Buffer | null> {
+    if (!key) return null;
+    try {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const body = result.Body;
+      if (!body) return null;
+      return Buffer.from(await body.transformToByteArray());
+    } catch (error) {
+      this.logger.warn(
+        `Could not read ${key} from ${this.bucket}: ` +
+          (error instanceof Error ? error.message : String(error)),
+      );
+      return null;
+    }
+  }
+
   async getSignedUrl(key: string | null | undefined): Promise<string | null> {
     if (!key) return null;
     return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: key }), {

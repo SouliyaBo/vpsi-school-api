@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { isCurrentRollStatus, isOnCurrentRoll } from './current-roll';
+import { isCurrentRollStatus, isOnCurrentRoll, isStudying } from './current-roll';
 
 /**
  * The rule these two encode is a data fact, not a preference: a student's status
@@ -37,5 +37,27 @@ describe('isOnCurrentRoll', () => {
     expect(isOnCurrentRoll(null)).toBe(true);
     expect(isOnCurrentRoll(undefined)).toBe(true);
     expect(isOnCurrentRoll({ _id: new Types.ObjectId() })).toBe(true);
+  });
+});
+
+describe('isStudying', () => {
+  it('accepts only ກຳລັງຮຽນ', () => {
+    expect(isStudying({ status: 'active' })).toBe(true);
+  });
+
+  it('rejects no_certificate, which the wider current roll accepts', () => {
+    expect(isOnCurrentRoll({ status: 'no_certificate' })).toBe(true);
+    expect(isStudying({ status: 'no_certificate' })).toBe(false);
+  });
+
+  it('rejects every status that means the student has left', () => {
+    for (const status of ['graduated', 'transferred', 'dropped', 'suspended', 'new']) {
+      expect(isStudying({ status })).toBe(false);
+    }
+  });
+
+  it('keeps a row whose ref carries no status to judge by', () => {
+    expect(isStudying(new Types.ObjectId())).toBe(true);
+    expect(isStudying(null)).toBe(true);
   });
 });

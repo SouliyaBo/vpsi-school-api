@@ -48,26 +48,12 @@ export const DEFAULT_SEMESTER_MONTHS: Readonly<Record<number, number[]>> = {
 };
 
 /**
- * The month names the sheet is columned by.
+ * Re-exported so a stored monthly sheet keeps naming its own columns.
  *
- * Kept here rather than in a locale file because they are written onto stored
- * records — a report card printed next year must still say ກັນຍາ even if the
- * interface language has moved on.
+ * The names live in `common/utils/lao-date` because certificates and letters
+ * need the same twelve strings, and two copies would eventually disagree.
  */
-export const LAO_MONTHS: Readonly<Record<number, string>> = {
-  1: 'ມັງກອນ',
-  2: 'ກຸມພາ',
-  3: 'ມີນາ',
-  4: 'ເມສາ',
-  5: 'ພຶດສະພາ',
-  6: 'ມິຖຸນາ',
-  7: 'ກໍລະກົດ',
-  8: 'ສິງຫາ',
-  9: 'ກັນຍາ',
-  10: 'ຕຸລາ',
-  11: 'ພະຈິກ',
-  12: 'ທັນວາ',
-};
+export { LAO_MONTHS } from 'src/common/utils/lao-date';
 
 /** One month's four cells. `null` is "not written yet", which is not zero. */
 export type MonthCells = Readonly<Record<MonthlyColumn, number | null>>;

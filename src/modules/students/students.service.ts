@@ -344,6 +344,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     const student = await this.model
       .findOne({ _id: id, deletedAt: null })
       .populate('villageId', 'nameLo nameEn ancestors')
+      .populate('birthLocationId', 'nameLo nameEn type ancestors')
       .populate('guardians.guardianId', 'firstNameLo lastNameLo phone occupation email')
       .exec();
     if (!student) throw AppException.notFound();
@@ -494,6 +495,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     }
 
     if (dto.villageId) await this.assertVillage(dto.villageId);
+    if (dto.birthLocationId) await this.assertBirthLocation(dto.birthLocationId);
     this.assertExactlyOnePrimary(dto.guardians);
     this.assertOneMembershipPerOrganization(dto.organizations);
 
@@ -509,6 +511,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
         {
           ...studentFields,
           villageId: dto.villageId ? new Types.ObjectId(dto.villageId) : null,
+          birthLocationId: dto.birthLocationId ? new Types.ObjectId(dto.birthLocationId) : null,
           dateOfBirth: new Date(dto.dateOfBirth),
           admissionDate: dto.admissionDate ? new Date(dto.admissionDate) : null,
           guardians: links,
@@ -532,10 +535,12 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     const reissuingCode = await this.isCodeChange(id, dto, context.actor);
 
     if (dto.villageId) await this.assertVillage(dto.villageId);
+    if (dto.birthLocationId) await this.assertBirthLocation(dto.birthLocationId);
     this.assertOneMembershipPerOrganization(dto.organizations);
 
     const patch: Record<string, unknown> = { ...dto };
     if (dto.villageId) patch.villageId = new Types.ObjectId(dto.villageId);
+    if (dto.birthLocationId) patch.birthLocationId = new Types.ObjectId(dto.birthLocationId);
     if (dto.dateOfBirth) patch.dateOfBirth = new Date(dto.dateOfBirth);
     if (dto.admissionDate) patch.admissionDate = new Date(dto.admissionDate);
     // Replaced wholesale, like the guardian list: the edit form posts the set it
@@ -786,6 +791,27 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       throw AppException.badRequest('common.notFound', {
         field: 'villageId',
         reason: 'must reference an existing location of type "village"',
+      });
+    }
+  }
+
+  /**
+   * Any node of the tree will do here, unlike `assertVillage`.
+   *
+   * A birthplace outside Vientiane Capital cannot be a village — the official
+   * list has none there — so demanding one would make every provincial birth
+   * unrecordable. See `Student.birthLocationId`.
+   */
+  private async assertBirthLocation(locationId: string): Promise<void> {
+    const location = await this.locationModel
+      .findOne({ _id: locationId, deletedAt: null })
+      .select('_id')
+      .lean()
+      .exec();
+    if (!location) {
+      throw AppException.badRequest('common.notFound', {
+        field: 'birthLocationId',
+        reason: 'must reference an existing location',
       });
     }
   }

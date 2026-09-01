@@ -155,6 +155,86 @@ function assertShapesLao(fontPath: string): void {
   }
 }
 
+// ── The official face ───────────────────────────────────────────────────────
+
+/**
+ * Phetsarath OT — the Lao government's own typeface, by the Ministry of Posts
+ * and Telecommunications.
+ *
+ * Letters the school signs and hands to another office are set in it because
+ * that is what an official Lao document looks like; Noto Sans Lao is correct
+ * and legible but reads as a web font on paper.
+ *
+ * It also **contains Lao digits and ASCII digits**, which Noto Sans Lao does
+ * not. That is why `coversDigits` is reported rather than assumed: with
+ * Phetsarath a date and a telephone number are set in the same face as the words
+ * around them, and with the Noto fallback they have to be handed to Helvetica
+ * mid-line. What it has no glyphs for is the **Latin alphabet**, so a Latin word
+ * still needs Helvetica either way.
+ */
+const OFFICIAL_CANDIDATES = [
+  'assets/fonts/Phetsarath-Regular.ttf',
+  'assets/fonts/Phetsarath-OT.ttf',
+  '/usr/share/fonts/phetsarath/Phetsarath-Regular.ttf',
+  '/usr/share/fonts/truetype/phetsarath/Phetsarath-Regular.ttf',
+  '/Library/Fonts/Phetsarath-Regular.ttf',
+  '/Library/Fonts/Phetsarath OT.ttf',
+  'C:\\Windows\\Fonts\\Phetsarath.ttf',
+];
+
+const OFFICIAL_BOLD_CANDIDATES = [
+  'assets/fonts/Phetsarath-Bold.ttf',
+  '/usr/share/fonts/phetsarath/Phetsarath-Bold.ttf',
+  '/usr/share/fonts/truetype/phetsarath/Phetsarath-Bold.ttf',
+  '/Library/Fonts/Phetsarath-Bold.ttf',
+];
+
+export interface OfficialFonts extends ResolvedFonts {
+  /** Whether digits can be set in this face rather than handed to Helvetica. */
+  coversDigits: boolean;
+}
+
+let cachedOfficial: OfficialFonts | null = null;
+
+/**
+ * The face for documents the school signs. Falls back to whatever
+ * `resolveLaoFonts` finds, so a missing Phetsarath costs the letter its official
+ * look and not its existence.
+ */
+export function resolveOfficialLaoFonts(): OfficialFonts {
+  if (cachedOfficial) return cachedOfficial;
+
+  const explicit = process.env.PDF_OFFICIAL_FONT_PATH?.trim();
+  if (explicit && !existsSync(explicit)) {
+    throw new Error(`PDF_OFFICIAL_FONT_PATH points at a file that does not exist: ${explicit}`);
+  }
+
+  const regular = explicit ?? firstExisting(OFFICIAL_CANDIDATES);
+
+  if (!regular) {
+    const fallback = resolveLaoFonts();
+    logger.warn(
+      'Phetsarath OT not found — official letters will be set in ' +
+        `${fallback.regular} instead. Place Phetsarath-Regular.ttf in assets/fonts/ ` +
+        'or set PDF_OFFICIAL_FONT_PATH.',
+    );
+    cachedOfficial = { ...fallback, coversDigits: false };
+    return cachedOfficial;
+  }
+
+  const explicitBold = process.env.PDF_OFFICIAL_FONT_BOLD_PATH?.trim();
+  const bold =
+    (explicitBold && existsSync(explicitBold) ? explicitBold : null) ??
+    firstExisting(OFFICIAL_BOLD_CANDIDATES) ??
+    regular;
+
+  assertShapesLao(regular);
+
+  logger.log(`Official Lao font resolved — regular: ${regular}, bold: ${bold}`);
+  cachedOfficial = { regular, bold, coversDigits: true };
+  return cachedOfficial;
+}
+
 /** Whether a report can be rendered at all. Used by the readiness probe. */
 export function isLaoFontAvailable(): boolean {
   try {
@@ -165,7 +245,8 @@ export function isLaoFontAvailable(): boolean {
   }
 }
 
-/** Test seam — resets the memoized result. */
+/** Test seam — resets the memoized results. */
 export function resetFontCache(): void {
   cached = null;
+  cachedOfficial = null;
 }

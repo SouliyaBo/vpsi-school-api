@@ -151,6 +151,51 @@ ExamResultSchema.index({ schoolYearId: 1, level: 1, isPassed: 1 });
 
 // ── Certificate ─────────────────────────────────────────────────────────────
 
+/**
+ * The written details of a `study_verification` letter.
+ *
+ * Held on the certificate rather than pushed back onto the student, because most
+ * of it is not student data the school otherwise keeps: the register records no
+ * birthplace at all, and the study period is a statement about this letter's
+ * claim, not a fact about the pupil. Keeping the copy here also means a reissue
+ * or a re-render reproduces the letter that was actually handed over, which is
+ * the whole point of a document series that outsiders verify.
+ */
+@Schema({ _id: false })
+export class StudyVerificationDetails {
+  /** `ບ່ອນເກີດ` — one address line, already formatted. */
+  @Prop({ type: String, default: null, trim: true })
+  birthPlaceLo?: string | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  fatherNameLo?: string | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  motherNameLo?: string | null;
+
+  /** `ປັດຈຸບັນຢູ່` — the pupil's address on the day the letter was written. */
+  @Prop({ type: String, default: null, trim: true })
+  currentAddressLo?: string | null;
+
+  /** First school year of the attendance the letter attests to, e.g. `2022-2023`. */
+  @Prop({ type: String, default: null, trim: true })
+  studyFromYearCode?: string | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  studyToYearCode?: string | null;
+
+  /** The class as the letter writes it — `ມ.4`, not the classroom's full name. */
+  @Prop({ type: String, default: null, trim: true })
+  classLabelLo?: string | null;
+
+  /** Denormalized: the register code may be corrected after the letter is out. */
+  @Prop({ type: String, default: null, trim: true })
+  studentCode?: string | null;
+}
+
+export const StudyVerificationDetailsSchema =
+  SchemaFactory.createForClass(StudyVerificationDetails);
+
 export type CertificateDocument = HydratedDocument<Certificate>;
 
 @Schema({ collection: 'certificates', ...baseSchemaOptions })
@@ -179,6 +224,10 @@ export class Certificate extends SoftDeletableDocument {
 
   @Prop({ type: String, default: null })
   descriptionLo?: string | null;
+
+  /** Set only for `study_verification`; null for the award types. */
+  @Prop({ type: StudyVerificationDetailsSchema, default: null })
+  studyDetails?: StudyVerificationDetails | null;
 
   @Prop({ type: Date, required: true })
   issuedDate: Date;

@@ -5,7 +5,13 @@ import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { toApiDocuments } from 'src/common/utils/serialize';
-import { Certificate, CertificateDocument, Student, StudentDocument } from 'src/database/schemas';
+import {
+  Certificate,
+  CertificateDocument,
+  Student,
+  StudentDocument,
+  StudyVerificationDetails,
+} from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -13,10 +19,17 @@ import { ReportDataService } from '../reports/report-data.service';
 import { PdfRendererService } from '../reports/pdf/pdf-renderer.service';
 import { ReportLayout } from '../reports/pdf/layout.types';
 import { ReportTemplatesService } from '../reports/report-templates.service';
+import { StudyCertificateRenderer } from '../reports/pdf/study-certificate.renderer';
+import { SettingsService } from '../settings/settings.service';
+import {
+  StudyCertificateDataService,
+  StudyCertificatePrefill,
+} from './study-certificate-data.service';
 import { SchoolYearsService } from '../school-years/school-years.service';
 import { StorageService } from '../storage/storage.service';
 import {
   IssueCertificateDto,
+  IssueStudyCertificateDto,
   QueryCertificatesDto,
   RevokeCertificateDto,
 } from './dto/certificate.dto';
@@ -31,6 +44,9 @@ export class CertificatesService {
     private readonly templates: ReportTemplatesService,
     private readonly reportData: ReportDataService,
     private readonly renderer: PdfRendererService,
+    private readonly studyRenderer: StudyCertificateRenderer,
+    private readonly studyData: StudyCertificateDataService,
+    private readonly settings: SettingsService,
     private readonly storage: StorageService,
     private readonly schoolYears: SchoolYearsService,
     private readonly notifications: NotificationsService,
@@ -85,6 +101,17 @@ export class CertificatesService {
     actor: AuthenticatedUser,
     ip: string | null,
   ): Promise<CertificateDocument> {
+    if (dto.type === 'study_verification') {
+      // Not a rejection of the caller's intent so much as of this route: the
+      // letter needs a birthplace, parents and a study period, none of which
+      // this DTO carries, and issuing it here would burn a number on a letter
+      // with four dotted lines in it.
+      throw AppException.badRequest('common.validationFailed', {
+        field: 'type',
+        reason: 'use POST /certificates/study-verification for ໃບຢັ້ງຢືນການສຶກສາ',
+      });
+    }
+
     const student = await this.studentModel.findById(dto.studentId).lean().exec();
     if (!student) throw AppException.badRequest('common.notFound', { field: 'studentId' });
 
@@ -144,6 +171,133 @@ export class CertificatesService {
     return this.findOne(certificate._id.toString());
   }
 
+  /** The draft the office reviews before a letter is issued. */
+  prefillStudyVerification(studentId: string): Promise<StudyCertificatePrefill> {
+    return this.studyData.prefill(studentId);
+  }
+
+  /**
+   * Renders a letter without issuing it — no number, no record, no file.
+   *
+   * Worth its own path because the numbers are gap-free and outsiders verify
+   * them: a teacher who wants to check the wording before printing must be able
+   * to do so without consuming `100/ວຈພທນ(ຄນຮ)`. Where the number would go the
+   * preview prints `(ຮ່າງ)`, so a printed draft cannot pass as a real letter.
+   */
+  async previewStudyVerification(dto: IssueStudyCertificateDto): Promise<Buffer> {
+    const details = await this.studyData.resolveDetails(dto.studentId, dto);
+    const data = await this.studyData.assemble({
+      studentId: dto.studentId,
+      certificateNumber: '(ຮ່າງ)',
+      issuedDate: dto.issuedDate ? new Date(dto.issuedDate) : new Date(),
+      details,
+    });
+    return this.studyRenderer.render(data);
+  }
+
+  /**
+   * Issues a `ໃບຢັ້ງຢືນການສຶກສາ` and returns the record together with its PDF.
+   *
+   * The PDF comes back in the same call rather than through a signed URL: the
+   * teacher is standing at the counter with the parent, and a letter that exists
+   * only as an S3 key they have to fetch separately is a letter that fails on
+   * the day object storage is unreachable. The upload still happens — the office
+   * needs its copy — but its failure costs the reprint, not the visit.
+   */
+  async issueStudyVerification(
+    dto: IssueStudyCertificateDto,
+    actor: AuthenticatedUser,
+    ip: string | null,
+  ): Promise<{ certificate: CertificateDocument; pdf: Buffer }> {
+    const student = await this.studentModel.findById(dto.studentId).lean().exec();
+    if (!student) throw AppException.badRequest('common.notFound', { field: 'studentId' });
+
+    const schoolYear = dto.schoolYearId
+      ? await this.schoolYears.findOneOrFail(dto.schoolYearId)
+      : await this.schoolYears.getActiveOrFail();
+
+    const issuedDate = dto.issuedDate ? new Date(dto.issuedDate) : new Date();
+    const details = await this.studyData.resolveDetails(dto.studentId, dto);
+
+    const certificate = await this.tx.run(async (session) => {
+      const certificateNumber = await this.allocateStudyVerificationNumber(session);
+
+      const [created] = await this.model.create(
+        [
+          {
+            certificateNumber,
+            studentId: student._id,
+            studentNameLo: `${student.firstNameLo} ${student.lastNameLo}`,
+            type: 'study_verification',
+            schoolYearId: schoolYear._id,
+            titleLo: 'ໃບຢັ້ງຢືນການສຶກສາ',
+            issuedDate,
+            issuedBy: new Types.ObjectId(actor.sub),
+            studyDetails: details,
+          },
+        ],
+        { session },
+      );
+
+      await this.audit.record(
+        {
+          action: 'create',
+          entityType: 'certificates',
+          entityId: created._id,
+          userId: actor.sub,
+          username: actor.username,
+          newValue: {
+            certificateNumber,
+            studentCode: student.studentCode,
+            type: 'study_verification',
+          },
+          ip,
+        },
+        session,
+      );
+
+      return created;
+    });
+
+    const pdf = await this.renderStudyVerification(certificate);
+    await this.storeStudyVerification(certificate, pdf);
+
+    return { certificate: await this.findOne(certificate._id.toString()), pdf };
+  }
+
+  /**
+   * The PDF of an already-issued certificate.
+   *
+   * Re-renders when the stored file is missing rather than returning a 404. The
+   * record is what makes the number valid; the file is a rendering of it, and
+   * reproducing it from `studyDetails` gives the same letter back.
+   */
+  async getFile(id: string, actor: AuthenticatedUser): Promise<{ pdf: Buffer; filename: string }> {
+    const certificate = await this.findOne(id);
+    await this.assertMayRead(certificate, actor);
+
+    const filename = `${certificate.certificateNumber.replace(/[^\p{L}\p{N}]+/gu, '-')}.pdf`;
+
+    if (certificate.fileKey) {
+      const stored = await this.storage.getBuffer(certificate.fileKey);
+      if (stored) return { pdf: stored, filename };
+    }
+
+    if (certificate.type !== 'study_verification') {
+      // The award types render from a template plus marks, which
+      // `regenerateFile` already knows how to redo and store.
+      await this.regenerateFile(id, actor);
+      const refreshed = await this.findOne(id);
+      const stored = refreshed.fileKey ? await this.storage.getBuffer(refreshed.fileKey) : null;
+      if (!stored) throw AppException.notFound();
+      return { pdf: stored, filename };
+    }
+
+    const pdf = await this.renderStudyVerification(certificate);
+    await this.storeStudyVerification(certificate, pdf);
+    return { pdf, filename };
+  }
+
   /** Re-renders the PDF for a certificate whose file is missing or stale. */
   async regenerateFile(id: string, actor: AuthenticatedUser): Promise<CertificateDocument> {
     const certificate = await this.findOne(id);
@@ -185,19 +339,7 @@ export class CertificatesService {
       });
     }
 
-    // A student or their linked guardian may fetch their own certificate.
-    const isOwnRecord =
-      (actor.personType === 'student' && actor.personId === certificate.studentId.toString()) ||
-      (actor.personType === 'guardian' &&
-        (await this.isLinkedGuardian(actor.personId, certificate.studentId.toString())));
-
-    const canRead = actor.permissions.some(
-      (p) =>
-        p.resource === 'certificates' &&
-        (p.actions.includes('read') || p.actions.includes('manage')),
-    );
-
-    if (!isOwnRecord && !canRead) throw AppException.forbidden();
+    await this.assertMayRead(certificate, actor);
 
     const url = await this.storage.getSignedUrl(certificate.fileKey);
     if (!url) throw AppException.notFound();
@@ -301,6 +443,106 @@ export class CertificatesService {
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /**
+   * Staff with `certificates:read`, or the pupil and their linked guardians.
+   *
+   * Kept as one method so the signed-URL route and the streaming route cannot
+   * drift apart — a letter names a child's home address and both parents, so the
+   * looser of two checks is the one that matters.
+   */
+  private async assertMayRead(
+    certificate: CertificateDocument,
+    actor: AuthenticatedUser,
+  ): Promise<void> {
+    const isOwnRecord =
+      (actor.personType === 'student' && actor.personId === certificate.studentId.toString()) ||
+      (actor.personType === 'guardian' &&
+        (await this.isLinkedGuardian(actor.personId, certificate.studentId.toString())));
+
+    const canRead = actor.permissions.some(
+      (p) =>
+        p.resource === 'certificates' &&
+        (p.actions.includes('read') || p.actions.includes('manage')),
+    );
+
+    if (!isOwnRecord && !canRead) throw AppException.forbidden();
+  }
+
+  /**
+   * Allocates the next `ໃບຢັ້ງຢືນການສຶກສາ` number, e.g. `99/ວຈພທນ(ຄນຮ)`.
+   *
+   * A different shape from the award series on purpose: this is a numbered
+   * outgoing letter of the school's own register, which is what the department
+   * code after the slash means, and its series continues from where the paper
+   * book left off — hence the configurable start rather than 1.
+   *
+   * The ordinals are compared as **numbers**. Sorting them as strings, which is
+   * what the award series does, puts `99` after `100` and would hand out `100`
+   * twice; the unique index would then reject the second issue rather than
+   * silently reuse it, but the office would be stuck.
+   */
+  private async allocateStudyVerificationNumber(session: ClientSession): Promise<string> {
+    const [code, start, padding] = await Promise.all([
+      this.settings.getValue<string>('school.documentCodeLo'),
+      this.settings.getValue<number>('certificates.studyVerificationStartNumber'),
+      this.settings.getValue<number>('certificates.studyVerificationNumberPadding'),
+    ]);
+
+    const issued = await this.model
+      .find({ type: 'study_verification' })
+      .select('certificateNumber')
+      .session(session)
+      .lean()
+      .exec();
+
+    const first = typeof start === 'number' && start > 0 ? start : 99;
+
+    // The start number is a floor, not a reset: once a letter is out, the series
+    // continues past it. Lowering the setting on a series already in use cannot
+    // hand out a number twice — which is the point, since the number is what an
+    // outsider verifies. Restarting means removing the letters that were issued.
+    const highest = issued.reduce((max, doc) => {
+      const ordinal = Number.parseInt(doc.certificateNumber.split('/')[0] ?? '', 10);
+      return Number.isFinite(ordinal) && ordinal > max ? ordinal : max;
+    }, first - 1);
+
+    const width = typeof padding === 'number' && padding > 0 ? padding : 0;
+    const ordinal = String(highest + 1).padStart(width, '0');
+
+    return `${ordinal}/${code ?? 'ຄມຮ'}`;
+  }
+
+  private async renderStudyVerification(certificate: CertificateDocument): Promise<Buffer> {
+    const data = await this.studyData.assemble({
+      studentId: certificate.studentId.toString(),
+      certificateNumber: certificate.certificateNumber,
+      issuedDate: certificate.issuedDate,
+      details: (certificate.studyDetails ?? {}) as StudyVerificationDetails,
+    });
+    return this.studyRenderer.render(data);
+  }
+
+  /**
+   * Files the office's copy. A failure here is logged, never thrown: the caller
+   * already holds the bytes, and losing the archive copy must not turn into the
+   * parent being told to come back tomorrow.
+   */
+  private async storeStudyVerification(
+    certificate: CertificateDocument,
+    pdf: Buffer,
+  ): Promise<void> {
+    const fileKey = `certificates/${certificate._id.toString()}.pdf`;
+    try {
+      await this.storage.putBuffer(fileKey, pdf, 'application/pdf');
+      await this.model.updateOne({ _id: certificate._id }, { $set: { fileKey } }).exec();
+    } catch (error) {
+      this.logger.error(
+        `Certificate ${certificate.certificateNumber} was issued but its PDF could not be stored`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
 
   /**
    * Allocates the next certificate number, e.g. `2025-2026/GRAD/0001`.

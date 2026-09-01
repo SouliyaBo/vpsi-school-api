@@ -110,8 +110,21 @@ export class Student extends SoftDeletableDocument {
   @Prop({ type: Date, required: true })
   dateOfBirth: Date;
 
+  /**
+   * Where the child was born, held exactly like the current address: a link into
+   * the official tree plus whatever the register wrote that the tree cannot hold.
+   *
+   * Unlike `villageId` this may point at a province or a district rather than a
+   * village. The official list carries villages for Vientiane Capital only, so a
+   * child born in Savannakhet can be placed no finer than its district — and a
+   * district on file beats a district buried in free text.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'Location', default: null, index: true })
+  birthLocationId?: Types.ObjectId | null;
+
+  /** The part of the birthplace the tree has no node for — usually the village. */
   @Prop({ type: String, default: null, trim: true })
-  placeOfBirth?: string | null;
+  birthAddressDetail?: string | null;
 
   @Prop({ type: String, default: null, trim: true })
   nationality?: string | null;

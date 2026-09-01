@@ -3,7 +3,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
-import { nicknameOf, populatedStudent, STUDENT_NAME_SELECT } from 'src/common/utils/student-name';
+import { isStudying, ROSTER_STUDENT_SELECT } from 'src/common/utils/current-roll';
+import { nicknameOf, populatedStudent } from 'src/common/utils/student-name';
 import {
   Enrollment,
   EnrollmentDocument,
@@ -735,9 +736,17 @@ export class MonthlyMarksService {
   /**
    * The class list the sheet is drawn against.
    *
-   * Active enrolments, plus anyone who has left but has marks on this subject —
-   * the school keeps a leaver's row and records zeros against it, and a sheet
-   * that dropped them would lose marks already earned.
+   * ກຳລັງຮຽນ only. A student who has graduated, declined the certificate, moved
+   * away, dropped out or been suspended has no exam to sit and no mark to earn,
+   * so they come off the sheet: any marks already written stay in the database
+   * untouched, but nobody can go on adding to them. Stricter than roll call by
+   * `no_certificate`, which is why this reads `isStudying` and not the wider
+   * `isOnCurrentRoll`.
+   *
+   * Within that roll it is the active enrolments, plus anyone moved out of this
+   * class who already has marks on this subject — the school keeps that row and
+   * records zeros against it, and a sheet that dropped them would lose marks
+   * already earned.
    */
   private async loadRoster(
     classroomId: Types.ObjectId,
@@ -747,7 +756,7 @@ export class MonthlyMarksService {
     const [enrollments, markedIds] = await Promise.all([
       this.enrollmentModel
         .find({ classroomId, deletedAt: null })
-        .populate('studentId', STUDENT_NAME_SELECT)
+        .populate('studentId', ROSTER_STUDENT_SELECT)
         .sort({ rollNumber: 1 })
         .lean()
         .exec(),
@@ -757,13 +766,12 @@ export class MonthlyMarksService {
     const marked = new Set(markedIds.map((id) => id.toString()));
 
     return enrollments
-      .filter(
-        (enrollment) =>
-          enrollment.status === 'active' || marked.has(enrollment.studentId.toString()),
-      )
+      .filter((enrollment) => isStudying(enrollment.studentId))
       .map((enrollment) => {
         const student = populatedStudent(enrollment.studentId);
         return {
+          // Read off the populated ref rather than `studentId.toString()`, which
+          // on a populated lean row is the string `[object Object]`.
           studentId: student?._id.toString() ?? String(enrollment.studentId),
           studentCode: enrollment.studentCode,
           studentNameLo: enrollment.studentNameLo,
@@ -771,16 +779,27 @@ export class MonthlyMarksService {
           rollNumber: enrollment.rollNumber ?? null,
           isEnrolled: enrollment.status === 'active',
         };
-      });
+      })
+      .filter((row) => row.isEnrolled || marked.has(row.studentId));
   }
 
+  /**
+   * Who a save is allowed to name — the same roll the sheet is drawn from, so a
+   * stale grid still open on a teacher's screen cannot write a mark for a child
+   * who has since left the school.
+   */
   private async enrolledIds(classroomId: Types.ObjectId): Promise<Set<string>> {
     const roster = await this.enrollmentModel
       .find({ classroomId, status: 'active', deletedAt: null })
       .select('studentId')
+      .populate('studentId', 'status')
       .lean()
       .exec();
-    return new Set(roster.map((row) => row.studentId.toString()));
+    return new Set(
+      roster
+        .filter((row) => isStudying(row.studentId))
+        .map((row) => populatedStudent(row.studentId)?._id.toString() ?? String(row.studentId)),
+    );
   }
 
   private strandCell(
