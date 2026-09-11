@@ -37,7 +37,10 @@ import {
   DEFAULT_CERTIFICATE_LAYOUT,
   DEFAULT_REPORT_CARD_LAYOUT,
 } from 'src/modules/reports/pdf/layout.types';
-import { DEFAULT_SEMESTER_MONTHS } from 'src/modules/monthly-marks/monthly-grading';
+import {
+  DEFAULT_MONTHLY_BANDS,
+  DEFAULT_SEMESTER_MONTHS,
+} from 'src/modules/monthly-marks/monthly-grading';
 import { DEFAULT_GRADE_SCALE, DEFAULT_PASSING_PERCENTAGE } from 'src/modules/term-results/grading';
 import { flattenOfficialLocations } from 'src/database/locations/location-matching';
 import { CONDUCT_RULE_SEEDS } from './conduct-rules';
@@ -355,6 +358,15 @@ export class SeedService {
         description:
           'The calendar months each term collects on the monthly mark sheet, keyed by ' +
           'semester number. The school runs ກັນຍາ–ພະຈິກ and ກຸມພາ–ເມສາ.',
+      },
+      {
+        key: 'grading.monthlyBands',
+        value: DEFAULT_MONTHLY_BANDS,
+        category: 'grading',
+        isPublic: false,
+        description:
+          'ຈັດປະເພດ on the monthly sheet: ເກັ່ງ from `strongFrom` up, ອ່ອນ below `weakBelow`, ' +
+          'ກາງ in between — written in the 10-point mark the sheet uses.',
       },
       {
         key: 'grading.passingPercentage',

@@ -4,11 +4,13 @@ import { ClientIp, CurrentUser, RequirePermissions } from 'src/common/decorators
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import {
   AnnualSheetQueryDto,
+  ClassMonthQueryDto,
   LockMonthDto,
   MonthGridQueryDto,
   SaveMonthGridDto,
   SaveTermMarksDto,
   SheetQueryDto,
+  StudentMonthsQueryDto,
 } from './dto/monthly-mark.dto';
 import { MonthlyMarksService } from './monthly-marks.service';
 
@@ -64,6 +66,32 @@ export class MonthlyMarksController {
   })
   annualSheet(@Query() query: AnnualSheetQueryDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.service.getAnnualSheet(query, actor);
+  }
+
+  @Get('class-month')
+  @RequirePermissions({ resource: 'scores', action: 'read' })
+  @ApiOperation({
+    summary: 'ສະຫຼຸບປະຈຳເດືອນ — one class, one month, every subject and a rank',
+    description:
+      "The columns are the subjects the class's grade is marked in, so a subject nobody has " +
+      'filled in yet is an empty column rather than a missing one. ສະເລ່ຍ divides the marks ' +
+      'by that number of subjects — 4 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and ມ.6.',
+  })
+  classMonth(@Query() query: ClassMonthQueryDto) {
+    return this.service.getClassMonth(query);
+  }
+
+  @Get('student')
+  @RequirePermissions({ resource: 'scores', action: 'read' })
+  @ApiOperation({
+    summary: "One student's ຄະແນນປະຈຳເດືອນ — every month and every subject",
+    description:
+      'The class summary turned round: the months a term collects, the subjects the grade ' +
+      'is marked in, and the ລຳດັບ the student held each month. Scoped like every other ' +
+      'per-student read, so a guardian sees only their own child.',
+  })
+  studentMonths(@Query() query: StudentMonthsQueryDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.service.getStudentMonths(query, actor);
   }
 
   @Post('month')

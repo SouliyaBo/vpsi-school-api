@@ -1,6 +1,13 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { ADMIN_USERNAME, TestContext, auth, createTestApp, login } from './test-app';
+import {
+  ADMIN_USERNAME,
+  TestContext,
+  auth,
+  createTestApp,
+  login,
+  markEveryGradeSubject,
+} from './test-app';
 
 /**
  * Authorization boundaries between roles.
@@ -24,6 +31,7 @@ describe('RBAC (e2e)', () => {
 
   let classroomId: string;
   let otherClassroomId: string;
+  let gradeLevelId: string;
   let semesterId: string;
   let mathSubjectId: string;
   let engSubjectId: string;
@@ -79,7 +87,7 @@ describe('RBAC (e2e)', () => {
     ]);
 
     semesterId = semester.body.id;
-    const gradeLevelId = grades.body.data.find((g: { code: string }) => g.code === 'm4').id;
+    gradeLevelId = grades.body.data.find((g: { code: string }) => g.code === 'm4').id;
     mathSubjectId = subjects.body.data.find((s: { code: string }) => s.code === 'MATH-M4').id;
     engSubjectId = subjects.body.data.find((s: { code: string }) => s.code === 'ENG-M4').id;
     assignedTeacherId = teachers.body.data[0].id;
@@ -700,6 +708,21 @@ describe('RBAC (e2e)', () => {
     });
 
     it('shows the result to the student once published', async () => {
+      // Publication refuses a provisional result, and the average divides by the
+      // subjects the grade sits — so the whole curriculum has to be marked before
+      // there is anything to publish. This spec is about the gate, not the marks.
+      await markEveryGradeSubject(app, adminToken, {
+        gradeLevelId,
+        semesterId,
+        classroomId,
+        studentIds: [studentId],
+      });
+      await http()
+        .post('/api/term-results/compute-sync')
+        .set(auth(adminToken))
+        .send({ classroomId, semesterId })
+        .expect(201);
+
       await http()
         .post('/api/term-results/publish')
         .set(auth(adminToken))

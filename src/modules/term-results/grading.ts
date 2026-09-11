@@ -7,7 +7,10 @@ import { ConductGrade, Grade } from 'src/common/constants/enums';
  * result can always be traced to the rules that produced it. Without it, a
  * change to the grade boundaries would silently make old records unexplainable.
  */
-export const COMPUTATION_VERSION = 1;
+export const COMPUTATION_VERSION = 3;
+// 2 — the term average became an equal-weight mean over the subjects the grade
+//     sits, replacing the credit-weighted mean. See `computeTermResult`.
+// 3 — the grade scale became the school's own A–F, with an E and no `+` bands.
 
 export interface GradeBand {
   grade: Grade;
@@ -17,18 +20,30 @@ export interface GradeBand {
 }
 
 /**
- * Default grade scale, overridable through the `grading.scale` setting.
+ * The school's grade scale, overridable through the `grading.scale` setting.
+ *
+ * Given by the office as marks out of 10 and held here as percentages, which is
+ * the same scale times ten — every mark in this system is a 0–100 figure, and
+ * screens divide by `grading.reportMarkScale` to show it back out of 10:
+ *
+ *   A 8.5–10 · B 7–8.4 · C 5.5–6.9 · D 4.5–5.4 · E 3.5–4.4 · F 0–3.4
+ *
+ * The bands the office wrote leave a hairline gap between them (8.4 to 8.5), so
+ * the thresholds are read as lower bounds and `gradeFor` takes the first band
+ * that is met: 8.45 is a B, not a nothing.
+ *
+ * `gradePoint` is not the school's — they do not keep a GPA — and only orders
+ * the bands for the figure the system already carries. E at 0.5 keeps it above
+ * F without claiming a pass.
  *
  * Ordered high to low; `gradeFor` returns the first band whose threshold is met.
  */
 export const DEFAULT_GRADE_SCALE: readonly GradeBand[] = [
-  { grade: 'A', minPercentage: 80, gradePoint: 4.0 },
-  { grade: 'B+', minPercentage: 75, gradePoint: 3.5 },
+  { grade: 'A', minPercentage: 85, gradePoint: 4.0 },
   { grade: 'B', minPercentage: 70, gradePoint: 3.0 },
-  { grade: 'C+', minPercentage: 65, gradePoint: 2.5 },
-  { grade: 'C', minPercentage: 60, gradePoint: 2.0 },
-  { grade: 'D+', minPercentage: 55, gradePoint: 1.5 },
-  { grade: 'D', minPercentage: 50, gradePoint: 1.0 },
+  { grade: 'C', minPercentage: 55, gradePoint: 2.0 },
+  { grade: 'D', minPercentage: 45, gradePoint: 1.0 },
+  { grade: 'E', minPercentage: 35, gradePoint: 0.5 },
   { grade: 'F', minPercentage: 0, gradePoint: 0 },
 ];
 
@@ -181,31 +196,62 @@ export interface TermComputation {
   grade: Grade;
   subjectsPassed: number;
   subjectsFailed: number;
+  /** How many subjects the grade is marked in — the divisor the school uses. */
+  subjectsExpected: number;
+  /** How many of them this student has a mark in. */
+  subjectsRecorded: number;
+}
+
+export interface TermOptions {
+  scale?: readonly GradeBand[];
+  /**
+   * The number of subjects this grade is marked in, when it is known.
+   *
+   * Defaults to the number of subjects handed in, which is right only once every
+   * one of them is marked.
+   */
+  expectedSubjects?: number;
 }
 
 /**
  * Aggregates subject results into a term outcome.
  *
- * Both the average and the GPA are **credit-weighted**: a 4-credit subject moves
- * the average twice as much as a 2-credit one. An unweighted mean would let a
- * minor elective offset a core subject.
+ * **Every subject counts once, and the divisor is the number of subjects the
+ * grade is marked in** — the school's rule, in its own words: add the subject
+ * marks up and divide by 8 at ມ.4 and ມ.7, by 7 at ມ.5 and ມ.6, by 4 at ມ.1–ມ.3.
+ * `credits` is not a weight here; it stays on the subject as the ໜ່ວຍກິດ the
+ * report card prints.
+ *
+ * This was a credit-weighted mean, which is a different number: with ພາສາລາວ and
+ * ຄະນິດສາດ at 4 credits against ສັງຄົມ and ທຳມະຊາດ at 3, a mark of 8 in maths and
+ * 5 in ສັງຄົມ came out at 6.71 rather than the 6.5 the school's own sheet gives.
+ *
+ * Dividing by the expected count rather than by what has been entered is
+ * deliberate: a student marked in five of eight subjects reads low and is flagged
+ * provisional, which is a visible gap. Averaging the five would read as a
+ * finished result three subjects short.
  */
 export function computeTermResult(
   subjects: SubjectSummary[],
-  scale: readonly GradeBand[] = DEFAULT_GRADE_SCALE,
+  options: TermOptions = {},
 ): TermComputation {
-  if (subjects.length === 0) {
-    return { average: 0, gpa: 0, grade: 'F', subjectsPassed: 0, subjectsFailed: 0 };
+  const { scale = DEFAULT_GRADE_SCALE, expectedSubjects } = options;
+  const divisor = Math.max(expectedSubjects ?? subjects.length, subjects.length);
+
+  if (divisor === 0) {
+    return {
+      average: 0,
+      gpa: 0,
+      grade: 'F',
+      subjectsPassed: 0,
+      subjectsFailed: 0,
+      subjectsExpected: 0,
+      subjectsRecorded: 0,
+    };
   }
 
-  const totalCredits = subjects.reduce((sum, s) => sum + s.credits, 0);
-
-  // Guard against every subject carrying zero credits, which would divide by zero.
-  const weight = (subject: SubjectSummary) => (totalCredits > 0 ? subject.credits : 1);
-  const divisor = totalCredits > 0 ? totalCredits : subjects.length;
-
-  const average = round2(subjects.reduce((sum, s) => sum + s.percentage * weight(s), 0) / divisor);
-  const gpa = round2(subjects.reduce((sum, s) => sum + s.gradePoint * weight(s), 0) / divisor);
+  const average = round2(subjects.reduce((sum, s) => sum + s.percentage, 0) / divisor);
+  const gpa = round2(subjects.reduce((sum, s) => sum + s.gradePoint, 0) / divisor);
 
   return {
     average,
@@ -213,6 +259,8 @@ export function computeTermResult(
     grade: gradeFor(average, scale).grade,
     subjectsPassed: subjects.filter((s) => s.isPassed).length,
     subjectsFailed: subjects.filter((s) => !s.isPassed).length,
+    subjectsExpected: divisor,
+    subjectsRecorded: subjects.length,
   };
 }
 

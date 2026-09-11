@@ -42,7 +42,7 @@ describe('escalationFor', () => {
     expect(levelAt(99)).toBe('level3');
   });
 
-  it('does not fall off the top when a term is over-deducted', () => {
+  it('does not fall off the top when a year is over-deducted', () => {
     // Nobody stops at exactly 100: the last rule applied can take it past.
     expect(levelAt(115)).toBe('review');
   });
@@ -94,7 +94,7 @@ describe('escalationFor', () => {
 });
 
 describe('remainingFrom', () => {
-  it('counts down from the 100 every child starts the term on', () => {
+  it('counts down from the 100 every child starts the school year on', () => {
     expect(remainingFrom(0)).toBe(CONDUCT_BASE_SCORE);
     expect(remainingFrom(35)).toBe(65);
   });

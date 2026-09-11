@@ -40,6 +40,48 @@ export class MonthGridQueryDto extends SheetQueryDto {
   month: number;
 }
 
+/**
+ * ສະຫຼຸບປະຈຳເດືອນ — one class, one month, every subject at once.
+ *
+ * No `subjectId`: this sheet crosses the subjects with each other, which none of
+ * the per-subject ones can do. The subjects come from the grade the class sits.
+ */
+export class ClassMonthQueryDto {
+  @ApiProperty()
+  @IsMongoId()
+  classroomId: string;
+
+  @ApiProperty({ example: 9, description: 'Calendar month, 1–12' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  month: number;
+
+  @ApiPropertyOptional({ description: 'Defaults to the active semester' })
+  @IsMongoId()
+  @IsOptional()
+  semesterId?: string;
+}
+
+/**
+ * ຄະແນນປະຈຳເດືອນ of one student — the child's own page rather than a class sheet.
+ *
+ * No `classroomId` and no `subjectId`: the question is "how has this student
+ * done, month by month", and the room they sat in that term is a fact about the
+ * register, not something the caller should have to know.
+ */
+export class StudentMonthsQueryDto {
+  @ApiProperty()
+  @IsMongoId()
+  studentId: string;
+
+  @ApiPropertyOptional({ description: 'Defaults to the active semester' })
+  @IsMongoId()
+  @IsOptional()
+  semesterId?: string;
+}
+
 /** The school year an annual sheet covers. */
 export class AnnualSheetQueryDto {
   @ApiProperty() @IsMongoId() subjectId: string;

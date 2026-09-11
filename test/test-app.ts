@@ -5,6 +5,7 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Test } from '@nestjs/testing';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import request from 'supertest';
 import { AllExceptionsFilter } from 'src/common/filters/all-exceptions.filter';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { PermissionsGuard } from 'src/common/guards/permissions.guard';
@@ -74,7 +75,9 @@ import { ReportDataService } from 'src/modules/reports/report-data.service';
 import { ReportTemplatesService } from 'src/modules/reports/report-templates.service';
 import { ReportsController } from 'src/modules/reports/reports.controller';
 import { ReportsQueueService } from 'src/modules/reports/reports.queue';
+import { StudyCertificateRenderer } from 'src/modules/reports/pdf/study-certificate.renderer';
 import { ReportsModule } from 'src/modules/reports/reports.module';
+import { GradingScaleModule } from 'src/modules/term-results/grading-scale.service';
 import { ReportsService } from 'src/modules/reports/reports.service';
 import { TermResultsController } from 'src/modules/term-results/term-results.controller';
 import { TermResultsModule } from 'src/modules/term-results/term-results.module';
@@ -97,6 +100,10 @@ import { TermResultsQueueService } from 'src/modules/term-results/term-results.q
     EnrollmentsModule,
     ScoreComponentsModule,
     SubjectsModule,
+    // The grade a class sits decides how many subjects the average divides by.
+    ClassroomsModule,
+    // The school's letter bands, shared with the monthly summary.
+    GradingScaleModule,
     ConductScoresModule,
     AttendancesModule,
     // The term result reads the monthly marks, so the real module's dependency
@@ -143,6 +150,10 @@ class TestTermResultsModule {}
     ReportTemplatesService,
     ReportDataService,
     PdfRendererService,
+    // `CertificatesModule` imports this module for the renderer, so a provider
+    // added to the real `ReportsModule` and not mirrored here takes the whole
+    // suite down at boot rather than failing one test.
+    StudyCertificateRenderer,
     {
       provide: ReportsQueueService,
       useValue: {
@@ -151,7 +162,13 @@ class TestTermResultsModule {}
       },
     },
   ],
-  exports: [ReportsService, ReportDataService, PdfRendererService, ReportTemplatesService],
+  exports: [
+    ReportsService,
+    ReportDataService,
+    PdfRendererService,
+    StudyCertificateRenderer,
+    ReportTemplatesService,
+  ],
 })
 class TestReportsModule {}
 
@@ -302,3 +319,108 @@ export const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 export const ADMIN_USERNAME = 'admin';
 export const ADMIN_PASSWORD = 'ChangeMe123';
+
+/** What `markEveryGradeSubject` needs to find the sheet it is filling in. */
+export interface MarkTarget {
+  gradeLevelId: string;
+  semesterId: string;
+  classroomId: string;
+  studentIds: string[];
+}
+
+/**
+ * Fills in every subject of a grade that is not marked yet, and says how many
+ * subjects that grade sits.
+ *
+ * The term average divides by the number of subjects the **grade** is marked in,
+ * not by the ones that happen to have scores, and a student short of a subject
+ * holds the whole result provisional and unpublishable. So a test that wants a
+ * finished class has to mark the whole curriculum, not one subject — which is
+ * what this does, and why it lives here rather than in one spec.
+ *
+ * Idempotent in both directions: a subject whose weights already total 100 gets
+ * no new component, and a cell that already has a score is left alone. That is
+ * what lets a spec mark one subject by hand, assert its exact figures, and then
+ * call this to finish the rest without disturbing them.
+ */
+export async function markEveryGradeSubject(
+  app: INestApplication,
+  token: string,
+  target: MarkTarget,
+  /** Percentage every subject this fills in comes out at. */
+  mark = 80,
+): Promise<number> {
+  const http = () => request(app.getHttpServer());
+  const wanted = new Set(target.studentIds);
+
+  const subjects = await http()
+    .get(`/api/subjects?gradeLevelId=${target.gradeLevelId}&role=marked&limit=100`)
+    .set(auth(token))
+    .expect(200);
+
+  const rows = subjects.body.data as { id: string }[];
+
+  for (const subject of rows) {
+    const query =
+      `subjectId=${subject.id}&semesterId=${target.semesterId}` +
+      `&classroomId=${target.classroomId}`;
+
+    // A subject whose weights do not total 100 cannot be computed at all, and
+    // specs leave part-weighted components behind, so only the shortfall is added.
+    const summary = await http()
+      .get(`/api/score-components/weight-summary?${query}`)
+      .set(auth(token))
+      .expect(200);
+
+    const shortfall = 100 - (summary.body.totalWeight as number);
+    if (shortfall > 0) {
+      await http()
+        .post('/api/score-components')
+        .set(auth(token))
+        .send({
+          subjectId: subject.id,
+          semesterId: target.semesterId,
+          classroomId: target.classroomId,
+          nameLo: 'ສອບເສັງທ້າຍພາກ',
+          type: 'final',
+          weight: shortfall,
+          maxScore: 100,
+        })
+        .expect(201);
+    }
+
+    const components = await http()
+      .get(`/api/score-components?${query}&limit=100`)
+      .set(auth(token))
+      .expect(200);
+
+    for (const component of components.body.data as { id: string; maxScore: number }[]) {
+      const grid = await http()
+        .get(`/api/scores/entry-grid?componentId=${component.id}&classroomId=${target.classroomId}`)
+        .set(auth(token))
+        .expect(200);
+
+      const blank = (grid.body.entries as { studentId: string; score: number | null }[]).filter(
+        (entry) => entry.score === null && wanted.has(entry.studentId),
+      );
+      if (blank.length === 0) continue;
+
+      await http()
+        .post('/api/scores/batch')
+        .set(auth(token))
+        .send({
+          componentId: component.id,
+          classroomId: target.classroomId,
+          // The same fraction of every component, so the subject comes out at
+          // exactly `mark` whatever it is built from.
+          entries: blank.map((entry) => ({
+            studentId: entry.studentId,
+            score: (component.maxScore * mark) / 100,
+          })),
+        })
+        .expect(201);
+    }
+  }
+
+  return rows.length;
+}

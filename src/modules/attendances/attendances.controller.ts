@@ -2,11 +2,13 @@ import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from 
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ClientIp, CurrentUser, RequirePermissions } from 'src/common/decorators';
 import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
+import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { AttendancesService } from './attendances.service';
 import {
   AttendanceSubjectSummaryDto,
   AttendanceSummaryDto,
+  ClassAttendanceSummaryQueryDto,
   QueryAttendancesDto,
   RecordAttendanceDto,
 } from './dto/attendance.dto';
@@ -56,6 +58,25 @@ export class AttendancesController {
     return this.service.getCoverage(query);
   }
 
+  @Get('timeliness')
+  @RequirePermissions({ resource: 'attendances', action: 'manage' })
+  @ApiOperation({
+    summary: 'Who marks the roll late',
+    description:
+      'Not whether a lesson was written up but *when*. The deadline is the school’s own: noon ' +
+      'of the next working day after the lesson, so Friday’s is due Monday noon and a lesson ' +
+      'before ບຸນປີໃໝ່ is due at noon on the day the school comes back — weekends, holidays and ' +
+      'the days the office closed all come from `calendarEvents`. The unit judged is one act ' +
+      'per class per day, timed from the earliest `createdAt` of the rows it wrote, so a ' +
+      'teacher of a large class is not reported as forty times as late as a teacher of a ' +
+      'small one. Defaults to the active term to date. Rotating periods are left out, as in ' +
+      'the coverage report. `manage` rather than `read`, because this names and ranks other ' +
+      'people’s work — held by the administrator and the head of academic affairs.',
+  })
+  timeliness(@Query() query: TimelinessQueryDto) {
+    return this.service.getTimeliness(query);
+  }
+
   @Get('summary/student/:studentId/semester/:semesterId')
   @RequirePermissions({ resource: 'attendances', action: 'read' })
   @ApiOperation({ summary: 'Absence/late/excused counts and attendance rate for a student' })
@@ -82,13 +103,19 @@ export class AttendancesController {
 
   @Get('summary/classroom/:classroomId/semester/:semesterId')
   @RequirePermissions({ resource: 'attendances', action: 'read' })
-  @ApiOperation({ summary: 'The same summary for every student in a classroom' })
+  @ApiOperation({
+    summary: 'The same summary for every student in a classroom',
+    description:
+      'Counts the whole term unless `month` narrows it to one calendar month, which is what ' +
+      'the monthly mark sheet prints. Students with nothing recorded are not listed.',
+  })
   @ApiResponse({ status: 200, type: [AttendanceSummaryDto] })
   classroomSummary(
     @Param('classroomId') classroomId: string,
     @Param('semesterId') semesterId: string,
+    @Query() query: ClassAttendanceSummaryQueryDto,
   ) {
-    return this.service.getClassroomSummary(classroomId, semesterId);
+    return this.service.getClassroomSummary(classroomId, semesterId, query.month);
   }
 
   @Post()

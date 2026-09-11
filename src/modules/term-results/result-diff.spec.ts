@@ -32,7 +32,7 @@ describe('resultsDiffer', () => {
   it.each([
     ['the average', { average: 82 }],
     ['the GPA', { gpa: 3.5 }],
-    ['the overall grade', { grade: 'B+' }],
+    ['the overall grade', { grade: 'B' }],
     ['how many subjects were passed', { subjectsPassed: 0, subjectsFailed: 1 }],
     ['the conduct grade', { conductGrade: 'good' }],
     ['the class rank', { rank: 2 }],

@@ -173,6 +173,20 @@ export interface CoverageWindow {
   /** Bounds of the term, when one is known — a lesson outside it is not owed. */
   semesterStart: Date | null;
   semesterEnd: Date | null;
+  /**
+   * `yyyy-MM-dd` of the days inside the window the school did not teach on —
+   * weekends, holidays, Teacher PD days and exam periods, from `calendarEvents`.
+   *
+   * Without it this report counted a lesson owed on every timetabled weekday of
+   * the window, and so reported the whole school as behind for the week of
+   * ບຸນປີໃໝ່ and for every exam period the office suspended the timetable for.
+   * A gap nobody could have filled trains everyone to ignore the number, which
+   * costs more than the gaps it finds.
+   *
+   * Optional so the pure functions stay callable without a calendar; a caller
+   * that omits it gets the old behaviour and should be treated as not yet wired.
+   */
+  nonTeachingDays?: ReadonlySet<string>;
 }
 
 /** The term's dates, however they are carried. */
@@ -283,14 +297,21 @@ export async function resolveCoverageSemester<T extends SemesterDates>(
   return (await semesters.findForRange(window.start, window.end)) ?? active;
 }
 
-/** Every calendar day of the window that the term is actually running on. */
+/**
+ * Every calendar day of the window the school actually taught on.
+ *
+ * Two filters, and they are separate because they are separate facts: the term's
+ * bounds say whether the school was in session at all, and the calendar says
+ * whether this particular day inside it was taught.
+ */
 function teachingDays(window: CoverageWindow): Date[] {
   const days: Date[] = [];
   for (let cursor = window.start; cursor <= window.end;) {
     const inTerm =
       (!window.semesterStart || cursor >= window.semesterStart) &&
       (!window.semesterEnd || cursor <= window.semesterEnd);
-    if (inTerm) days.push(cursor);
+    const taught = !window.nonTeachingDays?.has(cursor.toISOString().slice(0, 10));
+    if (inTerm && taught) days.push(cursor);
     cursor = new Date(cursor.getTime() + MS_PER_DAY);
   }
   return days;

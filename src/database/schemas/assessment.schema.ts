@@ -509,7 +509,12 @@ export class TermResult extends SoftDeletableDocument {
   @Prop({ type: [TermResultSubjectSchema], default: [] })
   subjects: TermResultSubject[];
 
-  /** Credit-weighted mean of the subject percentages. */
+  /**
+   * Mean of the subject percentages, every subject counting once.
+   *
+   * Divided by `subjectsExpected` — the number of subjects the grade sits — not
+   * by how many happen to be marked, which is the school's own rule.
+   */
   @Prop({ type: Number, required: true, default: 0 })
   average: number;
 
@@ -531,6 +536,14 @@ export class TermResult extends SoftDeletableDocument {
 
   @Prop({ type: Number, default: 0 })
   subjectsFailed: number;
+
+  /** How many subjects the grade is marked in — what `average` divided by. */
+  @Prop({ type: Number, default: 0 })
+  subjectsExpected: number;
+
+  /** How many of them this student actually has a mark in. */
+  @Prop({ type: Number, default: 0 })
+  subjectsRecorded: number;
 
   @Prop({ type: String, default: null, enum: [...CONDUCT_GRADES, null] })
   conductGrade?: ConductGrade | null;

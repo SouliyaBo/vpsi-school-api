@@ -10,6 +10,7 @@ import {
   IsMongoId,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -96,6 +97,24 @@ export class QueryAttendancesDto extends PaginationQueryDto {
   @IsDateString()
   @IsOptional()
   to?: string;
+}
+
+/**
+ * Narrows a class summary to one calendar month.
+ *
+ * The monthly mark sheet prints ວັນຂາດ for the month it is headed with, while
+ * every other reader of this summary — exam eligibility, the guardian meeting —
+ * wants the term to date. So the window is a parameter and the default is the
+ * whole term, rather than two endpoints over the same counts.
+ */
+export class ClassAttendanceSummaryQueryDto {
+  @ApiPropertyOptional({ example: 9, description: 'Calendar month 1–12; omit for the whole term' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  @IsOptional()
+  month?: number;
 }
 
 export class AttendanceSummaryDto {

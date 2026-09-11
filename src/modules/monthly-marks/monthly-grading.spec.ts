@@ -1,9 +1,13 @@
 import {
+  acrossSubjects,
   annualScore,
+  classifyMonth,
   COLUMN_MAX,
+  DEFAULT_MONTHLY_BANDS,
   isPassing,
   isWithinMax,
   meanOf,
+  monthlyBandsFrom,
   monthScore,
   monthsForSemester,
   monthTotal,
@@ -108,6 +112,41 @@ describe('monthScore — subjects taught in strands', () => {
   });
 });
 
+describe('acrossSubjects — the monthly class summary', () => {
+  it('divides by the four subjects ມ.1–ມ.3 sit', () => {
+    expect(acrossSubjects([8, 7, 6, 5], 4)).toEqual({ value: 6.5, isComplete: true });
+  });
+
+  it('divides by eight at ມ.4, not by the subjects entered so far', () => {
+    // Five subjects at 8 is 40/8 = 5, and the month is not finished.
+    expect(acrossSubjects([8, 8, 8, 8, 8, null, null, null], 8)).toEqual({
+      value: 5,
+      isComplete: false,
+    });
+  });
+
+  it('divides by seven at ມ.5, which sits no ຊີວະສາດ', () => {
+    expect(acrossSubjects([7, 7, 7, 7, 7, 7, 7], 7)).toEqual({ value: 7, isComplete: true });
+  });
+
+  it('has no average at all for a student with nothing recorded', () => {
+    expect(acrossSubjects([null, null, null, null], 4)).toEqual({
+      value: null,
+      isComplete: false,
+    });
+  });
+
+  it('never divides by fewer subjects than were marked', () => {
+    // A register briefly out of step with the sheet must not push a mark past 10.
+    expect(acrossSubjects([9, 9], 1).value).toBe(9);
+  });
+
+  it('does not round a subject mark before averaging it', () => {
+    // 8.45 + 7.4 + 6.7 + 5.2 = 27.75 over four is 6.94; rounding first gives 6.75.
+    expect(acrossSubjects([8.45, 7.4, 6.7, 5.2], 4).value).toBe(6.94);
+  });
+});
+
 describe('semesterScore', () => {
   it('halves the three-month average with the exam — ເກວະລິນ, ພາກ I', () => {
     expect(semesterScore(8, 8.4).value).toBe(8.2);
@@ -180,6 +219,46 @@ describe('monthsForSemester', () => {
   it('ignores a malformed override rather than collecting nothing', () => {
     expect(monthsForSemester(1, { '1': [] })).toEqual([9, 10, 11]);
     expect(monthsForSemester(1, { '1': [0, 13] as number[] })).toEqual([9, 10, 11]);
+  });
+});
+
+/**
+ * ຈັດປະເພດ, the three-way split the school reads a monthly sheet out by.
+ *
+ * The cuts are the office's and live in settings, so what is asserted here is
+ * the shape of the rule rather than the numbers: the boundaries are inclusive at
+ * ເກັ່ງ and exclusive at ອ່ອນ, and a configured pair that cannot be honoured is
+ * refused whole rather than half-applied.
+ */
+describe('classifyMonth', () => {
+  const cuts = DEFAULT_MONTHLY_BANDS;
+
+  it('bands on the school\u2019s own cuts', () => {
+    expect(classifyMonth(9.5, cuts)).toBe('strong');
+    // 7 is ເກັ່ງ, not the top of ກາງ.
+    expect(classifyMonth(7, cuts)).toBe('strong');
+    expect(classifyMonth(6.99, cuts)).toBe('middling');
+    // 5 is the pass mark, so it is still ກາງ; below it is ອ່ອນ.
+    expect(classifyMonth(5, cuts)).toBe('middling');
+    expect(classifyMonth(4.99, cuts)).toBe('weak');
+  });
+});
+
+describe('monthlyBandsFrom', () => {
+  it('honours an override from settings', () => {
+    expect(monthlyBandsFrom({ strongFrom: 7.5, weakBelow: 4 })).toEqual({
+      strongFrom: 7.5,
+      weakBelow: 4,
+    });
+  });
+
+  it('falls back rather than banding on half a rule', () => {
+    expect(monthlyBandsFrom(null)).toEqual(DEFAULT_MONTHLY_BANDS);
+    expect(monthlyBandsFrom({ strongFrom: 7 })).toEqual(DEFAULT_MONTHLY_BANDS);
+    // Off the 10-point scale the sheet is written in.
+    expect(monthlyBandsFrom({ strongFrom: 70, weakBelow: 50 })).toEqual(DEFAULT_MONTHLY_BANDS);
+    // Crossed: ກາງ would have nothing in it and 6 would be two bands at once.
+    expect(monthlyBandsFrom({ strongFrom: 5, weakBelow: 7 })).toEqual(DEFAULT_MONTHLY_BANDS);
   });
 });
 

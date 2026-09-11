@@ -37,9 +37,11 @@ import {
 /**
  * ການຕັດຄະແນນກົດລະບຽບ — the discipline ledger.
  *
- * Every child starts a term on 100 conduct points and loses them against a
- * numbered rule on the school's published sheet. Three things follow from that,
- * and they are what this service is:
+ * Every child starts the school year on 100 conduct points and loses them
+ * against a numbered rule on the school's published sheet. The 100 is a year's
+ * budget, not a term's: a child who lost 20 in ພາກຮຽນ I stands at 80 in
+ * ພາກຮຽນ II, and nothing in the school's rules puts the points back. Three things
+ * follow from that, and they are what this service is:
  *
  * 1. The act is recorded, never the balance. A balance that is stored is a
  *    balance that can be wrong; one that is summed cannot.
@@ -193,8 +195,8 @@ export class ConductDeductionsService {
    *
    * Soft-deleted rather than removed, and the reason is kept on the row: a child
    * was told they had lost these points, so taking them back is a decision the
-   * record should still show, not an erasure. The balance and the term mark
-   * follow immediately.
+   * record should still show, not an erasure. The year's balance and every term
+   * mark it feeds follow immediately.
    */
   async revoke(
     id: string,
@@ -237,38 +239,56 @@ export class ConductDeductionsService {
   }
 
   /**
-   * One class's standing for a term: the sheet the discipline committee reads.
+   * One class's standing for the school year: the sheet the committee reads.
    *
    * Built from the roll rather than from the ledger, so a child nobody has had to
    * deduct from is listed on their full 100 instead of being absent from the
    * page — "no entry" and "clean record" are the same thing here only if the
    * clean records are visible.
+   *
+   * Counted by student rather than by classroom: a child who changed room in
+   * ມັງກອນ carries what they lost in the old one, and a balance that reset with
+   * the move would be a way of clearing a record by changing seats.
    */
-  async getClassroomSummary(classroomId: string, semesterId: string): Promise<ClassSummaryRow[]> {
+  async getClassroomYearSummary(
+    classroomId: string,
+    schoolYearId: string,
+  ): Promise<ClassSummaryRow[]> {
     const classroomOid = new Types.ObjectId(classroomId);
-    const semesterOid = new Types.ObjectId(semesterId);
 
-    const [roster, totals] = await Promise.all([
-      this.enrollmentModel
-        .find({ classroomId: classroomOid, status: 'active', deletedAt: null })
-        .populate('studentId', ROSTER_STUDENT_SELECT)
-        .sort({ rollNumber: 1 })
-        .lean()
-        .exec(),
-      this.model
-        .aggregate<{ _id: Types.ObjectId; deducted: number; entries: number; lastDate: Date }>([
-          { $match: { classroomId: classroomOid, semesterId: semesterOid, deletedAt: null } },
-          {
-            $group: {
-              _id: '$studentId',
-              deducted: { $sum: '$points' },
-              entries: { $sum: 1 },
-              lastDate: { $max: '$date' },
-            },
-          },
-        ])
-        .exec(),
-    ]);
+    const roster = await this.enrollmentModel
+      .find({ classroomId: classroomOid, status: 'active', deletedAt: null })
+      .populate('studentId', ROSTER_STUDENT_SELECT)
+      .sort({ rollNumber: 1 })
+      .lean()
+      .exec();
+
+    const studentIds = roster
+      .map((enrollment) => populatedStudent(enrollment.studentId)?._id)
+      .filter((id): id is Types.ObjectId => Boolean(id));
+
+    const totals =
+      studentIds.length === 0
+        ? []
+        : await this.model
+            .aggregate<{ _id: Types.ObjectId; deducted: number; entries: number; lastDate: Date }>([
+              {
+                $match: {
+                  studentId: { $in: studentIds },
+                  schoolYearId: new Types.ObjectId(schoolYearId),
+                  deletedAt: null,
+                },
+              },
+              {
+                $group: {
+                  _id: '$studentId',
+                  deducted: { $sum: '$points' },
+                  entries: { $sum: 1 },
+                  lastDate: { $max: '$date' },
+                },
+              },
+            ])
+            .exec();
 
     const byStudent = new Map(totals.map((row) => [row._id.toString(), row]));
 
@@ -293,15 +313,18 @@ export class ConductDeductionsService {
   }
 
   /**
-   * One child's term: every row against them, and where that leaves them.
+   * One child's year: every row against them, and where that leaves them.
    *
    * This is what a guardian meeting is held over, so the rows come back in the
    * order they happened rather than newest first — the account is read forwards.
+   * A year of it, because that is the length of the 100 the rows are taken from:
+   * a ledger cut at the end of ພາກຮຽນ I would show a balance that nothing in the
+   * school's own rules resets.
    */
-  async getStudentLedger(studentId: string, semesterId: string, actor: AuthenticatedUser) {
+  async getStudentLedger(studentId: string, schoolYearId: string, actor: AuthenticatedUser) {
     const filter: Record<string, unknown> = {
       studentId: new Types.ObjectId(studentId),
-      semesterId: new Types.ObjectId(semesterId),
+      schoolYearId: new Types.ObjectId(schoolYearId),
       deletedAt: null,
     };
     await this.scope.applyStudentScope(filter, actor);
@@ -311,7 +334,7 @@ export class ConductDeductionsService {
 
     return {
       studentId,
-      semesterId,
+      schoolYearId,
       baseScore: CONDUCT_BASE_SCORE,
       deducted,
       remaining: remainingFrom(deducted),
@@ -371,7 +394,21 @@ export class ConductDeductionsService {
     }
   }
 
-  /** Republishes the term mark for each child touched, and reports where they stand. */
+  /**
+   * Republishes the conduct mark for each child touched, and says where they stand.
+   *
+   * The balance is the year's — the school issues the 100 once a school year and
+   * reads it forward through every term — but the report card prints a mark per
+   * term, so each term of the year is published with the balance **as it stood at
+   * the end of that term**. ພາກຮຽນ I keeps the figure a card printed in ມັງກອນ
+   * showed; ພາກຮຽນ II carries what was already gone into it. Every term is
+   * rewritten rather than only the one the deduction falls in, because a row
+   * filed late, or withdrawn, moves every balance after it too.
+   *
+   * `semesterId` is the term the act belongs to, and only decides which of those
+   * writes is reported back: the teacher who just filed the row is being told
+   * whether the mark they can see followed.
+   */
   private async publishAll(
     studentIds: Types.ObjectId[],
     semesterId: Types.ObjectId,
@@ -380,40 +417,53 @@ export class ConductDeductionsService {
     actor: AuthenticatedUser,
     ip: string | null,
   ): Promise<DeductionOutcome[]> {
-    const totals = await this.model
-      .aggregate<{ _id: Types.ObjectId; deducted: number }>([
-        {
-          $match: { studentId: { $in: studentIds }, semesterId, deletedAt: null },
-        },
-        { $group: { _id: '$studentId', deducted: { $sum: '$points' } } },
-      ])
-      .exec();
+    const [rows, terms] = await Promise.all([
+      this.model
+        .find({ studentId: { $in: studentIds }, schoolYearId, deletedAt: null })
+        .select('studentId points date')
+        .lean()
+        .exec(),
+      this.semesters.findForYear(schoolYearId),
+    ]);
 
-    const byStudent = new Map(totals.map((row) => [row._id.toString(), row.deducted]));
+    const byStudent = new Map<string, { points: number; date: Date }[]>();
+    for (const row of rows) {
+      const key = row.studentId.toString();
+      byStudent.set(key, [...(byStudent.get(key) ?? []), { points: row.points, date: row.date }]);
+    }
 
     return Promise.all(
       studentIds.map(async (studentId) => {
-        const deducted = byStudent.get(studentId.toString()) ?? 0;
-        const remaining = remainingFrom(deducted);
-        const published = await this.conductScores.applyFromDeductions({
-          studentId,
-          semesterId,
-          schoolYearId,
-          classroomId,
-          score: remaining,
-          actor,
-          ip,
-        });
+        const ledger = byStudent.get(studentId.toString()) ?? [];
+        const deducted = ledger.reduce((sum, row) => sum + row.points, 0);
+
+        let reported = { written: false };
+        for (const term of terms) {
+          const toDate = ledger
+            .filter((row) => row.date <= term.endDate)
+            .reduce((sum, row) => sum + row.points, 0);
+
+          const published = await this.conductScores.applyFromDeductions({
+            studentId,
+            semesterId: term._id,
+            schoolYearId,
+            classroomId,
+            score: remainingFrom(toDate),
+            actor,
+            ip,
+          });
+          if (term._id.equals(semesterId)) reported = published;
+        }
 
         return {
           studentId: studentId.toString(),
           deducted,
-          remaining,
-          grade: conductGradeFor(remaining),
+          remaining: remainingFrom(deducted),
+          grade: conductGradeFor(remainingFrom(deducted)),
           // False when the office has set this term's mark by hand: the ledger
           // still counts, but it is no longer what the report card prints, and
           // the screen has to be able to say so.
-          publishedToConductScore: published.written,
+          publishedToConductScore: reported.written,
           ...this.rungOf(deducted),
         };
       }),

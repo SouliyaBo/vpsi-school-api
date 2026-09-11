@@ -27,8 +27,10 @@ import {
 } from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { ClassroomsService } from '../classrooms/classrooms.service';
 import { StorageService } from '../storage/storage.service';
 import type { WithPhotoUrl } from '../teachers/teachers.service';
+import { registerName } from 'src/common/utils/student-name';
 import { escapeRegex } from '../users/users.service';
 import {
   CreateStudentDto,
@@ -150,6 +152,9 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     private readonly scope: RecordScopeService,
     private readonly storage: StorageService,
     private readonly tx: TransactionHelper,
+    // Deleting a student closes their placements, and a room's cached roster
+    // size has to come down with them — see `closePlacements`.
+    private readonly classrooms: ClassroomsService,
   ) {
     super(model, audit);
   }
@@ -532,7 +537,12 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       await this.assertStatusUnchanged(id, dto);
     }
 
-    const reissuingCode = await this.isCodeChange(id, dto, context.actor);
+    // Read once and asked twice: whether the register number is being reissued,
+    // and whether the register name is being corrected. Both are copied onto
+    // rows elsewhere, and both have to be pushed out to them.
+    const current = await this.findOneOrFail(id);
+    const reissuingCode = this.isCodeChange(current, dto, context.actor);
+    const renaming = this.isRenaming(current, dto);
 
     if (dto.villageId) await this.assertVillage(dto.villageId);
     if (dto.birthLocationId) await this.assertBirthLocation(dto.birthLocationId);
@@ -548,9 +558,9 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     // got. An omitted field leaves the stored memberships alone.
     if (dto.organizations) patch.organizations = toMemberships(dto.organizations);
 
-    if (!reissuingCode) return this.updateDocument(id, patch, context);
+    if (!reissuingCode && !renaming) return this.updateDocument(id, patch, context);
 
-    // A new code and the copies of it are one change, so they share a
+    // A new code or name and the copies of it are one change, so they share a
     // transaction: a register number that only half the school agrees on is
     // worse than the stand-in it replaced.
     return this.tx.run(async (session) => {
@@ -573,14 +583,13 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
    * for the same reason as `assertStatusUnchanged`: the edit form posts the whole
    * record back, so an untouched code must still go through.
    */
-  private async isCodeChange(
-    id: string,
+  private isCodeChange(
+    current: StudentDocument,
     dto: UpdateStudentDto,
     actor?: AuthenticatedUser,
-  ): Promise<boolean> {
+  ): boolean {
     if (dto.studentCode === undefined) return false;
 
-    const current = await this.findOneOrFail(id);
     // The schema trims on write, so an untrimmed resend of the same code is not
     // a change and must not need the office's permission.
     if (dto.studentCode.trim() === current.studentCode) return false;
@@ -592,19 +601,50 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
   }
 
   /**
-   * Pushes a reissued code into every row that denormalizes it.
+   * Whether this patch rewrites the register name.
    *
-   * Enrollments, exam registrations and term results each keep a copy so a
-   * roster or a report card renders without a lookup. Soft-deleted rows are
+   * Compared against what is stored rather than read off the field being
+   * present, for the same reason as `isCodeChange`: the edit form posts the
+   * whole record back, so every save would otherwise re-push the name onto every
+   * placement, exam registration and term result the child has.
+   */
+  private isRenaming(current: StudentDocument, dto: UpdateStudentDto): boolean {
+    const rewritten = (patched: string | undefined, stored: string) =>
+      patched !== undefined && patched.trim() !== stored;
+    return (
+      rewritten(dto.firstNameLo, current.firstNameLo) ||
+      rewritten(dto.lastNameLo, current.lastNameLo)
+    );
+  }
+
+  /**
+   * Pushes a reissued code — and a corrected name — into every row that
+   * denormalizes them.
+   *
+   * Enrollments, exam registrations and term results each keep a copy of both so
+   * a roster or a report card renders without a lookup. Soft-deleted rows are
    * updated too: they are the school's history of this child, and history under
    * a number the register no longer knows is unfindable.
+   *
+   * The name is carried for the same reason as the code, and was found the hard
+   * way: `ສັນຍາຮັກ ວົົງສາ` sat misspelt on a ມ.5 roster for a month after the
+   * office had fixed the student record, because the mark sheets, the score
+   * screens and the behaviour register all read the placement's snapshot rather
+   * than the child.
    *
    * Sequential rather than `Promise.all` — a `ClientSession` cannot carry
    * concurrent operations.
    */
   private async syncStudentCode(student: StudentDocument, session: ClientSession): Promise<void> {
     const filter = { studentId: student._id };
-    const patch = { $set: { studentCode: student.studentCode } };
+    const patch = {
+      $set: {
+        studentCode: student.studentCode,
+        // A student always has both halves of a register name — the schema
+        // requires them — so this cannot write an empty snapshot.
+        studentNameLo: registerName(student) as string,
+      },
+    };
 
     await this.enrollmentModel.updateMany(filter, patch, { session }).exec();
     await this.examRegistrationModel.updateMany(filter, patch, { session }).exec();
@@ -667,8 +707,67 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     return { ...updated.toJSON(), photoUrl: await this.storage.getSignedUrl(uploaded.key) };
   }
 
-  remove(id: string, context: CrudContext) {
-    return this.softDelete(id, context);
+  /**
+   * Deleting a child closes the placements that put them in a room.
+   *
+   * The two used to be written apart, and the register kept the difference: a
+   * student deleted in August 2026 left an open enrollment behind, and roll call
+   * went on printing the row for weeks — nameless, because the nickname is
+   * joined from a student document that no longer existed. `isOnCurrentRoll`
+   * keeps a row it cannot resolve on purpose (an unreadable ref is no evidence
+   * that the child has gone), so nothing downstream was ever going to drop it.
+   * The placement has to be closed where the deletion happens.
+   *
+   * Closed the way the enrolment screen closes one — the classroom's cached
+   * count comes down with it, and each row gets its own audit line, so the trail
+   * explains why a name left the roster — and in the same transaction as the
+   * deletion, so the register cannot be left half-closed.
+   */
+  async remove(id: string, context: CrudContext): Promise<void> {
+    await this.tx.run(async (session) => {
+      await this.closePlacements(id, session, context);
+      await this.softDelete(id, { ...context, session });
+    });
+  }
+
+  /** Soft-closes every open enrollment of one student, counts and trail included. */
+  private async closePlacements(
+    id: string,
+    session: ClientSession,
+    context: CrudContext,
+  ): Promise<void> {
+    const open = await this.enrollmentModel
+      .find({ studentId: new Types.ObjectId(id), deletedAt: null })
+      .session(session)
+      .exec();
+
+    // Sequential rather than `Promise.all`: a `ClientSession` cannot carry
+    // concurrent operations.
+    for (const enrollment of open) {
+      // Only an open placement is counted in the room's roster size; a
+      // transferred or promoted one was taken off it when its status changed.
+      if (enrollment.status === 'active') {
+        await this.classrooms.adjustCount(enrollment.classroomId, -1, session);
+      }
+
+      const before = (enrollment as { toObject: () => Record<string, unknown> }).toObject();
+      enrollment.deletedAt = new Date();
+      enrollment.deletedBy = context.actor?.sub ? new Types.ObjectId(context.actor.sub) : null;
+      await enrollment.save({ session });
+
+      await this.audit.record(
+        {
+          action: 'delete',
+          entityType: 'enrollments',
+          entityId: enrollment._id,
+          userId: context.actor?.sub,
+          username: context.actor?.username,
+          oldValue: before,
+          ip: context.ip,
+        },
+        session,
+      );
+    }
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

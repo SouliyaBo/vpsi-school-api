@@ -11,6 +11,7 @@ import { EnrollmentsModule } from '../enrollments/enrollments.module';
 import { SemestersModule } from '../semesters/semesters.module';
 import { SubjectsModule } from '../subjects/subjects.module';
 import { TeachingAssignmentsModule } from '../teaching-assignments/teaching-assignments.module';
+import { GradingScaleModule } from '../term-results/grading-scale.service';
 import { TermResultStalenessModule } from '../term-results/term-result-staleness.service';
 import { MonthlyMarksController } from './monthly-marks.controller';
 import { MonthlyMarksService } from './monthly-marks.service';
@@ -33,6 +34,8 @@ import { MonthlyMarksService } from './monthly-marks.service';
     TeachingAssignmentsModule,
     // A saved mark leaves the stored term result out of date, and it must say so.
     TermResultStalenessModule,
+    // The school's letter bands, for the ເກຣດ column of the monthly summary.
+    GradingScaleModule,
   ],
   controllers: [MonthlyMarksController],
   providers: [MonthlyMarksService],

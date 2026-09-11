@@ -120,6 +120,21 @@ describe('Communication, lesson plans, exams and certificates (e2e)', () => {
       .send({ studentId, classroomId })
       .expect(201);
 
+    // A lesson plan may only be filed against a lesson on the timetable, so the
+    // teacher has to be assigned to this subject and class before the workflow
+    // below can start. Nothing else in this suite needs the assignment.
+    await http()
+      .post('/api/teaching-assignments')
+      .set(auth(adminToken))
+      .send({
+        teacherId,
+        subjectId,
+        classroomId,
+        semesterId,
+        schedule: [{ dayOfWeek: 1, startTime: '15:10', endTime: '16:00', room: 'R101' }],
+      })
+      .expect(201);
+
     teacherToken = await createAccount('lp-teacher', 'teacher', {
       personType: 'teacher',
       personId: teacherId,
@@ -155,9 +170,9 @@ describe('Communication, lesson plans, exams and certificates (e2e)', () => {
           classroomId,
           semesterId,
           title: 'ແຜນການສອນ ອາທິດທີ 3',
+          // The week's end and the deadline are derived from the week it starts
+          // and the school's submission policy — the API rejects them if sent.
           weekStartDate: '2025-09-15',
-          weekEndDate: '2025-09-19',
-          dueDate: '2025-09-14',
           activities: [{ topic: 'ສົມຜົນກຳລັງສອງ', date: '2025-09-15', durationMinutes: 50 }],
         })
         .expect(201);
@@ -178,8 +193,6 @@ describe('Communication, lesson plans, exams and certificates (e2e)', () => {
           semesterId,
           title: 'ແຜນເປົ່າ',
           weekStartDate: '2025-09-22',
-          weekEndDate: '2025-09-26',
-          dueDate: '2025-09-21',
         })
         .expect(201);
 

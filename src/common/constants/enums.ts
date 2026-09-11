@@ -198,7 +198,15 @@ export const SCORE_COMPONENT_TYPES = tuple(
 );
 export type ScoreComponentType = (typeof SCORE_COMPONENT_TYPES)[number];
 
-export const GRADES = tuple('A', 'B+', 'B', 'C+', 'C', 'D+', 'D', 'F');
+/**
+ * The school's letter grades, best first.
+ *
+ * A–F with an **E**, and none of the `+` bands: this is the scale VPSI marks on,
+ * given by the office as marks out of 10 — A 8.5–10 · B 7–8.4 · C 5.5–6.9 ·
+ * D 4.5–5.4 · E 3.5–4.4 · F 0–3.4. The thresholds live in `DEFAULT_GRADE_SCALE`
+ * as percentages, which is the same numbers times ten.
+ */
+export const GRADES = tuple('A', 'B', 'C', 'D', 'E', 'F');
 export type Grade = (typeof GRADES)[number];
 
 export const CONDUCT_GRADES = tuple('excellent', 'very_good', 'good', 'fair', 'poor');
@@ -287,6 +295,25 @@ export const LESSON_PLAN_STATUSES = tuple(
 );
 export type LessonPlanStatus = (typeof LESSON_PLAN_STATUSES)[number];
 
+// ── Teaching observation (ຕິດຕາມການສອນຂອງຄູ) ────────────────────────────────
+
+/**
+ * The life of one observation sheet.
+ *
+ * `draft` is the observer's own copy — filled in at the back of the room, half
+ * scored, and visible to nobody else. `submitted` is the moment it becomes a
+ * record about another member of staff, which is why the sheet is refused
+ * unless all six criteria carry a mark: a partly scored sheet filed against a
+ * colleague is a total that cannot be compared with anyone else's.
+ *
+ * `acknowledged` is the observed teacher saying they have read it — the digital
+ * form of the signature the paper sheet is passed back for. It is deliberately
+ * theirs alone to set, so "the teacher has seen this" never becomes something
+ * the office can assert on their behalf.
+ */
+export const TEACHING_OBSERVATION_STATUSES = tuple('draft', 'submitted', 'acknowledged');
+export type TeachingObservationStatus = (typeof TEACHING_OBSERVATION_STATUSES)[number];
+
 // ── Exams / certificates ────────────────────────────────────────────────────
 
 export const EXAM_LEVELS = tuple('m4', 'm7');
@@ -343,15 +370,80 @@ export const NOTIFICATION_TYPES = tuple(
 );
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
+/**
+ * The categories the school's own printed calendar uses, plus the general-purpose
+ * ones the module started with.
+ *
+ * The first nine are the legend of `SCHOOL CALENDAR — SECONDARY` exactly as it is
+ * printed, in its own order, because the office fills this in by reading the paper
+ * across: a category the sheet has and the picker does not is a row somebody has
+ * to file as `other`, and `other` is precisely the answer no working-day
+ * calculation can use. `meeting`, `activity`, `deadline` and `other` are kept for
+ * everything the sheet does not print — a staff meeting, a deadline — and for the
+ * events already on file under them.
+ */
 export const CALENDAR_EVENT_TYPES = tuple(
+  'first_day',
+  'year_end_program',
   'holiday',
+  'celebration',
   'exam',
+  'lao_exam',
+  'report_card',
+  'open_house',
+  'professional_development',
   'meeting',
   'activity',
   'deadline',
   'other',
 );
 export type CalendarEventType = (typeof CALENDAR_EVENT_TYPES)[number];
+
+/**
+ * What a calendar event does to the school day — the one thing every other module
+ * needs from the calendar.
+ *
+ * Kept apart from `type` because the two answer different questions and the school
+ * does not map one onto the other cleanly. `6 Oct Teacher's Day celebrated at
+ * School` and `7 Oct Holiday for Teachers' Day` are the same festival on
+ * consecutive days, and only the second closes the school; an exam week is open,
+ * fully staffed, and teaches no timetabled lesson at all. So:
+ *
+ * - `open` — a normal day. Lessons run, the roll call and the behaviour register
+ *   are owed. A celebration or a report-card distribution is still this.
+ * - `no_classes` — staff in, timetable suspended. Teacher PD days ("no school for
+ *   students") and exam periods. Nothing is owed, and a report that counted these
+ *   as gaps would blame every teacher in the school for a week the office closed.
+ * - `closed` — nobody in.
+ *
+ * The distinction between the last two matters to nothing the system currently
+ * computes, and is kept because it is what the office means and the day it stops
+ * being recorded is the day somebody has to guess it back.
+ */
+export const SCHOOL_DAY_EFFECTS = tuple('open', 'no_classes', 'closed');
+export type SchoolDayEffect = (typeof SCHOOL_DAY_EFFECTS)[number];
+
+/**
+ * The effect a type carries unless the event overrides it.
+ *
+ * A default, not a rule: the office can mark one celebration as closing the school
+ * without the picker having to grow a category for it.
+ */
+export const DEFAULT_DAY_EFFECT: Record<CalendarEventType, SchoolDayEffect> = {
+  first_day: 'open',
+  year_end_program: 'open',
+  holiday: 'closed',
+  celebration: 'open',
+  exam: 'no_classes',
+  lao_exam: 'no_classes',
+  report_card: 'open',
+  open_house: 'open',
+  professional_development: 'no_classes',
+  meeting: 'open',
+  activity: 'open',
+  deadline: 'open',
+  other: 'open',
+};
 
 export const FEEDBACK_STATUSES = tuple('new', 'read', 'resolved', 'archived');
 export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
@@ -396,6 +488,11 @@ export const PERMISSION_RESOURCES = tuple(
   'term-results',
   'reports',
   'lesson-plans',
+  // Kept apart from `teachers` and from `lesson-plans`: an observation is a
+  // judgement one member of staff writes about another, so who may read the
+  // sheets is a narrower question than who may read the staff register, and
+  // narrower again than who reviews the plans they teach from.
+  'teaching-observations',
   'exams',
   'certificates',
   'announcements',

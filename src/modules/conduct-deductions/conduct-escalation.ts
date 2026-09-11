@@ -8,7 +8,7 @@ import {
  * The ໝາຍເຫດ at the foot of the school's rule sheet, as a table.
  *
  * The sheet does not stop at "what each offence costs": it says who has to be
- * told once a child has lost enough, and the answer widens at each rung — the
+ * told once a child has lost enough of their year's 100, and the answer widens at each rung — the
  * homeroom teacher alone, then the discipline committee and the guardians, then
  * student affairs, then the director, and finally the child's place at the
  * school. That ladder is the point of the whole exercise, so it is written out
@@ -23,7 +23,7 @@ export const CONDUCT_BASE_SCORE = 100;
 
 export interface EscalationRung {
   level: ConductEscalationLevel;
-  /** Total points lost this term at which the rung is reached. */
+  /** Total points lost this school year at which the rung is reached. */
   minDeducted: number;
   /** Who the sheet says must be told. Empty below the first rung. */
   notify: readonly ConductNotifyParty[];
@@ -71,7 +71,7 @@ export const ESCALATION_LADDER: readonly EscalationRung[] = [
   { level: 'none', minDeducted: 0, notify: [] },
 ];
 
-/** The rung a term's running total has reached. */
+/** The rung a school year's running total has reached. */
 export function escalationFor(deducted: number): EscalationRung {
   return (
     ESCALATION_LADDER.find((rung) => deducted >= rung.minDeducted) ?? ESCALATION_LADDER.at(-1)!
@@ -81,7 +81,7 @@ export function escalationFor(deducted: number): EscalationRung {
 /**
  * What is left of the 100, floored at zero.
  *
- * A term can be over-deducted — the rules are applied per occurrence and nobody
+ * A year can be over-deducted — the rules are applied per occurrence and nobody
  * stops at exactly 100 — and the ledger keeps every row, so the raw total is
  * still there to read. What the report card prints, though, is a score, and a
  * negative one would be a number the grading scale has no band for.

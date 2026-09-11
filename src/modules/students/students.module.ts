@@ -12,6 +12,7 @@ import {
   TermResult,
   TermResultSchema,
 } from 'src/database/schemas';
+import { ClassroomsModule } from '../classrooms/classrooms.module';
 import { GuardiansModule } from '../guardians/guardians.module';
 import { LocationsModule } from '../locations/locations.module';
 import { StudentsController } from './students.controller';
@@ -33,6 +34,9 @@ import { StudentsService } from './students.service';
     ]),
     GuardiansModule,
     LocationsModule,
+    // Deleting a student closes their enrollments, which moves a classroom's
+    // cached roster size.
+    ClassroomsModule,
   ],
   controllers: [StudentsController],
   providers: [StudentsService],

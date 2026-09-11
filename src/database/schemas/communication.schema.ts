@@ -11,6 +11,8 @@ import {
   FeedbackStatus,
   NOTIFICATION_TYPES,
   NotificationType,
+  SCHOOL_DAY_EFFECTS,
+  SchoolDayEffect,
 } from 'src/common/constants/enums';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 import { Attachment, AttachmentSchema } from './lesson-plan.schema';
@@ -147,14 +149,37 @@ export class CalendarEvent extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: CALENDAR_EVENT_TYPES, index: true })
   type: CalendarEventType;
 
+  /**
+   * Whether the school is open, staffed but not teaching, or shut — the field the
+   * roll-call and behaviour-register reports read the calendar for.
+   *
+   * Stored per event rather than derived from `type` on read, and indexed: the
+   * office overrides it (a festival that closes the school one year and does not
+   * the next), and a stored value is what makes the override survive. Defaulted
+   * from `DEFAULT_DAY_EFFECT` at write time so nothing has to be picked twice.
+   */
+  @Prop({ type: String, required: true, enum: SCHOOL_DAY_EFFECTS, index: true })
+  dayEffect: SchoolDayEffect;
+
   @Prop({ type: Date, required: true, index: true })
   startDate: Date;
 
+  /** Inclusive — a one-day event has `endDate` equal to `startDate`. */
   @Prop({ type: Date, required: true })
   endDate: Date;
 
   @Prop({ type: Boolean, default: true })
   isAllDay: boolean;
+
+  /**
+   * ຄຶ່ງວັນ — set on a day the school runs a morning only.
+   *
+   * The sheet prints exactly one (`10 Jun — Last Day of School (half day)`), and
+   * it is a flag rather than a `dayEffect` of its own because the day is open and
+   * the lessons that do run are owed like any other.
+   */
+  @Prop({ type: Boolean, default: false })
+  isHalfDay: boolean;
 
   @Prop({ type: String, default: null, trim: true })
   location?: string | null;

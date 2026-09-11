@@ -149,12 +149,17 @@ export class ConductScoresService {
   }
 
   /**
-   * Publishes a term's conduct score from the deduction ledger.
+   * Publishes one term's conduct score from the deduction ledger.
    *
-   * The school's rule sheet makes the term mark a consequence rather than a
-   * judgement: 100 at the start of the term, less what the published rules have
-   * cost. So the ledger writes the mark, and the report card needs no second act
-   * of data entry to agree with the discipline record.
+   * The school's rule sheet makes the mark a consequence rather than a
+   * judgement: 100 at the start of the school year, less what the published
+   * rules have cost. So the ledger writes the mark, and the report card needs no
+   * second act of data entry to agree with the discipline record.
+   *
+   * The 100 is a year's budget, so `score` is the balance as it stood at the end
+   * of the term being written — the caller works that out, because only it knows
+   * the year's rows. Each term of the year holds its own row, and ພາກຮຽນ II's
+   * carries what ພາກຮຽນ I already spent.
    *
    * It will not touch a row someone entered by hand. A mark the office set is a
    * decision — a child forgiven their deductions, or marked down for something
@@ -198,8 +203,8 @@ export class ConductScoresService {
       schoolYearId: input.schoolYearId,
       classroomId: input.classroomId,
       periodType: 'semester' as const,
-      // The sheet runs one 100-point account per term, so there is only ever a
-      // first of them.
+      // One conduct row per term, so there is only ever a first of them; the
+      // year's account is spread across those rows, not stored again here.
       periodValue: 1,
       score: input.score,
       grade,

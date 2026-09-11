@@ -42,8 +42,8 @@ export const ROLE_SEEDS: RoleSeed[] = [
     nameLo: 'ຫົວໜ້າວິຊາການ',
     nameEn: 'Head of Academic Affairs',
     description:
-      'Runs academic operations: curriculum, assignments, grading oversight, and lesson-plan ' +
-      'approval. Cannot manage user accounts or roles.',
+      'Runs academic operations: curriculum, assignments, grading oversight, lesson-plan ' +
+      'approval and classroom observation. Cannot manage user accounts or roles.',
     isSystem: true,
     permissions: [
       { resource: 'teachers', actions: ['read', 'update'] },
@@ -67,6 +67,10 @@ export const ROLE_SEEDS: RoleSeed[] = [
       { resource: 'term-results', actions: ['manage'] },
       { resource: 'reports', actions: ['create', 'read', 'export'] },
       { resource: 'lesson-plans', actions: ['read', 'approve'] },
+      // `manage` is what makes the academic office the one party that reads
+      // every observation sheet, keys in a deputy's handwritten one under that
+      // deputy's name, and withdraws a sheet that has already been filed.
+      { resource: 'teaching-observations', actions: ['manage'] },
       { resource: 'exams', actions: ['manage'] },
       { resource: 'certificates', actions: ['create', 'read'] },
       { resource: 'announcements', actions: ['manage'] },
@@ -83,7 +87,8 @@ export const ROLE_SEEDS: RoleSeed[] = [
     nameEn: 'Teacher',
     description:
       'Enters scores, conduct, attendance and the behaviour register for their own classes, ' +
-      'and submits lesson plans. Score and behaviour entry are additionally restricted to the ' +
+      'submits lesson plans, and fills in the classroom-observation sheet for colleagues they ' +
+      'sit in on. Score and behaviour entry are additionally restricted to the ' +
       'subjects and classrooms they are assigned to — the permission alone is not sufficient. ' +
       'Reading and correcting student records is likewise narrowed to the classroom they are ' +
       'homeroom teacher of.',
@@ -120,6 +125,12 @@ export const ROLE_SEEDS: RoleSeed[] = [
       { resource: 'attendances', actions: ['create', 'read', 'update'] },
       { resource: 'term-results', actions: ['read'] },
       { resource: 'lesson-plans', actions: ['create', 'read', 'update', 'delete'] },
+      // Observing a colleague is ordinary staff work here — a head of department
+      // sits in on their own team. No `manage`, so a teacher files only under
+      // their own name; and the service narrows this `read` to the sheets they
+      // wrote plus the sheets written about them, which the permission alone
+      // cannot express. `delete` withdraws a draft of their own, never a filed one.
+      { resource: 'teaching-observations', actions: ['create', 'read', 'update', 'delete'] },
       { resource: 'reports', actions: ['read'] },
       ...readOnly(
         'locations',

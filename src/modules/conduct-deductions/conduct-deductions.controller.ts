@@ -46,30 +46,37 @@ export class ConductDeductionsController {
     return this.service.getLadder();
   }
 
-  @Get('summary/classroom/:classroomId/semester/:semesterId')
+  @Get('summary/classroom/:classroomId/school-year/:schoolYearId')
   @RequirePermissions({ resource: 'conduct-scores', action: 'read' })
   @ApiOperation({
-    summary: "One class's standing for a term, worst first",
+    summary: "One class's standing for the school year, worst first",
     description:
-      'Every child on the roll comes back, including those with nothing against them — on ' +
-      'this page a clean record has to be visible to count as one.',
+      'Counted over the year, never the term: the school issues the 100 once a school year ' +
+      'and reads the balance forward through both terms. Every child on the roll comes back, ' +
+      'including those with nothing against them — on this page a clean record has to be ' +
+      'visible to count as one — and the count follows the student, so a child who changed ' +
+      'room mid-year carries what they lost in the old one.',
   })
-  classroomSummary(
+  classroomYearSummary(
     @Param('classroomId') classroomId: string,
-    @Param('semesterId') semesterId: string,
+    @Param('schoolYearId') schoolYearId: string,
   ) {
-    return this.service.getClassroomSummary(classroomId, semesterId);
+    return this.service.getClassroomYearSummary(classroomId, schoolYearId);
   }
 
-  @Get('student/:studentId/semester/:semesterId')
+  @Get('student/:studentId/school-year/:schoolYearId')
   @RequirePermissions({ resource: 'conduct-scores', action: 'read' })
-  @ApiOperation({ summary: "One child's term: every row against them, oldest first" })
+  @ApiOperation({
+    summary: "One child's year: every row against them, oldest first",
+    description:
+      'A year of the ledger, because that is the length of the 100 the rows are taken from.',
+  })
   studentLedger(
     @Param('studentId') studentId: string,
-    @Param('semesterId') semesterId: string,
+    @Param('schoolYearId') schoolYearId: string,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
-    return this.service.getStudentLedger(studentId, semesterId, actor);
+    return this.service.getStudentLedger(studentId, schoolYearId, actor);
   }
 
   @Post()

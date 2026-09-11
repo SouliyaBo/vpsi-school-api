@@ -41,6 +41,59 @@ export const MARK_MAX = 10;
 /** ຜ່ານ at half marks, the same 50% the rest of the system passes at. */
 export const PASSING_MARK = 5;
 
+/**
+ * ຈັດປະເພດ — the three bands the school writes beside a month's ສະເລ່ຍ.
+ *
+ * Not the same thing as ເກຣດ, and not derivable from it: the letter scale runs
+ * A–F over percentages for the report card, while this is the three-way split
+ * the school reads a monthly sheet out by. Two marks can share a letter and fall
+ * either side of ເກັ່ງ.
+ */
+export const MONTHLY_BANDS = ['strong', 'middling', 'weak'] as const;
+export type MonthlyBand = (typeof MONTHLY_BANDS)[number];
+
+/** Where the school cuts the bands, on the 10-point mark the sheet is written in. */
+export interface MonthlyBandCuts {
+  /** ເກັ່ງ from this mark up. */
+  strongFrom: number;
+  /** ອ່ອນ below this mark. */
+  weakBelow: number;
+}
+
+export const DEFAULT_MONTHLY_BANDS: MonthlyBandCuts = {
+  strongFrom: 7,
+  weakBelow: PASSING_MARK,
+};
+
+/**
+ * The cuts, honouring an override from settings.
+ *
+ * A pair that crosses — ອ່ອນ cut above the ເກັ່ງ one — would leave ກາງ with
+ * nothing in it and band the same mark two ways, so it is refused whole rather
+ * than half-applied: a sheet banded on half a rule is worse than one banded on
+ * the default.
+ */
+export function monthlyBandsFrom(configured?: Partial<MonthlyBandCuts> | null): MonthlyBandCuts {
+  const strongFrom = markOnScale(configured?.strongFrom);
+  const weakBelow = markOnScale(configured?.weakBelow);
+  if (strongFrom === null || weakBelow === null || weakBelow > strongFrom) {
+    return DEFAULT_MONTHLY_BANDS;
+  }
+  return { strongFrom, weakBelow };
+}
+
+/** Which band a month's ສະເລ່ຍ falls in. */
+export function classifyMonth(average: number, cuts: MonthlyBandCuts): MonthlyBand {
+  if (average < cuts.weakBelow) return 'weak';
+  return average >= cuts.strongFrom ? 'strong' : 'middling';
+}
+
+function markOnScale(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= MARK_MAX
+    ? value
+    : null;
+}
+
 /** Which calendar months each semester collects, when nothing overrides it. */
 export const DEFAULT_SEMESTER_MONTHS: Readonly<Record<number, number[]>> = {
   1: [9, 10, 11],
@@ -127,6 +180,29 @@ export function meanOf(parts: (number | null)[], expected: number): Derived {
  */
 export function monthScore(strandTotals: (number | null)[], expectedStrands: number): Derived {
   return meanOf(strandTotals, Math.max(expectedStrands, 1));
+}
+
+/**
+ * ສະເລ່ຍ across a month's **subjects** — the class summary's average.
+ *
+ * The school's rule in its own words: add the subject marks up and divide by the
+ * number of subjects the grade sits — 4 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and
+ * ມ.6. Not `meanOf`, which divides by what has been written: a student marked in
+ * three of eight subjects has three eighths of a month, and showing the mean of
+ * the three would read as a finished month five subjects short.
+ *
+ * The divisor never falls below what was handed in, so a register briefly out of
+ * step with the sheet cannot produce an average above 10.
+ */
+export function acrossSubjects(scores: (number | null)[], expectedSubjects: number): Derived {
+  const written = scores.filter((score): score is number => score !== null);
+  if (written.length === 0) return { value: null, isComplete: false };
+
+  const divisor = Math.max(expectedSubjects, written.length);
+  return {
+    value: round2(written.reduce((sum, score) => sum + score, 0) / divisor),
+    isComplete: written.length >= expectedSubjects,
+  };
 }
 
 /** `3 ເດືອນ` — the mean of the semester's monthly scores. */

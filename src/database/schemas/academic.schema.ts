@@ -228,6 +228,34 @@ export class Subject extends SoftDeletableDocument {
   @Prop({ type: Types.ObjectId, ref: 'SubjectGroup', default: null, index: true })
   subjectGroupId?: Types.ObjectId | null;
 
+  /**
+   * The ສາຍວິຊາ this subject is marked under, when the school splits it.
+   *
+   * The school runs on **four** ສາຍວິຊາ — ພາສາລາວ-ວັນນະຄະດີ, ຄະນິດສາດ, ສັງຄົມ,
+   * ທຳມະຊາດ — and that is what a teacher is assigned to, what roll call is taken
+   * against, and what a behaviour note is filed under. From ມ.4 up, the mark
+   * sheet splits two of them: ທຳມະຊາດ into ຟີຊິກສາດ / ເຄມີສາດ / ຊີວະສາດ and
+   * ສັງຄົມ into ສຶກສາພົນລະເມືອງ / ພູມສາດ / ປະຫວັດສາດ, each with its own exam and
+   * its own line on the report card.
+   *
+   * So a subject is one of two things, and this field is what tells them apart:
+   *
+   *  - `null` and nothing points at it — an ordinary subject: taught *and*
+   *    marked (ພາສາລາວ, ຄະນິດສາດ at every grade; all four at ມ.1–ມ.3).
+   *  - `null` but children point at it — a **split parent**: taught, assigned
+   *    and registered against, but never marked. Its children carry the marks.
+   *  - set — a **marked subject**: it appears on the mark sheet and the report
+   *    card, and the teacher who may fill it in is the one assigned to its
+   *    parent, because that is who the timetable names.
+   *
+   * A parent rather than a `strands` list because these are whole subjects: each
+   * sits its own ສອບເສັງ and each is passed or failed on its own. `strands` is
+   * the weaker case — columns averaged into one subject mark — and is left in
+   * place for a school that marks that way.
+   */
+  @Prop({ type: Types.ObjectId, ref: 'Subject', default: null })
+  parentSubjectId?: Types.ObjectId | null;
+
   @Prop({ type: String, required: true, enum: SUBJECT_TYPES, default: 'core' })
   type: SubjectType;
 
@@ -237,6 +265,18 @@ export class Subject extends SoftDeletableDocument {
 
   @Prop({ type: Number, default: 0, min: 0 })
   hoursPerWeek: number;
+
+  /**
+   * Where the subject sits in the school's own order, low first.
+   *
+   * The mark sheet is a printed form and its columns run in a fixed order —
+   * ພາສາລາວ-ວັນນະຄະດີ, ຄະນິດສາດ, ສຶກສາພົນລະເມືອງ, ຟີຊິກສາດ, ເຄມີສາດ, ຊີວະສາດ,
+   * ພູມສາດ, ປະຫວັດສາດ — which is neither alphabetical nor the order the rows
+   * happen to be created in. Ties fall back to `code`, so a subject nobody has
+   * ordered still lands somewhere stable.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  sortOrder: number;
 
   /**
    * The strands this subject is marked in, when the monthly sheet splits it.
@@ -260,4 +300,5 @@ export class Subject extends SoftDeletableDocument {
 export const SubjectSchema = SchemaFactory.createForClass(Subject);
 SubjectSchema.index({ code: 1 }, { unique: true });
 SubjectSchema.index({ gradeLevelId: 1, isActive: 1 });
+SubjectSchema.index({ parentSubjectId: 1 });
 SubjectSchema.index({ nameLo: 1 }, { collation: LAO_COLLATION });

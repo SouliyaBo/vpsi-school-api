@@ -14,7 +14,12 @@ import {
   MaxLength,
   ValidateNested,
 } from 'class-validator';
-import { CALENDAR_EVENT_TYPES, CalendarEventType } from 'src/common/constants/enums';
+import {
+  CALENDAR_EVENT_TYPES,
+  CalendarEventType,
+  SCHOOL_DAY_EFFECTS,
+  SchoolDayEffect,
+} from 'src/common/constants/enums';
 import { PaginationQueryDto } from 'src/common/dto/pagination.dto';
 import { AnnouncementTargetDto } from 'src/modules/announcements/dto/announcement.dto';
 
@@ -40,6 +45,22 @@ export class CreateCalendarEventDto {
   @ApiProperty({ enum: CALENDAR_EVENT_TYPES })
   @IsIn(CALENDAR_EVENT_TYPES)
   type: CalendarEventType;
+
+  @ApiPropertyOptional({
+    enum: SCHOOL_DAY_EFFECTS,
+    description:
+      'Whether the school is open, staffed but not teaching, or shut. ' +
+      "Defaults to the type's own effect — `holiday` shuts, `exam` suspends the " +
+      'timetable, everything else is a normal day.',
+  })
+  @IsIn(SCHOOL_DAY_EFFECTS)
+  @IsOptional()
+  dayEffect?: SchoolDayEffect;
+
+  @ApiPropertyOptional({ default: false, description: 'ຄຶ່ງວັນ — a morning only.' })
+  @IsBoolean()
+  @IsOptional()
+  isHalfDay?: boolean;
 
   @ApiProperty({ example: '2025-11-05' })
   @IsDateString()
@@ -92,6 +113,13 @@ export class UpdateCalendarEventDto {
   @IsOptional()
   type?: CalendarEventType;
 
+  @ApiPropertyOptional({ enum: SCHOOL_DAY_EFFECTS })
+  @IsIn(SCHOOL_DAY_EFFECTS)
+  @IsOptional()
+  dayEffect?: SchoolDayEffect;
+
+  @ApiPropertyOptional() @IsBoolean() @IsOptional() isHalfDay?: boolean;
+
   @ApiPropertyOptional() @IsDateString() @IsOptional() startDate?: string;
   @ApiPropertyOptional() @IsDateString() @IsOptional() endDate?: string;
   @ApiPropertyOptional() @IsBoolean() @IsOptional() isAllDay?: boolean;
@@ -117,6 +145,11 @@ export class QueryCalendarEventsDto extends PaginationQueryDto {
   @IsOptional()
   type?: CalendarEventType;
 
+  @ApiPropertyOptional({ enum: SCHOOL_DAY_EFFECTS })
+  @IsIn(SCHOOL_DAY_EFFECTS)
+  @IsOptional()
+  dayEffect?: SchoolDayEffect;
+
   @ApiPropertyOptional() @IsMongoId() @IsOptional() schoolYearId?: string;
 
   @ApiPropertyOptional({ description: 'Events overlapping this range — inclusive lower bound' })
@@ -128,4 +161,14 @@ export class QueryCalendarEventsDto extends PaginationQueryDto {
   @IsDateString()
   @IsOptional()
   to?: string;
+}
+
+export class QuerySchoolDaysDto {
+  @ApiProperty({ example: '2026-08-17', description: 'Inclusive.' })
+  @IsDateString()
+  from: string;
+
+  @ApiProperty({ example: '2026-09-30', description: 'Inclusive.' })
+  @IsDateString()
+  to: string;
 }

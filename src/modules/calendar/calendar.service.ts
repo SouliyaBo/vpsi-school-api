@@ -3,6 +3,12 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from 'src/common/exceptions/app.exception';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
+import { DEFAULT_DAY_EFFECT, SchoolDayEffect } from 'src/common/constants/enums';
+import {
+  SchoolDay,
+  SchoolDayCalendar,
+  type SchoolDayEvent,
+} from 'src/common/school-days/school-days';
 import { CalendarEvent, CalendarEventDocument } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { SchoolYearsService } from '../school-years/school-years.service';
@@ -29,6 +35,7 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
   protected buildFilter(query: QueryCalendarEventsDto) {
     const filter: Record<string, unknown> = {};
     if (query.type) filter.type = query.type;
+    if (query.dayEffect) filter.dayEffect = query.dayEffect;
     if (query.schoolYearId) filter.schoolYearId = new Types.ObjectId(query.schoolYearId);
 
     // Overlap, not containment: an event running 1–7 November must appear in a
@@ -93,6 +100,7 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
     return this.createDocument(
       {
         ...dto,
+        dayEffect: dto.dayEffect ?? DEFAULT_DAY_EFFECT[dto.type],
         startDate,
         endDate,
         schoolYearId,
@@ -118,6 +126,12 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
     }
 
     const patch: Record<string, unknown> = { ...dto, startDate, endDate };
+
+    // Retyping an event without saying what it does to the day re-derives the
+    // effect: an event moved from `celebration` to `holiday` has to start closing
+    // the school, or the picker would show one thing and the reports count another.
+    if (dto.type && !dto.dayEffect) patch.dayEffect = DEFAULT_DAY_EFFECT[dto.type];
+
     if (dto.targets) {
       patch.targets = dto.targets.map((target) => ({
         targetType: target.targetType,
@@ -130,5 +144,51 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
 
   remove(id: string, context: CrudContext) {
     return this.softDelete(id, context);
+  }
+
+  // ── The working-day calendar ──────────────────────────────────────────────
+
+  /**
+   * The calendar over a range, as the rest of the system asks it.
+   *
+   * One read per report rather than a query per day: the reports ask about a term
+   * at a time, and the events overlapping a term are a handful of rows.
+   *
+   * `endDate: { $gte: from }` with `startDate: { $lte: to }` is overlap and not
+   * containment — the twenty days of ບຸນປີໃໝ່ have to close a week that only
+   * touches them.
+   */
+  async calendarFor(from: Date, to: Date): Promise<SchoolDayCalendar> {
+    const events = await this.model
+      .find({ startDate: { $lte: to }, endDate: { $gte: from }, deletedAt: null })
+      .select('titleLo titleEn type dayEffect startDate endDate isHalfDay')
+      .sort({ startDate: 1 })
+      .lean()
+      .exec();
+
+    return new SchoolDayCalendar(
+      events.map<SchoolDayEvent>((event) => ({
+        id: String(event._id),
+        titleLo: event.titleLo,
+        titleEn: event.titleEn ?? null,
+        type: event.type,
+        // Rows written before the field existed fall back to their type's effect.
+        dayEffect: (event.dayEffect ?? null) as SchoolDayEffect | null,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        isHalfDay: event.isHalfDay ?? false,
+      })),
+      // Deliberately without school-year bounds: a report reaches this for a
+      // window it has already chosen, and marking those days `out_of_year`
+      // against whichever year happens to be active would silently empty a
+      // report about last year.
+      {},
+    );
+  }
+
+  /** Every day of a range, classified — what the calendar screen paints. */
+  async schoolDays(from: Date, to: Date): Promise<SchoolDay[]> {
+    const calendar = await this.calendarFor(from, to);
+    return calendar.range(from, to);
   }
 }

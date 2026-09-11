@@ -24,7 +24,10 @@ import {
   MonthlyMarksService,
   type MonthlySubjectMark,
 } from '../monthly-marks/monthly-marks.service';
+import { ClassroomsService } from '../classrooms/classrooms.service';
+import { GradingScaleService } from './grading-scale.service';
 import { ScoreComponentsService } from '../score-components/score-components.service';
+import { SubjectsService } from '../subjects/subjects.service';
 import { SettingsService } from '../settings/settings.service';
 import { QueryTermResultsDto } from './dto/term-result.dto';
 import { resultsDiffer, type ComparableResult, type ComparableSubject } from './result-diff';
@@ -45,7 +48,6 @@ type LeanTermResult = Pick<
 import {
   COMPUTATION_VERSION,
   ComponentInput,
-  DEFAULT_GRADE_SCALE,
   DEFAULT_PASSING_PERCENTAGE,
   GradeBand,
   assignRanks,
@@ -113,6 +115,9 @@ export class TermResultsService {
     @InjectModel(Score.name) private readonly scoreModel: Model<ScoreDocument>,
     @InjectModel(Enrollment.name) private readonly enrollmentModel: Model<EnrollmentDocument>,
     @InjectModel(Subject.name) private readonly subjectModel: Model<SubjectDocument>,
+    private readonly gradingScale: GradingScaleService,
+    private readonly classrooms: ClassroomsService,
+    private readonly subjects: SubjectsService,
     private readonly components: ScoreComponentsService,
     private readonly monthlyMarks: MonthlyMarksService,
     private readonly conduct: ConductScoresService,
@@ -197,7 +202,7 @@ export class TermResultsService {
     semesterId: string,
     actor?: Pick<AuthenticatedUser, 'sub' | 'username'>,
   ): Promise<ComputeSummary> {
-    const scale = await this.resolveGradeScale();
+    const scale = await this.gradingScale.resolve();
     const defaultPassing = await this.resolvePassingPercentage();
 
     const roster = await this.enrollmentModel
@@ -239,6 +244,18 @@ export class TermResultsService {
       classroomId,
       semesterId,
     );
+
+    /**
+     * How many subjects this grade is marked in — the divisor for the average.
+     *
+     * The school adds the subject marks up and divides by the number of subjects
+     * the grade sits: 4 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and ມ.6. Read from
+     * the register once for the class rather than inferred per student, so a
+     * student missing a subject reads as short of it rather than as complete.
+     */
+    const classroom = await this.classrooms.findOneOrFail(classroomId);
+    const expectedSubjects = (await this.subjects.findMarkedForGradeLevel(classroom.gradeLevelId))
+      .length;
 
     const computed: {
       studentId: string;
@@ -385,7 +402,7 @@ export class TermResultsService {
             gradePoint: s.gradePoint,
             isPassed: s.isPassed,
           })),
-          scale,
+          { scale, expectedSubjects },
         );
 
         const [conductGrade, attendance] = await Promise.all([
@@ -393,7 +410,12 @@ export class TermResultsService {
           this.attendances.getStudentSummary(enrollment.studentId.toString(), semesterId),
         ]);
 
-        const isProvisional = subjectResults.some((s) => s.isIncomplete);
+        // A subject with no marks at all is as provisional as a half-marked one:
+        // the average divided by the eight subjects ມ.4 sits, so a student short
+        // of one reads low until it arrives.
+        const isProvisional =
+          subjectResults.some((s) => s.isIncomplete) ||
+          term.subjectsRecorded < term.subjectsExpected;
         if (isProvisional) summary.provisionalCount += 1;
 
         // Read before writing: a published result that the recomputation moves
@@ -452,6 +474,8 @@ export class TermResultsService {
                 grade: term.grade,
                 subjectsPassed: term.subjectsPassed,
                 subjectsFailed: term.subjectsFailed,
+                subjectsExpected: term.subjectsExpected,
+                subjectsRecorded: term.subjectsRecorded,
                 conductGrade,
                 daysPresent: attendance.present,
                 daysAbsent: attendance.absent,
@@ -715,26 +739,6 @@ export class TermResultsService {
     );
 
     return withdrawn;
-  }
-
-  /** Grade boundaries from settings, falling back to the built-in scale. */
-  private async resolveGradeScale(): Promise<readonly GradeBand[]> {
-    const configured = await this.settings.getValue<GradeBand[]>('grading.scale');
-    if (!Array.isArray(configured) || configured.length === 0) return DEFAULT_GRADE_SCALE;
-
-    const isValid = configured.every(
-      (band) =>
-        typeof band?.grade === 'string' &&
-        typeof band?.minPercentage === 'number' &&
-        typeof band?.gradePoint === 'number',
-    );
-    if (!isValid) {
-      this.logger.warn('Setting "grading.scale" is malformed; using the default scale');
-      return DEFAULT_GRADE_SCALE;
-    }
-
-    // `gradeFor` takes the first matching band, so the scale must run high to low.
-    return [...configured].sort((a, b) => b.minPercentage - a.minPercentage);
   }
 
   private async resolvePassingPercentage(): Promise<number> {

@@ -12,27 +12,35 @@ import {
 } from './grading';
 
 describe('gradeFor', () => {
+  // The office's own bands, as marks out of 10: A 8.5–10 · B 7–8.4 · C 5.5–6.9 ·
+  // D 4.5–5.4 · E 3.5–4.4 · F 0–3.4, held here times ten.
   it.each([
     [100, 'A'],
-    [80, 'A'],
-    [79.99, 'B+'],
-    [75, 'B+'],
+    [85, 'A'],
+    [84.9, 'B'],
     [70, 'B'],
-    [65, 'C+'],
-    [60, 'C'],
-    [55, 'D+'],
-    [50, 'D'],
-    [49.99, 'F'],
+    [69.9, 'C'],
+    [55, 'C'],
+    [54.9, 'D'],
+    [45, 'D'],
+    [44.9, 'E'],
+    [35, 'E'],
+    [34.9, 'F'],
     [0, 'F'],
   ])('maps %s%% to %s', (percentage, expected) => {
     expect(gradeFor(percentage).grade).toBe(expected);
   });
 
+  it('takes the higher band on a mark that falls in the gap between two', () => {
+    // The office wrote B as 7–8.4 and A as 8.5–10, which leaves 8.45 named by
+    // neither. Read as lower bounds, it is a B rather than nothing at all.
+    expect(gradeFor(84.5).grade).toBe('B');
+  });
+
   it('treats each band boundary as inclusive of its lower bound', () => {
-    // A student on exactly the threshold gets the higher grade — the difference
-    // between passing and failing for someone on 50.
-    expect(gradeFor(50).grade).toBe('D');
-    expect(gradeFor(49.9).grade).toBe('F');
+    // A student on exactly the threshold gets the higher grade.
+    expect(gradeFor(45).grade).toBe('D');
+    expect(gradeFor(44.9).grade).toBe('E');
   });
 
   it('falls back to F when given a scale with no matching band', () => {
@@ -62,11 +70,12 @@ describe('computeSubjectResult', () => {
   ];
 
   it('computes the weighted percentage across components', () => {
-    // 8/10×20 = 16, 24/30×30 = 24, 40/50×50 = 40 → 80
+    // 8/10×20 = 16, 24/30×30 = 24, 40/50×50 = 40 → 80, which is 8.0 out of 10
+    // and so a B: the school's A does not start until 8.5.
     const result = computeSubjectResult(fullyGraded);
     expect(result.percentage).toBe(80);
-    expect(result.grade).toBe('A');
-    expect(result.gradePoint).toBe(4);
+    expect(result.grade).toBe('B');
+    expect(result.gradePoint).toBe(3);
     expect(result.isPassed).toBe(true);
     expect(result.isIncomplete).toBe(false);
   });
@@ -163,23 +172,50 @@ describe('computeSubjectResult', () => {
 });
 
 describe('computeTermResult', () => {
-  it('weights the average by credits', () => {
-    // A 4-credit subject at 90 and a 1-credit at 40:
-    // (90×4 + 40×1) / 5 = 80. An unweighted mean would be 65.
+  it('gives every subject the same weight, whatever its credits', () => {
+    // The school adds the subject marks up and divides by the number of
+    // subjects. A credit-weighted mean would read (90×4 + 40×1) / 5 = 80.
     const result = computeTermResult([
       { credits: 4, percentage: 90, gradePoint: 4, isPassed: true },
       { credits: 1, percentage: 40, gradePoint: 0, isPassed: false },
     ]);
-    expect(result.average).toBe(80);
+    expect(result.average).toBe(65);
   });
 
-  it('weights the GPA by credits too', () => {
+  it('averages the GPA over the subjects too', () => {
     const result = computeTermResult([
       { credits: 3, percentage: 80, gradePoint: 4, isPassed: true },
       { credits: 1, percentage: 50, gradePoint: 1, isPassed: true },
     ]);
-    // (4×3 + 1×1) / 4 = 3.25
-    expect(result.gpa).toBe(3.25);
+    expect(result.gpa).toBe(2.5);
+  });
+
+  it('divides by the subjects the grade sits, not by the ones marked', () => {
+    // ມ.4 sits eight; five marked at 80 is 400/8 = 50, not 80.
+    const result = computeTermResult(
+      Array.from({ length: 5 }, () => ({
+        credits: 1,
+        percentage: 80,
+        gradePoint: 4,
+        isPassed: true,
+      })),
+      { expectedSubjects: 8 },
+    );
+    expect(result.average).toBe(50);
+    expect(result.subjectsExpected).toBe(8);
+    expect(result.subjectsRecorded).toBe(5);
+  });
+
+  it('never divides by fewer subjects than were handed in', () => {
+    // A register that has lost a subject must not inflate the average past 10.
+    const result = computeTermResult(
+      [
+        { credits: 1, percentage: 80, gradePoint: 4, isPassed: true },
+        { credits: 1, percentage: 60, gradePoint: 2, isPassed: true },
+      ],
+      { expectedSubjects: 1 },
+    );
+    expect(result.average).toBe(70);
   });
 
   it('counts passed and failed subjects', () => {
@@ -200,10 +236,12 @@ describe('computeTermResult', () => {
       grade: 'F',
       subjectsPassed: 0,
       subjectsFailed: 0,
+      subjectsExpected: 0,
+      subjectsRecorded: 0,
     });
   });
 
-  it('falls back to an unweighted mean when every subject has zero credits', () => {
+  it('is unaffected by a subject carrying no credits at all', () => {
     const result = computeTermResult([
       { credits: 0, percentage: 90, gradePoint: 4, isPassed: true },
       { credits: 0, percentage: 70, gradePoint: 3, isPassed: true },
@@ -212,10 +250,12 @@ describe('computeTermResult', () => {
     expect(Number.isNaN(result.average)).toBe(false);
   });
 
-  it('derives the overall grade from the weighted average', () => {
+  it('derives the overall grade from the average', () => {
     const result = computeTermResult(
       [{ credits: 1, percentage: 72, gradePoint: 3, isPassed: true }],
-      DEFAULT_GRADE_SCALE,
+      {
+        scale: DEFAULT_GRADE_SCALE,
+      },
     );
     expect(result.grade).toBe('B');
   });
@@ -295,17 +335,19 @@ describe('computeSubjectFromMark', () => {
     // ເກວະລິນ's ພາກຮຽນ I on the real sheet.
     expect(computeSubjectFromMark(8.2, true)).toMatchObject({
       percentage: 82,
-      grade: 'A',
+      grade: 'B',
       isPassed: true,
       isIncomplete: false,
     });
   });
 
   it("fails a mark under 5, which is the school's own pass line", () => {
-    // ສີວິໄຊ: 4.89 out of 10 is the mark the sheet highlights in red.
+    // ສີວິໄຊ: 4.89 out of 10 is the mark the sheet highlights in red. It bands
+    // as a D — the school's D runs from 4.5 — and still fails: the letter and
+    // the pass line are two different rules, and 5 is the pass line.
     expect(computeSubjectFromMark(4.89, true)).toMatchObject({
       percentage: 48.9,
-      grade: 'F',
+      grade: 'D',
       isPassed: false,
     });
   });

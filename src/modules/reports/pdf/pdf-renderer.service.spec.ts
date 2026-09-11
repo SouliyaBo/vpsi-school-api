@@ -57,7 +57,7 @@ describe('segmentByScript', () => {
 
   it('reassembles to exactly the input', () => {
     const samples = [
-      'ຄະແນນສະເລ່ຍ: 67.90  (C+)',
+      'ຄະແນນສະເລ່ຍ: 67.90  (C)',
       'GPA: 2.40',
       'ອັນດັບໃນຫ້ອງ: 12 / 42',
       '    · ສອບເສັງກາງພາກ: 34.00 / 40  (40%)',
@@ -140,7 +140,8 @@ const sampleData = (overrides: Partial<ReportData> = {}): ReportData => ({
   summary: {
     average: 65.25,
     gpa: 2,
-    grade: 'C+',
+    // 65.25 is 6.53 out of 10 — a C on the school's scale.
+    grade: 'C',
     rank: 12,
     totalStudents: 42,
     subjectsPassed: 1,

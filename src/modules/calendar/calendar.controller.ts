@@ -18,6 +18,7 @@ import { CalendarService } from './calendar.service';
 import {
   CreateCalendarEventDto,
   QueryCalendarEventsDto,
+  QuerySchoolDaysDto,
   UpdateCalendarEventDto,
 } from './dto/calendar.dto';
 
@@ -48,6 +49,19 @@ export class CalendarController {
     @Param('month', ParseIntPipe) month: number,
   ) {
     return this.service.findForMonth(year, month);
+  }
+
+  @Get('school-days')
+  @ApiOperation({
+    summary: 'Every day of a range, classified as the school works it',
+    description:
+      'The one read the rest of the system makes of the calendar: whether each day is ' +
+      '`teaching` (the timetable runs and the roll call is owed), `no_classes` (staff in, ' +
+      'timetable suspended — a PD day or an exam period), `closed`, or a `weekend`. Each day ' +
+      'carries the events that made it so, so a report can say why a day was not counted.',
+  })
+  schoolDays(@Query() query: QuerySchoolDaysDto) {
+    return this.service.schoolDays(new Date(query.from), new Date(query.to));
   }
 
   @Get(':id')

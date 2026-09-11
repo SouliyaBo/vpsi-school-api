@@ -16,6 +16,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { SUBJECT_TYPES, SubjectType } from 'src/common/constants/enums';
+import { SUBJECT_ROLES, SubjectRole } from '../subject-roles';
 import { PaginationQueryDto } from 'src/common/dto/pagination.dto';
 
 export class CreateSubjectDto {
@@ -46,6 +47,17 @@ export class CreateSubjectDto {
   @IsOptional()
   subjectGroupId?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'The ສາຍວິຊາ this subject is marked under. Set it for a subject the mark sheet ' +
+      'splits out (ຟີຊິກສາດ under ທຳມະຊາດ, ພູມສາດ under ສັງຄົມ): the parent stays what ' +
+      'teachers are assigned to and roll call is taken against, and this one carries the ' +
+      'marks. Must be a subject of the same grade level.',
+  })
+  @IsMongoId()
+  @IsOptional()
+  parentSubjectId?: string;
+
   @ApiPropertyOptional({ enum: SUBJECT_TYPES, default: 'core' })
   @IsIn(SUBJECT_TYPES)
   @IsOptional()
@@ -64,6 +76,16 @@ export class CreateSubjectDto {
   @Min(0)
   @IsOptional()
   hoursPerWeek?: number;
+
+  @ApiPropertyOptional({
+    description: 'Where the subject sits in the printed order of the mark sheet, low first',
+    default: 0,
+  })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  sortOrder?: number;
 
   @ApiPropertyOptional({
     type: [String],
@@ -104,6 +126,13 @@ export class UpdateSubjectDto {
   @IsOptional()
   subjectGroupId?: string | null;
 
+  /** `null` makes the subject stand on its own again — taught and marked. */
+  @ApiPropertyOptional({ nullable: true })
+  @ValidateIf((_object, value) => value !== null)
+  @IsMongoId()
+  @IsOptional()
+  parentSubjectId?: string | null;
+
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()
@@ -128,6 +157,16 @@ export class UpdateSubjectDto {
   @Min(0)
   @IsOptional()
   hoursPerWeek?: number;
+
+  @ApiPropertyOptional({
+    description: 'Where the subject sits in the printed order of the mark sheet, low first',
+    default: 0,
+  })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  sortOrder?: number;
 
   @ApiPropertyOptional({
     type: [String],
@@ -167,6 +206,17 @@ export class QuerySubjectsDto extends PaginationQueryDto {
   @IsMongoId()
   @IsOptional()
   subjectGroupId?: string;
+
+  @ApiPropertyOptional({
+    enum: SUBJECT_ROLES,
+    description:
+      '`taught` — the ສາຍວິຊາ a teacher is assigned to and roll call is taken against. ' +
+      '`marked` — the subjects a mark is recorded against, which from ມ.4 up are the split ' +
+      'ones. Unset returns both, which is the subject register.',
+  })
+  @IsIn(SUBJECT_ROLES)
+  @IsOptional()
+  role?: SubjectRole;
 
   @ApiPropertyOptional({ enum: SUBJECT_TYPES })
   @IsIn(SUBJECT_TYPES)

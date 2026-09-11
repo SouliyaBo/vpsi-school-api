@@ -179,6 +179,10 @@ export const MESSAGES = {
     lo: 'ຕ້ອງລະບຸເຫດຜົນໃນການແກ້ໄຂຄະແນນທີ່ລັອກແລ້ວ',
     en: 'A reason is required when amending a locked score',
   },
+  'score.subjectIsSplit': {
+    lo: 'ວິຊານີ້ບໍ່ໄດ້ໃຫ້ຄະແນນເປັນວິຊາລວມ ໃຫ້ເລືອກວິຊາຍ່ອຍທີ່ແຍກອອກມາ',
+    en: 'This subject is marked as the subjects it splits into, not as a whole',
+  },
   'score.studentNotInClassroom': {
     lo: 'ນັກຮຽນຄົນນີ້ບໍ່ໄດ້ຢູ່ໃນຫ້ອງນີ້',
     en: 'That student is not enrolled in this classroom',
@@ -280,6 +284,40 @@ export const MESSAGES = {
   'student.codeIsOfficeOnly': {
     lo: 'ການປ່ຽນລະຫັດນັກຮຽນແມ່ນໜ້າທີ່ຂອງຫ້ອງທະບຽນ',
     en: 'Changing a student’s code is the registrar’s decision',
+  },
+
+  // ── Teaching observation (ຕິດຕາມການສອນຂອງຄູ) ───────────────────────────────
+  'observation.observerRequired': {
+    lo: 'ຕ້ອງລະບຸຜູ້ຕິດຕາມ — ບັນຊີນີ້ບໍ່ໄດ້ຜູກກັບຄູຄົນໃດ',
+    en: 'Name the observer — this account is not linked to a teacher',
+  },
+  'observation.notTheObserver': {
+    lo: 'ແກ້ໄຂໄດ້ສະເພາະຜູ້ທີ່ເປັນຜູ້ຕິດຕາມໃນແບບຟອມນີ້',
+    en: 'Only the observer named on this sheet may change it',
+  },
+  'observation.notTheObservedTeacher': {
+    lo: 'ຢືນຢັນການຮັບຮູ້ໄດ້ສະເພາະຄູທີ່ຖືກຕິດຕາມເທົ່ານັ້ນ',
+    en: 'Only the teacher who was observed may confirm they have read it',
+  },
+  'observation.selfObservation': {
+    lo: 'ຜູ້ຕິດຕາມ ແລະ ຄູທີ່ຖືກຕິດຕາມຕ້ອງບໍ່ແມ່ນຄົນດຽວກັນ',
+    en: 'The observer and the teacher observed cannot be the same person',
+  },
+  'observation.alreadySubmitted': {
+    lo: 'ແບບຟອມນີ້ສົ່ງແລ້ວ ບໍ່ສາມາດແກ້ໄຂໄດ້',
+    en: 'This sheet has been filed and can no longer be changed',
+  },
+  'observation.notYetSubmitted': {
+    lo: 'ແບບຟອມນີ້ຍັງເປັນສະບັບຮ່າງ',
+    en: 'This sheet is still a draft',
+  },
+  'observation.incompleteSheet': {
+    lo: 'ຕ້ອງໃຫ້ຄະແນນຄົບທັງ 6 ຂໍ້ກ່ອນສົ່ງ — ຍັງຂາດ: {criteria}',
+    en: 'All six criteria must be scored before filing — still blank: {criteria}',
+  },
+  'observation.duplicateVisit': {
+    lo: 'ການປະເມີນຄັ້ງທີ {visitNumber} ຂອງຄູຄົນນີ້ໃນພາກຮຽນນີ້ມີແລ້ວ',
+    en: 'Visit number {visitNumber} already exists for this teacher this term',
   },
 
   // ── Health ────────────────────────────────────────────────────────────────

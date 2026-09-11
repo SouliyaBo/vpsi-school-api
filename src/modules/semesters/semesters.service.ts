@@ -62,6 +62,19 @@ export class SemestersService extends BaseCrudService<SemesterDocument> {
       .exec();
   }
 
+  /**
+   * Every term of one school year, in the order they are taught.
+   *
+   * For the counts the school keeps per year rather than per term — the conduct
+   * balance above all — which have to be published back into each term's row.
+   */
+  async findForYear(schoolYearId: Types.ObjectId | string): Promise<SemesterDocument[]> {
+    return this.model
+      .find({ schoolYearId: new Types.ObjectId(schoolYearId), deletedAt: null })
+      .sort({ number: 1 })
+      .exec();
+  }
+
   async getActiveOrFail(): Promise<SemesterDocument> {
     const active = await this.findActive();
     if (!active) throw AppException.badRequest('schoolYear.notActive');

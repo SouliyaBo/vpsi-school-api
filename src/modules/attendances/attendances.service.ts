@@ -3,6 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { AttendanceStatus } from 'src/common/constants/enums';
 import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
+import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
+import { readTimeliness } from 'src/common/record-timeliness/read-timeliness';
+import type { RecordTimeliness } from 'src/common/record-timeliness/record-timeliness';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
@@ -12,6 +15,7 @@ import {
   dayWindow,
   resolveCoverageSemester,
   weekWindow,
+  type CoverageWindow,
   type CoverageWritten,
   type LessonCoverage,
 } from 'src/common/lesson-coverage/lesson-coverage';
@@ -25,6 +29,7 @@ import {
   TeachingAssignmentDocument,
 } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { CalendarService } from '../calendar/calendar.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { isOnCurrentRoll, ROSTER_STUDENT_SELECT } from 'src/common/utils/current-roll';
 import { nicknameOf, populatedStudent, STUDENT_NAME_SELECT } from 'src/common/utils/student-name';
@@ -88,6 +93,7 @@ export class AttendancesService {
     private readonly semesters: SemestersService,
     private readonly audit: AuditLogsService,
     private readonly scope: RecordScopeService,
+    private readonly calendar: CalendarService,
   ) {}
 
   async findAll(
@@ -176,7 +182,16 @@ export class AttendancesService {
       ? await this.semesters.findOne(query.semesterId)
       : await resolveCoverageSemester(this.semesters, windowFor());
 
-    const window = windowFor(semester);
+    // The school calendar, so a holiday is not reported as a roll call nobody
+    // made: `nonTeachingDays` is what stops the count expecting a lesson on a
+    // day the office closed. Read off the window's own bounds, so a report about
+    // a past week reads the calendar that week was taught under.
+    const bounds = windowFor(semester);
+    const schoolDays = await this.calendar.calendarFor(bounds.start, bounds.end);
+    const window: CoverageWindow = {
+      ...bounds,
+      nonTeachingDays: schoolDays.nonTeachingDays(bounds.start, bounds.end),
+    };
 
     const assignments =
       semester && !options.noLessons
@@ -200,6 +215,34 @@ export class AttendancesService {
 
     if (!query.outstandingOnly) return coverage;
     return { ...coverage, rows: coverage.rows.filter((row) => row.status === 'missing') };
+  }
+
+  /**
+   * ຄວາມຕົງເວລາໃນການບັນທຶກ — who marks the roll late.
+   *
+   * The question `getCoverage` cannot answer. Coverage asks whether a lesson was
+   * marked, and a teacher who marks a fortnight of lessons on the last Friday of
+   * the month satisfies it completely — which, once the school had been running
+   * this for a few weeks, turned out to be most of what was happening.
+   *
+   * So this one asks *when*, against the deadline the school set: noon of the next
+   * working day after the lesson. The rules are in
+   * `common/record-timeliness`, and the same code answers the behaviour
+   * register with one rule changed — see `BehaviorLogsService.getTimeliness`.
+   */
+  async getTimeliness(query: TimelinessQueryDto): Promise<RecordTimeliness> {
+    return readTimeliness(
+      {
+        semesters: this.semesters,
+        assignments: this.assignmentModel,
+        log: this.model,
+        calendar: this.calendar,
+      },
+      query,
+      // The roll call is owed every lesson day, so a day with nothing on file is
+      // a gap and is counted as one.
+      'everyLessonDay',
+    );
   }
 
   /**
@@ -502,10 +545,20 @@ export class AttendancesService {
     );
   }
 
-  /** The same summary for every student in a classroom, in one aggregation. */
+  /**
+   * The same summary for every student in a classroom, in one aggregation.
+   *
+   * `month` narrows it to one calendar month of the term, which is what the
+   * monthly mark sheet's ວັນຂາດ column is counted over; without it the whole
+   * term is counted, as exam eligibility and the guardian meeting read it.
+   *
+   * Only students the roll has something recorded against come back — the
+   * callers hold the roster and read a missing student as a clean one.
+   */
   async getClassroomSummary(
     classroomId: string,
     semesterId: string,
+    month?: number,
   ): Promise<AttendanceSummaryDto[]> {
     const rows = await this.model
       .aggregate<{ _id: { studentId: Types.ObjectId; status: AttendanceStatus }; count: number }>([
@@ -514,6 +567,12 @@ export class AttendancesService {
             classroomId: new Types.ObjectId(classroomId),
             semesterId: new Types.ObjectId(semesterId),
             deletedAt: null,
+            // Matched on the month of the date rather than on a date range: the
+            // term is already the outer filter, and a calendar month falls
+            // inside exactly one term, so there is no year arithmetic to get
+            // wrong at the ທັນວາ/ມັງກອນ boundary. Dates are stored at UTC
+            // midnight, which is the timezone `$month` reads them in.
+            ...(month ? { $expr: { $eq: [{ $month: '$date' }, month] } } : {}),
           },
         },
         { $group: { _id: { studentId: '$studentId', status: '$status' }, count: { $sum: 1 } } },

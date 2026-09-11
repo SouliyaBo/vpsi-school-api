@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { isStudying, ROSTER_STUDENT_SELECT } from 'src/common/utils/current-roll';
 import { nicknameOf, populatedStudent } from 'src/common/utils/student-name';
 import {
@@ -21,29 +22,39 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ClassroomsService } from '../classrooms/classrooms.service';
 import { SemestersService } from '../semesters/semesters.service';
 import { SettingsService } from '../settings/settings.service';
+import { SubjectsService } from '../subjects/subjects.service';
 import { TeachingAssignmentsService } from '../teaching-assignments/teaching-assignments.service';
+import { assignRanks, gradeFor, round2 } from '../term-results/grading';
+import { GradingScaleService } from '../term-results/grading-scale.service';
 import { TermResultStalenessService } from '../term-results/term-result-staleness.service';
 import {
   AnnualSheetQueryDto,
+  ClassMonthQueryDto,
   LockMonthDto,
   MonthGridQueryDto,
   SaveMarksResultDto,
   SaveMonthGridDto,
   SaveTermMarksDto,
   SheetQueryDto,
+  StudentMonthsQueryDto,
 } from './dto/monthly-mark.dto';
 import {
+  acrossSubjects,
   annualScore,
+  classifyMonth,
   COLUMN_MAX,
+  MARK_MAX,
   EMPTY_CELLS,
   isPassing,
   MONTHLY_COLUMNS,
+  monthlyBandsFrom,
   monthScore,
   monthsForSemester,
   monthTotal,
   semesterScore,
   threeMonthAverage,
   type MonthCells,
+  type MonthlyBandCuts,
   type MonthlyColumn,
 } from './monthly-grading';
 
@@ -108,9 +119,12 @@ export class MonthlyMarksService {
     private readonly semesters: SemestersService,
     private readonly classrooms: ClassroomsService,
     private readonly assignments: TeachingAssignmentsService,
+    private readonly subjects: SubjectsService,
+    private readonly gradingScale: GradingScaleService,
     private readonly settings: SettingsService,
     private readonly audit: AuditLogsService,
     private readonly staleness: TermResultStalenessService,
+    private readonly scope: RecordScopeService,
   ) {}
 
   /**
@@ -127,7 +141,7 @@ export class MonthlyMarksService {
     // have to keep its own copy of which months the school collects.
     const months = await this.monthsFor(semester.number);
 
-    const roster = await this.loadRoster(classroom._id, subject._id, semester._id);
+    const roster = await this.loadRoster(classroom._id, [subject._id], semester._id);
     const marks = await this.model
       .find({
         subjectId: subject._id,
@@ -148,7 +162,7 @@ export class MonthlyMarksService {
       months,
       month: query.month,
       columnMax: COLUMN_MAX,
-      canEdit: await this.canEdit(actor, subject._id, classroom._id, semester._id),
+      canEdit: await this.canEdit(actor, subject, classroom._id, semester._id),
       rows: roster.map((student) => ({
         ...student,
         strands: strands.map((strand) =>
@@ -175,7 +189,7 @@ export class MonthlyMarksService {
   ): Promise<SaveMarksResultDto> {
     const { subject, classroom, semester } = await this.resolveContext(dto);
     await this.semesters.getWritableOrFail(semester._id.toString());
-    await this.assertCanEdit(actor, subject._id, classroom._id, semester._id);
+    await this.assertCanEdit(actor, subject, classroom._id, semester._id);
 
     const strand = this.resolveStrand(subject, dto.strand);
     const enrolled = await this.enrolledIds(classroom._id);
@@ -251,7 +265,7 @@ export class MonthlyMarksService {
     const months = await this.monthsFor(semester.number);
 
     const [roster, marks, termMarks] = await Promise.all([
-      this.loadRoster(classroom._id, subject._id, semester._id),
+      this.loadRoster(classroom._id, [subject._id], semester._id),
       this.model
         .find({
           subjectId: subject._id,
@@ -317,7 +331,7 @@ export class MonthlyMarksService {
       semester: this.semesterView(semester),
       months,
       columnMax: COLUMN_MAX,
-      canEdit: await this.canEdit(actor, subject._id, classroom._id, semester._id),
+      canEdit: await this.canEdit(actor, subject, classroom._id, semester._id),
       rows,
       summary: summarize(rows),
     };
@@ -331,7 +345,7 @@ export class MonthlyMarksService {
   ): Promise<SaveMarksResultDto> {
     const { subject, classroom, semester } = await this.resolveContext(dto);
     await this.semesters.getWritableOrFail(semester._id.toString());
-    await this.assertCanEdit(actor, subject._id, classroom._id, semester._id);
+    await this.assertCanEdit(actor, subject, classroom._id, semester._id);
 
     const enrolled = await this.enrolledIds(classroom._id);
     const result: SaveMarksResultDto = { saved: 0, skipped: 0, errors: [] };
@@ -518,7 +532,7 @@ export class MonthlyMarksService {
     ip: string | null,
   ): Promise<{ affected: number }> {
     const { subject, classroom, semester } = await this.resolveContext(dto);
-    await this.assertCanEdit(actor, subject._id, classroom._id, semester._id);
+    await this.assertCanEdit(actor, subject, classroom._id, semester._id);
 
     if (!locked && !dto.reason) {
       throw AppException.conflict('score.overrideReasonRequired');
@@ -691,6 +705,404 @@ export class MonthlyMarksService {
     return result;
   }
 
+  /**
+   * ສະຫຼຸບປະຈຳເດືອນ — one class, one month, every subject side by side.
+   *
+   * The per-subject sheets can each answer "how did this class do in ຄະນິດສາດ in
+   * ຕຸລາ"; none of them can answer "how did this student do in ຕຸລາ", which is
+   * the question the school asks at the end of every month and the one it ranks
+   * on. The columns are the subjects the *grade* is marked in — four at ມ.1–ມ.3,
+   * eight at ມ.4 and ມ.7, seven at ມ.5 and ມ.6 — read from the register rather
+   * than from whichever subjects happen to have marks, so a subject nobody has
+   * filled in yet shows as an empty column instead of vanishing.
+   *
+   * Derived on read, like every other figure here: there is no stored monthly
+   * result to go stale behind a corrected cell.
+   */
+  async getClassMonth(query: ClassMonthQueryDto) {
+    const [classroom, semester] = await Promise.all([
+      this.classrooms.findOnePopulated(query.classroomId),
+      query.semesterId
+        ? this.semesters.findOne(query.semesterId)
+        : this.semesters.getActiveOrFail(),
+    ]);
+
+    const gradeLevelId = gradeLevelIdOf(classroom);
+    const subjects = gradeLevelId ? await this.subjects.findMarkedForGradeLevel(gradeLevelId) : [];
+
+    const months = await this.monthsFor(semester.number);
+    const subjectIds = subjects.map((subject) => subject._id);
+    const [scale, bands] = await Promise.all([this.gradingScale.resolve(), this.monthlyBands()]);
+
+    const [roster, marks] = await Promise.all([
+      this.loadRoster(classroom._id, subjectIds, semester._id),
+      subjectIds.length === 0
+        ? Promise.resolve([])
+        : this.model
+            .find({
+              classroomId: classroom._id,
+              semesterId: semester._id,
+              subjectId: { $in: subjectIds },
+              month: query.month,
+              deletedAt: null,
+            })
+            .lean()
+            .exec(),
+    ]);
+
+    /** studentId → subjectId → strand → the four cells. */
+    const cells = new Map<string, Map<string, Map<string, MonthCells>>>();
+    for (const mark of marks) {
+      const byStudent = cells.get(mark.studentId.toString()) ?? new Map();
+      const bySubject = byStudent.get(mark.subjectId.toString()) ?? new Map();
+      bySubject.set(mark.strand ?? '', {
+        attendance: mark.attendance ?? null,
+        notebook: mark.notebook ?? null,
+        activity: mark.activity ?? null,
+        test: mark.test ?? null,
+      });
+      byStudent.set(mark.subjectId.toString(), bySubject);
+      cells.set(mark.studentId.toString(), byStudent);
+    }
+
+    /**
+     * A mark out of 10 banded on a scale held as percentages.
+     *
+     * Every mark in the system is a 0–100 figure and the sheet shows it out of
+     * 10, so the monthly average is scaled back up before it is banded rather
+     * than the scale being kept twice in two units.
+     */
+    const gradeOf = (value: number) => gradeFor((value / MARK_MAX) * 100, scale).grade;
+
+    const rows = roster.map((student) => {
+      const byStudent = cells.get(student.studentId);
+
+      const scores = subjects.map((subject) => {
+        const written = byStudent?.get(subject._id.toString());
+        if (!written) return null;
+        const strands = this.strandsOf(subject);
+        const totals = strands.map((strand) =>
+          monthTotal(written.get(strand ?? '') ?? EMPTY_CELLS),
+        );
+        return monthScore(totals, strands.length).value;
+      });
+
+      const recorded = scores.filter((score): score is number => score !== null);
+      const average = acrossSubjects(scores, subjects.length);
+
+      return {
+        ...student,
+        scores,
+        /** ລວມ — the marks as written, before they are divided. */
+        total: recorded.length > 0 ? round2(recorded.reduce((sum, score) => sum + score, 0)) : null,
+        average: average.value,
+        isComplete: average.isComplete,
+        subjectsRecorded: recorded.length,
+        /**
+         * ເກຣດ — the school's band for the month's average.
+         *
+         * Withheld until the month is finished, like ຜ່ານ/ຕົກ: an average
+         * divided by eight subjects of which three are unmarked would band as an
+         * F for a reason that is not the student's marks.
+         */
+        grade: average.isComplete && average.value !== null ? gradeOf(average.value) : null,
+        /**
+         * ຈັດປະເພດ — ເກັ່ງ / ກາງ / ອ່ອນ, withheld on the same terms as ເກຣດ.
+         *
+         * Banded here rather than by whoever prints the sheet: the cuts are the
+         * office's, they are kept in settings beside the grade scale, and a
+         * report that worked them out for itself would be a second place for
+         * them to be wrong.
+         */
+        classification:
+          average.isComplete && average.value !== null ? classifyMonth(average.value, bands) : null,
+        isPassing: isPassing(average.value),
+        // Filled in below: a rank cannot be decided one student at a time.
+        rank: null as number | null,
+      };
+    });
+
+    /**
+     * ລຳດັບ over the students who have a mark this month.
+     *
+     * Competition ranking, matching the term result: equal averages share a rank
+     * and the next one skips. A student with nothing recorded is unranked rather
+     * than last — they have not been beaten, they have not been marked.
+     */
+    const ranks = assignRanks(
+      rows
+        .filter((row) => row.average !== null)
+        .map((row) => ({ studentId: row.studentId, average: row.average as number })),
+    );
+    for (const row of rows) row.rank = ranks.get(row.studentId) ?? null;
+
+    rows.sort((a, b) => (a.rollNumber ?? 9999) - (b.rollNumber ?? 9999));
+
+    const marked = rows.filter((row) => row.average !== null);
+    // ຜ່ານ/ຕົກ is only counted where the month is finished, matching the verdict
+    // each row carries: an average divided by eight subjects of which three are
+    // unmarked is below the pass line for a reason that is not the student's.
+    const decided = marked.filter((row) => row.isComplete);
+    return {
+      classroom: this.classroomView(classroom),
+      semester: this.semesterView(semester),
+      month: query.month,
+      months,
+      // The sheet carries the cuts it was banded on, so a printed copy can say
+      // what ເກັ່ງ meant on the day it was printed.
+      bands,
+      subjects: subjects.map((subject) => ({
+        id: subject._id.toString(),
+        code: subject.code,
+        nameLo: subject.nameLo,
+        nameEn: subject.nameEn ?? null,
+      })),
+      rows,
+      summary: {
+        students: rows.length,
+        marked: marked.length,
+        passed: decided.filter((row) => row.isPassing).length,
+        failed: decided.filter((row) => row.isPassing === false).length,
+        // Waiting on at least one subject, so the month is not finished.
+        incomplete: marked.filter((row) => !row.isComplete).length,
+        average:
+          marked.length > 0
+            ? round2(marked.reduce((sum, row) => sum + (row.average as number), 0) / marked.length)
+            : null,
+      },
+    };
+  }
+
+  /**
+   * ຄະແນນປະຈຳເດືອນ for one student, month by month.
+   *
+   * The class summary answers "how did ມ.4/ກ do in ຕຸລາ"; a parent standing at
+   * the office counter asks the other question — "how has *this* child done, ກັນຍາ
+   * through ພະຈິກ" — and no sheet here could answer it without reading three
+   * class summaries and picking one row out of each.
+   *
+   * Two views of the same numbers, because the school reads them both ways: the
+   * months across, as the summary ranks them, and the subjects down, ending in
+   * ພາກຮຽນ as the term sheet does. ລຳດັບ still has to be worked out over the whole
+   * class — a rank is not a fact about one student — so the class's marks are
+   * read even though only one row is returned.
+   *
+   * The room comes from the register rather than from the caller: the student is
+   * looked up in whichever class they sat that term, so a page that knows only a
+   * child's id can ask.
+   */
+  async getStudentMonths(query: StudentMonthsQueryDto, actor: AuthenticatedUser) {
+    // Checked before anything is read, so the answer cannot differ depending on
+    // whether the child has marks — the same order as the term result.
+    await this.scope.assertCanAccessStudent(actor, query.studentId);
+
+    const semester = query.semesterId
+      ? await this.semesters.findOne(query.semesterId)
+      : await this.semesters.getActiveOrFail();
+    const months = await this.monthsFor(semester.number);
+    const studentId = new Types.ObjectId(query.studentId);
+
+    /**
+     * The placement the marks were earned under.
+     *
+     * A transfer leaves two rows for the same year — the origin `transferred`,
+     * the destination `active` — so the active one wins and the latest stands in
+     * for a child who has since left, whose marks are still theirs.
+     */
+    const enrollments = await this.enrollmentModel
+      .find({ studentId, schoolYearId: semester.schoolYearId, deletedAt: null })
+      .sort({ enrolledAt: -1 })
+      .lean()
+      .exec();
+    const placement = enrollments.find((row) => row.status === 'active') ?? enrollments[0] ?? null;
+
+    // Not an error: a child admitted but not yet placed is an ordinary state of
+    // the register, and the page says so rather than showing a failure.
+    if (!placement) {
+      return {
+        classroom: null,
+        semester: this.semesterView(semester),
+        rollNumber: null,
+        isEnrolled: false,
+        months,
+        subjects: [],
+        monthly: [],
+        subjectRows: [],
+        summary: { subjects: 0, monthsRecorded: 0, termAverage: null, termComplete: false },
+      };
+    }
+
+    const classroom = await this.classrooms.findOnePopulated(placement.classroomId.toString());
+    const gradeLevelId = gradeLevelIdOf(classroom);
+    const subjects = gradeLevelId ? await this.subjects.findMarkedForGradeLevel(gradeLevelId) : [];
+    const subjectIds = subjects.map((subject) => subject._id);
+    const scale = await this.gradingScale.resolve();
+
+    const [roster, marks, termMarks] = await Promise.all([
+      this.loadRoster(classroom._id, subjectIds, semester._id),
+      subjectIds.length === 0
+        ? Promise.resolve([])
+        : this.model
+            .find({
+              classroomId: classroom._id,
+              semesterId: semester._id,
+              subjectId: { $in: subjectIds },
+              month: { $in: months },
+              deletedAt: null,
+            })
+            .lean()
+            .exec(),
+      subjectIds.length === 0
+        ? Promise.resolve([])
+        : this.termModel
+            .find({
+              studentId,
+              classroomId: classroom._id,
+              semesterId: semester._id,
+              subjectId: { $in: subjectIds },
+              deletedAt: null,
+            })
+            .lean()
+            .exec(),
+    ]);
+
+    /** studentId → month → subjectId → strand → the four cells. */
+    const cells = new Map<string, Map<number, Map<string, Map<string, MonthCells>>>>();
+    for (const mark of marks) {
+      const student = mark.studentId.toString();
+      const byStudent =
+        cells.get(student) ?? new Map<number, Map<string, Map<string, MonthCells>>>();
+      const byMonth = byStudent.get(mark.month) ?? new Map<string, Map<string, MonthCells>>();
+      const bySubject = byMonth.get(mark.subjectId.toString()) ?? new Map<string, MonthCells>();
+
+      bySubject.set(mark.strand ?? '', {
+        attendance: mark.attendance ?? null,
+        notebook: mark.notebook ?? null,
+        activity: mark.activity ?? null,
+        test: mark.test ?? null,
+      });
+      byMonth.set(mark.subjectId.toString(), bySubject);
+      byStudent.set(mark.month, byMonth);
+      cells.set(student, byStudent);
+    }
+
+    const strandsBySubject = new Map(
+      subjects.map((subject) => [subject._id.toString(), this.strandsOf(subject)]),
+    );
+
+    /** One month of one student, as one mark per subject column. */
+    const scoresOf = (student: string, month: number): (number | null)[] => {
+      const byMonth = cells.get(student)?.get(month);
+      return subjects.map((subject) => {
+        const written = byMonth?.get(subject._id.toString());
+        if (!written) return null;
+        const strands = strandsBySubject.get(subject._id.toString()) ?? [null];
+        const totals = strands.map((strand) =>
+          monthTotal(written.get(strand ?? '') ?? EMPTY_CELLS),
+        );
+        return monthScore(totals, strands.length).value;
+      });
+    };
+
+    const gradeOf = (value: number) => gradeFor((value / MARK_MAX) * 100, scale).grade;
+
+    const monthly = months.map((month) => {
+      // ລຳດັບ is decided over the class, so every roster row's average for this
+      // month is worked out even though one row is returned. Same competition
+      // ranking as the class summary: equal averages share a rank.
+      const ranked = roster
+        .map((student) => ({
+          studentId: student.studentId,
+          average: acrossSubjects(scoresOf(student.studentId, month), subjects.length).value,
+        }))
+        .filter((entry): entry is { studentId: string; average: number } => entry.average !== null);
+      const ranks = assignRanks(ranked);
+
+      const scores = scoresOf(query.studentId, month);
+      const recorded = scores.filter((score): score is number => score !== null);
+      const average = acrossSubjects(scores, subjects.length);
+
+      return {
+        month,
+        scores,
+        /** ລວມ — the marks as written, before they are divided. */
+        total: recorded.length > 0 ? round2(recorded.reduce((sum, score) => sum + score, 0)) : null,
+        average: average.value,
+        isComplete: average.isComplete,
+        subjectsRecorded: recorded.length,
+        // Withheld until the month is finished, as on the class sheet: an
+        // average divided by eight subjects of which three are unmarked would
+        // band low for a reason that is not the student's marks.
+        grade: average.isComplete && average.value !== null ? gradeOf(average.value) : null,
+        rank: ranks.get(query.studentId) ?? null,
+        /** How many of the class were ranked — the denominator ລຳດັບ is out of. */
+        rankedStudents: ranked.length,
+        isPassing: isPassing(average.value),
+      };
+    });
+
+    const termBySubject = new Map(termMarks.map((mark) => [mark.subjectId.toString(), mark]));
+
+    // The same numbers turned the other way: one row a subject, the months
+    // across it, ending in ພາກຮຽນ exactly as the term sheet computes it.
+    const subjectRows = subjects.map((subject, index) => {
+      const monthScores = monthly.map((entry) => entry.scores[index]);
+      const threeMonth = threeMonthAverage(monthScores, months.length);
+      const term = termBySubject.get(subject._id.toString());
+      const mark = semesterScore(threeMonth.value, term?.examScore ?? null, term?.bonus ?? null);
+
+      return {
+        subject: {
+          id: subject._id.toString(),
+          code: subject.code,
+          nameLo: subject.nameLo,
+          nameEn: subject.nameEn ?? null,
+        },
+        monthScores,
+        threeMonth: threeMonth.value,
+        threeMonthComplete: threeMonth.isComplete,
+        examScore: term?.examScore ?? null,
+        bonus: term?.bonus ?? null,
+        semesterMark: mark.value,
+        isPassing: isPassing(mark.value),
+      };
+    });
+
+    // ສະເລ່ຍ over the term marks, divided by the subjects the grade sits — the
+    // same divisor the monthly average uses, so a term short of a subject reads
+    // as unfinished rather than as finished and low.
+    const termAverage = acrossSubjects(
+      subjectRows.map((row) => row.semesterMark),
+      subjects.length,
+    );
+
+    const rosterRow = roster.find((student) => student.studentId === query.studentId);
+    return {
+      classroom: this.classroomView(classroom),
+      semester: this.semesterView(semester),
+      rollNumber: placement.rollNumber ?? null,
+      isEnrolled: placement.status === 'active',
+      months,
+      subjects: subjects.map((subject) => ({
+        id: subject._id.toString(),
+        code: subject.code,
+        nameLo: subject.nameLo,
+        nameEn: subject.nameEn ?? null,
+      })),
+      monthly,
+      subjectRows,
+      summary: {
+        subjects: subjects.length,
+        monthsRecorded: monthly.filter((entry) => entry.average !== null).length,
+        termAverage: termAverage.value,
+        termComplete: termAverage.isComplete,
+        // A student off the sheet — left the school, or moved out of this room —
+        // is still shown their marks, with the page free to say so.
+        onRoster: rosterRow !== undefined,
+      },
+    };
+  }
+
   // ── internals ─────────────────────────────────────────────────────────────
 
   /** Subject, class and term resolved together, so every read agrees on them. */
@@ -703,6 +1115,21 @@ export class MonthlyMarksService {
         : this.semesters.getActiveOrFail(),
     ]);
     if (!subject) throw AppException.notFound();
+
+    /**
+     * A ສາຍວິຊາ the mark sheet splits carries no marks of its own.
+     *
+     * ທຳມະຊາດ at ມ.4 is taught, assigned and registered against, but it is
+     * ຟີຊິກສາດ, ເຄມີສາດ and ຊີວະສາດ that are marked and examined. A sheet drawn
+     * against the parent would be a second, competing set of marks for the same
+     * three subjects, so it is refused outright rather than left to fill in.
+     */
+    if (await this.subjects.isSplitParent(subject._id)) {
+      throw AppException.badRequest('score.subjectIsSplit', {
+        subjectId: subject._id.toString(),
+        reason: 'this subject is marked as its split subjects, not as a whole',
+      });
+    }
 
     return { subject, classroom, semester };
   }
@@ -725,6 +1152,13 @@ export class MonthlyMarksService {
       });
     }
     return requested;
+  }
+
+  /** ຈັດປະເພດ cuts from settings, falling back to the school's own 7 and 5. */
+  private async monthlyBands(): Promise<MonthlyBandCuts> {
+    return monthlyBandsFrom(
+      await this.settings.getValue<Partial<MonthlyBandCuts>>('grading.monthlyBands'),
+    );
   }
 
   private async monthsFor(semesterNumber: number): Promise<number[]> {
@@ -750,7 +1184,7 @@ export class MonthlyMarksService {
    */
   private async loadRoster(
     classroomId: Types.ObjectId,
-    subjectId: Types.ObjectId,
+    subjectIds: Types.ObjectId[],
     semesterId: Types.ObjectId,
   ) {
     const [enrollments, markedIds] = await Promise.all([
@@ -760,7 +1194,12 @@ export class MonthlyMarksService {
         .sort({ rollNumber: 1 })
         .lean()
         .exec(),
-      this.model.distinct('studentId', { subjectId, classroomId, semesterId, deletedAt: null }),
+      this.model.distinct('studentId', {
+        subjectId: { $in: subjectIds },
+        classroomId,
+        semesterId,
+        deletedAt: null,
+      }),
     ]);
 
     const marked = new Set(markedIds.map((id) => id.toString()));
@@ -923,7 +1362,7 @@ export class MonthlyMarksService {
    */
   private async canEdit(
     actor: AuthenticatedUser,
-    subjectId: Types.ObjectId,
+    subject: SubjectDocument,
     classroomId: Types.ObjectId,
     semesterId: Types.ObjectId,
   ): Promise<boolean> {
@@ -933,18 +1372,30 @@ export class MonthlyMarksService {
     if (managesAll) return true;
     if (actor.personType !== 'teacher' || !actor.personId) return false;
 
-    return this.assignments.isAssignedTeacher(actor.personId, subjectId, classroomId, semesterId);
+    /**
+     * Permission follows the timetable, and the timetable runs on ສາຍວິຊາ.
+     *
+     * Nobody is assigned to teach ຟີຊິກສາດ — they are assigned to ທຳມະຊາດ, which
+     * from ມ.4 is marked as three subjects. Checking the split subject itself
+     * would find no assignment and lock out the very teacher who sits the exam.
+     */
+    return this.assignments.isAssignedTeacher(
+      actor.personId,
+      this.subjects.markingParentOf(subject),
+      classroomId,
+      semesterId,
+    );
   }
 
   private async assertCanEdit(
     actor: AuthenticatedUser,
-    subjectId: Types.ObjectId,
+    subject: SubjectDocument,
     classroomId: Types.ObjectId,
     semesterId: Types.ObjectId,
   ): Promise<void> {
-    if (!(await this.canEdit(actor, subjectId, classroomId, semesterId))) {
+    if (!(await this.canEdit(actor, subject, classroomId, semesterId))) {
       throw AppException.forbidden('score.notAssignedTeacher', {
-        subjectId: subjectId.toString(),
+        subjectId: subject._id.toString(),
         classroomId: classroomId.toString(),
       });
     }
@@ -992,6 +1443,19 @@ export class MonthlyMarksService {
       nameEn: semester.nameEn ?? null,
     };
   }
+}
+
+/**
+ * The grade a class sits, off a populated classroom.
+ *
+ * `findOnePopulated` resolves `gradeLevelId` to the document, so the id has to
+ * be read back off it — the raw field is an object here, not an id.
+ */
+function gradeLevelIdOf(classroom: unknown): Types.ObjectId | null {
+  const room = classroom as { gradeLevelId?: { _id?: Types.ObjectId } | Types.ObjectId | null };
+  const level = room.gradeLevelId;
+  if (!level) return null;
+  return (level as { _id?: Types.ObjectId })._id ?? (level as Types.ObjectId);
 }
 
 function cellKey(studentId: Types.ObjectId, strand: string | null | undefined): string {

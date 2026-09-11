@@ -4,7 +4,7 @@ import { ClientSession, Model, Types } from 'mongoose';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
-import { Classroom, ClassroomDocument } from 'src/database/schemas';
+import { Classroom, ClassroomDocument, Enrollment, EnrollmentDocument } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { GradeLevelsService } from '../grade-levels/grade-levels.service';
 import { SchoolYearsService } from '../school-years/school-years.service';
@@ -20,6 +20,8 @@ export class ClassroomsService extends BaseCrudService<ClassroomDocument> {
 
   constructor(
     @InjectModel(Classroom.name) model: Model<ClassroomDocument>,
+    // Roll numbers are issued off the register itself — see `nextRollNumber`.
+    @InjectModel(Enrollment.name) private readonly enrollmentModel: Model<EnrollmentDocument>,
     audit: AuditLogsService,
     private readonly schoolYears: SchoolYearsService,
     private readonly gradeLevels: GradeLevelsService,
@@ -165,9 +167,29 @@ export class ClassroomsService extends BaseCrudService<ClassroomDocument> {
     return classroom;
   }
 
-  /** Next free roll number in a classroom. */
+  /**
+   * Next free roll number in a classroom — one past the highest already issued.
+   *
+   * Read off the register rather than off `currentCount`, which is a count of
+   * who is in the room and not a record of what has been handed out. The two
+   * part company the moment anybody leaves: a class of 25 whose roll 7 is
+   * removed counts 24, and the next child enrolled was handed 25 — a number
+   * already worn by the student at the foot of the list. That is how ມ.5 came to
+   * have two roll 10s and no roll 26, and four other classes the same.
+   *
+   * Closed placements are counted too. A transferred or deleted row still names
+   * the number that was issued, and reissuing it would collide with the marks
+   * and sheets already filed under it.
+   */
   async nextRollNumber(classroomId: Types.ObjectId, session: ClientSession): Promise<number> {
-    const classroom = await this.model.findById(classroomId).session(session).exec();
-    return (classroom?.currentCount ?? 0) + 1;
+    const [highest] = await this.enrollmentModel
+      .find({ classroomId })
+      .sort({ rollNumber: -1 })
+      .limit(1)
+      .select('rollNumber')
+      .session(session)
+      .lean()
+      .exec();
+    return (highest?.rollNumber ?? 0) + 1;
   }
 }

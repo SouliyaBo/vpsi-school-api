@@ -6,11 +6,15 @@ import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { loadCoverageAssignments } from 'src/common/lesson-coverage/coverage-assignments';
+import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
+import { readTimeliness } from 'src/common/record-timeliness/read-timeliness';
+import type { RecordTimeliness } from 'src/common/record-timeliness/record-timeliness';
 import {
   buildCoverage,
   dayWindow,
   resolveCoverageSemester,
   weekWindow,
+  type CoverageWindow,
   type CoverageWritten,
   type LessonCoverage,
 } from 'src/common/lesson-coverage/lesson-coverage';
@@ -38,6 +42,7 @@ import {
   TeachingAssignmentDocument,
 } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { CalendarService } from '../calendar/calendar.service';
 // The two lesson helpers are shared with attendance rather than copied: both
 // logs are observations anchored to a timetabled period, and a second
 // implementation of "which periods fall on this date" is a second thing to get
@@ -99,6 +104,7 @@ export class BehaviorLogsService {
     private readonly audit: AuditLogsService,
     private readonly scope: RecordScopeService,
     private readonly tx: TransactionHelper,
+    private readonly calendar: CalendarService,
   ) {}
 
   /**
@@ -577,7 +583,15 @@ export class BehaviorLogsService {
       ? await this.semesters.findOne(query.semesterId)
       : await resolveCoverageSemester(this.semesters, windowFor());
 
-    const window = windowFor(semester);
+    // See the same read in `AttendancesService`: the register is not owed on a
+    // day the school did not teach, and the calendar is the only thing that
+    // knows which days those were.
+    const bounds = windowFor(semester);
+    const schoolDays = await this.calendar.calendarFor(bounds.start, bounds.end);
+    const window: CoverageWindow = {
+      ...bounds,
+      nonTeachingDays: schoolDays.nonTeachingDays(bounds.start, bounds.end),
+    };
 
     const assignments =
       semester && !options.noLessons
@@ -603,6 +617,29 @@ export class BehaviorLogsService {
 
     if (!query.outstandingOnly) return coverage;
     return { ...coverage, rows: coverage.rows.filter((row) => row.status === 'missing') };
+  }
+
+  /**
+   * ຄວາມຕົງເວລາໃນການບັນທຶກ — who writes the register up late.
+   *
+   * The same report as the roll call's, with the one rule that has to differ:
+   * the register is written when there is something to note, so there is no such
+   * thing as a missing entry and nothing is owed. What is judged is only the
+   * entries that exist — of those, how many were filed after noon of the next
+   * working day. Counting gaps here would contradict `getWeeklyCoverage`, which
+   * holds the register to one entry per window.
+   */
+  async getTimeliness(query: TimelinessQueryDto): Promise<RecordTimeliness> {
+    return readTimeliness(
+      {
+        semesters: this.semesters,
+        assignments: this.assignmentModel,
+        log: this.model,
+        calendar: this.calendar,
+      },
+      query,
+      'entriesOnly',
+    );
   }
 
   /**

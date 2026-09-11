@@ -11,6 +11,7 @@ export * from './teaching-assignment.schema';
 export * from './assessment.schema';
 export * from './conduct.schema';
 export * from './lesson-plan.schema';
+export * from './teaching-observation.schema';
 export * from './health.schema';
 export * from './reporting.schema';
 export * from './exam.schema';

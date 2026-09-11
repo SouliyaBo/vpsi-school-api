@@ -1,7 +1,14 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { flattenOfficialLocations } from 'src/database/locations/location-matching';
-import { ADMIN_USERNAME, TestContext, auth, createTestApp, login } from './test-app';
+import {
+  ADMIN_USERNAME,
+  TestContext,
+  auth,
+  createTestApp,
+  login,
+  markEveryGradeSubject,
+} from './test-app';
 
 /**
  * Phase 1 + 2 academic operations end to end: enrollment capacity and
@@ -448,7 +455,9 @@ describe('Academic operations (e2e)', () => {
     });
 
     it('refuses an illegal status transition', async () => {
-      const studentId = await createStudent('S-STATUS-001', 'ນາງ');
+      // Its own code: `S-STATUS-001` belongs to the graduated-student test above,
+      // and student codes are unique across the school.
+      const studentId = await createStudent('S-ENROL-STATUS-001', 'ນາງ');
       const enrollment = await http()
         .post('/api/enrollments')
         .set(auth(token))
@@ -959,6 +968,12 @@ describe('Academic operations (e2e)', () => {
       expect(response.body.unlocked).toBeGreaterThan(0);
     });
 
+    /**
+     * Everyone gets the same mark in every other subject, which leaves maths the
+     * only thing that separates them and keeps the ranking below observable.
+     */
+    const OTHER_SUBJECT_MARK = 80;
+
     it('computes complete results and ranks the class once all marks are in', async () => {
       await http()
         .post('/api/scores/batch')
@@ -973,6 +988,15 @@ describe('Academic operations (e2e)', () => {
           ],
         })
         .expect(201);
+
+      // The average divides by the subjects the grade sits, so a class marked in
+      // maths alone stays provisional however complete maths is.
+      const subjectCount = await markEveryGradeSubject(
+        app,
+        token,
+        { gradeLevelId, semesterId, classroomId, studentIds },
+        OTHER_SUBJECT_MARK,
+      );
 
       const computed = await http()
         .post('/api/term-results/compute-sync')
@@ -990,10 +1014,14 @@ describe('Academic operations (e2e)', () => {
       const ranked = ranking.body.filter((r: { rank: number | null }) => r.rank !== null);
       expect(ranked.length).toBeGreaterThanOrEqual(3);
 
-      // 38/40 → 95% of a 40 weight, 54/60 → 90% of a 60 weight ⇒ 38 + 54 = 92.
+      // Maths: 38/40 → 95% of a 40 weight, 54/60 → 90% of a 60 weight ⇒ 92. Every
+      // subject then counts once, so the term average is that plus 80 for each of
+      // the others, over the number of subjects the grade sits.
+      const expectedTop =
+        Math.round(((92 + OTHER_SUBJECT_MARK * (subjectCount - 1)) / subjectCount) * 100) / 100;
       const top = ranked.find((r: { studentId: string }) => r.studentId === studentIds[0]);
       expect(top.rank).toBe(1);
-      expect(top.average).toBe(92);
+      expect(top.average).toBe(expectedTop);
 
       // Ranks are strictly ordered for distinct averages.
       const second = ranked.find((r: { studentId: string }) => r.studentId === studentIds[1]);
@@ -1017,6 +1045,8 @@ describe('Academic operations (e2e)', () => {
 
   describe('attendance', () => {
     let attendanceStudentId: string;
+    /** The lesson the roll is called against — see `beforeAll`. */
+    let lessonId: string;
 
     beforeAll(async () => {
       attendanceStudentId = await createStudent('S-ATT-001', 'ນາງ');
@@ -1025,6 +1055,41 @@ describe('Academic operations (e2e)', () => {
         .set(auth(token))
         .send({ studentId: attendanceStudentId, classroomId })
         .expect(201);
+
+      /**
+       * Roll call is taken against a **timetabled lesson**, not against a class
+       * and a term, and only on a day that lesson is scheduled. So this describe
+       * brings its own.
+       *
+       * A third subject, because all four pairings of the two subjects this file
+       * uses with its two teachers are already on the timetable and one
+       * teacher+subject+classroom may only be assigned once. Thursday and Friday,
+       * because Monday to Wednesday are claimed by the tests around this one.
+       */
+      const subjects = await http()
+        .get(`/api/subjects?gradeLevelId=${gradeLevelId}&role=marked&limit=100`)
+        .set(auth(token))
+        .expect(200);
+
+      const spare = (subjects.body.data as { id: string }[]).find(
+        (subject) => subject.id !== mathSubjectId && subject.id !== laoSubjectId,
+      )!;
+
+      const lesson = await http()
+        .post('/api/teaching-assignments')
+        .set(auth(token))
+        .send({
+          teacherId: otherTeacherId,
+          subjectId: spare.id,
+          classroomId,
+          semesterId,
+          schedule: [
+            { dayOfWeek: 4, startTime: '15:10', endTime: '16:00', room: 'R104' },
+            { dayOfWeek: 5, startTime: '15:10', endTime: '16:00', room: 'R104' },
+          ],
+        })
+        .expect(201);
+      lessonId = lesson.body.id;
     });
 
     /**
@@ -1178,14 +1243,127 @@ describe('Academic operations (e2e)', () => {
       ).toBe(true);
     });
 
+    /**
+     * Deleting the child, on the other hand, closes the placement with them.
+     *
+     * A deleted student and an open enrollment are a row nothing can resolve:
+     * roll call keeps printing it — nameless, because the nickname is joined
+     * from the student record that has gone — and no screen downstream will drop
+     * it, since a ref that cannot be read is deliberately taken as no evidence
+     * either way. It happened for real in ມ.5 in August 2026, to a duplicate the
+     * office deleted two minutes after enrolling it.
+     */
+    it('closes the placements of a student the office deletes, count and all', async () => {
+      const goneId = await createStudent('S-GONE-001', 'ບຸນຍະກຽດ');
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: goneId, classroomId })
+        .expect(201);
+
+      const onRoster = async () => {
+        const roster = await http()
+          .get(`/api/enrollments/classroom/${classroomId}/roster`)
+          .set(auth(token))
+          .expect(200);
+        return roster.body.some((row: { studentCode: string }) => row.studentCode === 'S-GONE-001');
+      };
+      const rosterSize = async () => {
+        const classroom = await http()
+          .get(`/api/classrooms/${classroomId}`)
+          .set(auth(token))
+          .expect(200);
+        return classroom.body.currentCount as number;
+      };
+
+      expect(await onRoster()).toBe(true);
+      const counted = await rosterSize();
+
+      await http().delete(`/api/students/${goneId}`).set(auth(token)).expect(204);
+
+      expect(await onRoster()).toBe(false);
+      // The room's cached size comes down too, or the next placement is refused
+      // against a class that is not as full as it says.
+      expect(await rosterSize()).toBe(counted - 1);
+    });
+
+    /**
+     * A corrected register name reaches the placements that snapshot it.
+     *
+     * The enrollment carries `studentNameLo` taken on the day of placement, and
+     * the mark sheets, the score grid and the behaviour register all render from
+     * that copy rather than from the child — so a misspelling fixed on the
+     * student record used to stay on every one of those screens. `ສັນຍາຮັກ
+     * ວົົງສາ` sat that way in ມ.5 for a month.
+     */
+    it('carries a corrected register name into the placements that snapshot it', async () => {
+      const misspeltId = await createStudent('S-TYPO-001', 'ສັນຍາຮັກ');
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: misspeltId, classroomId })
+        .expect(201);
+
+      const snapshot = async () => {
+        const roster = await http()
+          .get(`/api/enrollments/classroom/${classroomId}/roster`)
+          .set(auth(token))
+          .expect(200);
+        const row = roster.body.find(
+          (candidate: { studentCode: string }) => candidate.studentCode === 'S-TYPO-001',
+        ) as { studentNameLo: string } | undefined;
+        return row?.studentNameLo;
+      };
+
+      expect(await snapshot()).toBe('ສັນຍາຮັກ ວົງສະຫວັນ');
+
+      await http()
+        .patch(`/api/students/${misspeltId}`)
+        .set(auth(token))
+        .send({ lastNameLo: 'ວົງສາ' })
+        .expect(200);
+
+      expect(await snapshot()).toBe('ສັນຍາຮັກ ວົງສາ');
+    });
+
+    /**
+     * Roll numbers are issued off the register, so nobody is handed one twice.
+     *
+     * They used to be `currentCount + 1`, which is a count of who is in the room
+     * rather than a record of what has been handed out: remove anybody, and the
+     * next child enrolled was given the number the student at the foot of the
+     * list already wore. Five classes were carrying a duplicated roll number by
+     * September 2026 — ມ.5 had two 10s and no 26.
+     */
+    it('issues the next roll number past the highest, not past the head count', async () => {
+      const first = await createStudent('S-ROLL-001', 'ນາລີ');
+      const second = await createStudent('S-ROLL-002', 'ພອນສະຫວັນ');
+
+      const place = async (studentId: string) => {
+        const response = await http()
+          .post('/api/enrollments')
+          .set(auth(token))
+          .send({ studentId, classroomId })
+          .expect(201);
+        return response.body as { id: string; rollNumber: number };
+      };
+
+      const placed = await place(first);
+      // Taking them off the roll brings the room's count back down; the number
+      // they were issued stays spent.
+      await http().delete(`/api/students/${first}`).set(auth(token)).expect(204);
+
+      expect((await place(second)).rollNumber).toBe(placed.rollNumber + 1);
+    });
+
     it('records a roll call', async () => {
+      // 2025-09-18 is the Thursday that lesson falls on.
       const response = await http()
         .post('/api/attendances')
         .set(auth(token))
         .send({
-          classroomId,
-          semesterId,
-          date: '2025-09-15',
+          teachingAssignmentId: lessonId,
+          date: '2025-09-18',
           entries: [{ studentId: attendanceStudentId, status: 'present' }],
         })
         .expect(200);
@@ -1198,15 +1376,14 @@ describe('Academic operations (e2e)', () => {
         .post('/api/attendances')
         .set(auth(token))
         .send({
-          classroomId,
-          semesterId,
-          date: '2025-09-15',
+          teachingAssignmentId: lessonId,
+          date: '2025-09-18',
           entries: [{ studentId: attendanceStudentId, status: 'late', minutesLate: 15 }],
         })
         .expect(200);
 
       const records = await http()
-        .get(`/api/attendances?studentId=${attendanceStudentId}&from=2025-09-15&to=2025-09-15`)
+        .get(`/api/attendances?studentId=${attendanceStudentId}&from=2025-09-18&to=2025-09-18`)
         .set(auth(token))
         .expect(200);
 
@@ -1220,8 +1397,9 @@ describe('Academic operations (e2e)', () => {
         .post('/api/attendances')
         .set(auth(token))
         .send({
-          classroomId,
-          semesterId,
+          teachingAssignmentId: lessonId,
+          // A Thursday, so the lesson *is* scheduled and the date is the only
+          // thing wrong with the request.
           date: '2099-01-01',
           entries: [{ studentId: attendanceStudentId, status: 'present' }],
         })
@@ -1235,9 +1413,9 @@ describe('Academic operations (e2e)', () => {
         .post('/api/attendances')
         .set(auth(token))
         .send({
-          classroomId,
-          semesterId,
-          date: '2024-01-15',
+          teachingAssignmentId: lessonId,
+          // Also a Thursday, and well before the term opened.
+          date: '2024-01-18',
           entries: [{ studentId: attendanceStudentId, status: 'present' }],
         })
         .expect(400);
@@ -1250,9 +1428,10 @@ describe('Academic operations (e2e)', () => {
         .post('/api/attendances')
         .set(auth(token))
         .send({
-          classroomId,
-          semesterId,
-          date: '2025-09-16',
+          teachingAssignmentId: lessonId,
+          // The Friday of the same lesson, so this is a second day and not a
+          // correction to the Thursday above.
+          date: '2025-09-19',
           entries: [{ studentId: attendanceStudentId, status: 'absent' }],
         })
         .expect(200);
@@ -1267,6 +1446,62 @@ describe('Academic operations (e2e)', () => {
       expect(summary.body.totalRecorded).toBe(2);
       // One late (counts as attended) out of two records.
       expect(summary.body.attendanceRate).toBe(50);
+    });
+
+    /**
+     * ວັນຂາດ on the monthly mark sheet is the month's, not the term's.
+     *
+     * The sheet is headed with one month and read out at the end of it, so a
+     * class summary that could only answer for the whole term would print
+     * ກັນຍາ's absences under ຕຸລາ and grow all year.
+     */
+    it('narrows the class summary to one calendar month', async () => {
+      // A Thursday in ຕຸລາ, so the same lesson falls on it — a second month of
+      // the same term rather than a second term.
+      await http()
+        .post('/api/attendances')
+        .set(auth(token))
+        .send({
+          teachingAssignmentId: lessonId,
+          date: '2025-10-16',
+          entries: [{ studentId: attendanceStudentId, status: 'excused' }],
+        })
+        .expect(200);
+
+      const rowFor = async (query: string) => {
+        const response = await http()
+          .get(`/api/attendances/summary/classroom/${classroomId}/semester/${semesterId}${query}`)
+          .set(auth(token))
+          .expect(200);
+        return response.body.find(
+          (row: { studentId: string }) => row.studentId === attendanceStudentId,
+        );
+      };
+
+      const [term, september, october] = await Promise.all([
+        rowFor(''),
+        rowFor('?month=9'),
+        rowFor('?month=10'),
+      ]);
+
+      expect(september.absent).toBe(1);
+      expect(september.late).toBe(1);
+      expect(september.excused).toBe(0);
+
+      expect(october.excused).toBe(1);
+      expect(october.absent).toBe(0);
+      expect(october.totalRecorded).toBe(1);
+
+      // The months of a term add up to it: nothing is double-counted and
+      // nothing falls between them.
+      expect(september.totalRecorded + october.totalRecorded).toBe(term.totalRecorded);
+    });
+
+    it('rejects a month outside 1–12', async () => {
+      await http()
+        .get(`/api/attendances/summary/classroom/${classroomId}/semester/${semesterId}?month=13`)
+        .set(auth(token))
+        .expect(400);
     });
   });
 
@@ -1402,7 +1637,7 @@ describe('Academic operations (e2e)', () => {
 
     it('lists the whole roll, so a clean record is visible as one', async () => {
       const standing = await http()
-        .get(`/api/conduct-deductions/summary/classroom/${classroomId}/semester/${semesterId}`)
+        .get(`/api/conduct-deductions/summary/classroom/${classroomId}/school-year/${schoolYearId}`)
         .set(auth(token))
         .expect(200);
 
@@ -1424,7 +1659,39 @@ describe('Academic operations (e2e)', () => {
       );
     });
 
-    it('escalates to the guardians once the term’s total passes ຂັ້ນ 1', async () => {
+    /**
+     * ຄະແນນຄຸນສົມບັດ is a year's budget, and every term of the year is published
+     * from it.
+     *
+     * The school issues the 100 once a school year, so ພາກຮຽນ II opens on
+     * whatever ພາກຮຽນ I left rather than back on 100. One deduction therefore
+     * writes a conduct score into *both* terms — each holding the balance as it
+     * stood at the end of that term — and a report card printed from either
+     * cannot contradict the ledger.
+     */
+    it('publishes the year\u2019s balance into every term of the year', async () => {
+      const terms = await http()
+        .get(`/api/semesters?schoolYearId=${schoolYearId}&limit=10`)
+        .set(auth(token))
+        .expect(200);
+      expect(terms.body.data.length).toBeGreaterThan(1);
+
+      const scores = await http()
+        .get(`/api/conduct-scores?studentId=${deductionStudentId}&limit=20`)
+        .set(auth(token))
+        .expect(200);
+
+      const published = scores.body.data.filter(
+        (row: { periodType: string; source: string }) =>
+          row.periodType === 'semester' && row.source === 'deductions',
+      );
+      expect(published).toHaveLength(terms.body.data.length);
+      // Every row was filed inside ພາກຮຽນ I, so both terms stand at the same
+      // balance — ພາກຮຽນ II carrying it rather than resetting is the point.
+      for (const row of published) expect(row.score).toBe(90);
+    });
+
+    it('escalates to the guardians once the year’s total passes ຂັ້ນ 1', async () => {
       const response = await http()
         .post('/api/conduct-deductions')
         .set(auth(token))
@@ -1463,7 +1730,7 @@ describe('Academic operations (e2e)', () => {
 
     it('gives the points back when a deduction is withdrawn, with the reason kept', async () => {
       const ledger = await http()
-        .get(`/api/conduct-deductions/student/${deductionStudentId}/semester/${semesterId}`)
+        .get(`/api/conduct-deductions/student/${deductionStudentId}/school-year/${schoolYearId}`)
         .set(auth(token))
         .expect(200);
 
@@ -1482,7 +1749,7 @@ describe('Academic operations (e2e)', () => {
       expect(revoked.body.level).toBe('classroom');
 
       const after = await http()
-        .get(`/api/conduct-deductions/student/${deductionStudentId}/semester/${semesterId}`)
+        .get(`/api/conduct-deductions/student/${deductionStudentId}/school-year/${schoolYearId}`)
         .set(auth(token))
         .expect(200);
       expect(after.body.entries).toHaveLength(1);

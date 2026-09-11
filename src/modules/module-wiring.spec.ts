@@ -23,6 +23,8 @@ import { SubjectsModule } from './subjects/subjects.module';
 import { SubjectsService } from './subjects/subjects.service';
 import { TeachersModule } from './teachers/teachers.module';
 import { TeachersService } from './teachers/teachers.service';
+import { TeachingObservationsModule } from './teaching-observations/teaching-observations.module';
+import { TeachingObservationsService } from './teaching-observations/teaching-observations.service';
 import { VaccinationsModule } from './vaccinations/vaccinations.module';
 import { VaccinationsService } from './vaccinations/vaccinations.service';
 
@@ -69,6 +71,7 @@ const MODELS = [
   'SubjectTermMark',
   'Teacher',
   'TeachingAssignment',
+  'TeachingObservation',
   // Every mark-entry module flags stored term results as out of date, which puts
   // this model in their graph without their owning it.
   'TermResult',
@@ -167,6 +170,15 @@ describe('module wiring', () => {
   it('resolves lesson plans with every model the compliance matrix reads', async () => {
     const app = await build([LessonPlansModule]);
     expect(app.get(LessonPlansService)).toBeInstanceOf(LessonPlansService);
+    await app.close();
+  });
+
+  // Registers Teacher, Subject and Semester itself rather than importing their
+  // modules, for the same reason vaccinations does — and it is the same
+  // arrangement that only fails at boot.
+  it('resolves teaching observations, which register the models they read', async () => {
+    const app = await build([TeachingObservationsModule]);
+    expect(app.get(TeachingObservationsService)).toBeInstanceOf(TeachingObservationsService);
     await app.close();
   });
 

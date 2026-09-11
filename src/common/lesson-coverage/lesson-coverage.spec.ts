@@ -142,6 +142,47 @@ describe('buildCoverage — the behaviour register’s rule', () => {
     expect(coverage.rows[0]).toMatchObject({ lessonsTimetabled: 1, lessonsElapsed: 1 });
   });
 
+  it('does not owe a lesson on a day the school did not teach', () => {
+    // The school calendar closes Monday — a holiday, or an exam period the office
+    // suspended the timetable for. Before `nonTeachingDays` existed this reported
+    // the teacher as behind for a lesson that never ran, which is the gap nobody
+    // can act on and the reason the whole report was being ignored.
+    const window = {
+      ...weekWindow('2025-11-05', '2025-11-05', SEMESTER),
+      nonTeachingDays: new Set(['2025-11-03']),
+    };
+    const coverage = buildCoverage(
+      window,
+      [assignment({ schedule: [on(MONDAY), on(THURSDAY)] })],
+      [],
+      { covered: 'anyEntry' },
+    );
+
+    // Monday is not counted, and Thursday has not been taught yet on the 5th.
+    expect(coverage.rows[0]).toMatchObject({
+      lessonsTimetabled: 1,
+      lessonsElapsed: 0,
+      status: 'not_yet',
+      missingDates: [],
+    });
+  });
+
+  it('still reports the gaps on the days around a closure', () => {
+    const window = {
+      ...weekWindow('2025-11-07', '2025-11-07', SEMESTER),
+      nonTeachingDays: new Set(['2025-11-03']),
+    };
+    const coverage = buildCoverage(
+      window,
+      [assignment({ schedule: [on(MONDAY), on(THURSDAY)] })],
+      [],
+      { covered: 'everyLessonDay' },
+    );
+
+    // Thursday was taught and went unwritten; Monday is not on the list at all.
+    expect(coverage.rows[0].missingDates).toEqual(['2025-11-06']);
+  });
+
   it('puts the gaps first, and counts distinct teachers and classes behind', () => {
     const coverage = build(
       [
