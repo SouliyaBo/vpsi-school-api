@@ -459,6 +459,8 @@ export class AttendancesService {
     studentId: string,
     semesterId: string,
     session?: ClientSession,
+    /** One calendar month of the term, as `getClassroomSummary` takes it; the whole term without. */
+    month?: number,
   ): Promise<AttendanceSummaryDto> {
     const rows = await this.model
       .aggregate<{ _id: AttendanceStatus; count: number }>([
@@ -467,6 +469,7 @@ export class AttendancesService {
             studentId: new Types.ObjectId(studentId),
             semesterId: new Types.ObjectId(semesterId),
             deletedAt: null,
+            ...(month ? { $expr: { $eq: [{ $month: '$date' }, month] } } : {}),
           },
         },
         { $group: { _id: '$status', count: { $sum: 1 } } },

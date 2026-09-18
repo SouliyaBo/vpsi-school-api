@@ -314,6 +314,15 @@ export type LessonPlanStatus = (typeof LESSON_PLAN_STATUSES)[number];
 export const TEACHING_OBSERVATION_STATUSES = tuple('draft', 'submitted', 'acknowledged');
 export type TeachingObservationStatus = (typeof TEACHING_OBSERVATION_STATUSES)[number];
 
+// ── Exam papers (ບົດສອບປາລະໄນ) ──────────────────────────────────────────────
+
+/**
+ * How a paper letters its options — `A. B. C. D.` or `ກ. ຂ. ຄ. ງ.`. Read off
+ * the teacher's file, and printed back the same way on every set.
+ */
+export const EXAM_OPTION_LABEL_STYLES = tuple('latin', 'lao');
+export type ExamOptionLabelStyle = (typeof EXAM_OPTION_LABEL_STYLES)[number];
+
 // ── Exams / certificates ────────────────────────────────────────────────────
 
 export const EXAM_LEVELS = tuple('m4', 'm7');
@@ -331,8 +340,10 @@ export type ExamRegistrationStatus = (typeof EXAM_REGISTRATION_STATUSES)[number]
 /**
  * `study_verification` is `ໃບຢັ້ງຢືນການສຶກສາ` — the letter the office writes for a
  * pupil who needs to prove to somebody outside the school that they study here.
- * It is not an award, so it carries no marks and, unlike the other four, is
- * rendered as a formal letter rather than as a certificate face.
+ * `study_suspension` is `ບົດບັນທຶກ ຂໍໂຈະການຮຽນ` — the memo a parent signs to take
+ * a pupil off the Lao-programme roll. Neither is an award, so neither carries
+ * marks and, unlike the other four, both are rendered as formal letters rather
+ * than as a certificate face.
  */
 export const CERTIFICATE_TYPES = tuple(
   'graduation',
@@ -340,8 +351,17 @@ export const CERTIFICATE_TYPES = tuple(
   'achievement',
   'participation',
   'study_verification',
+  'study_suspension',
 );
 export type CertificateType = (typeof CERTIFICATE_TYPES)[number];
+
+/**
+ * The types numbered from the school's register of outgoing documents —
+ * `99/ວຈພທນ(ຄນຮ)` — as one running series, the way the paper book is kept.
+ * The award types have their own `<year>/<TYPE>/<ordinal>` series.
+ */
+export const REGISTER_LETTER_TYPES = tuple('study_verification', 'study_suspension');
+export type RegisterLetterType = (typeof REGISTER_LETTER_TYPES)[number];
 
 // ── Communication ───────────────────────────────────────────────────────────
 
@@ -493,6 +513,10 @@ export const PERMISSION_RESOURCES = tuple(
   // sheets is a narrower question than who may read the staff register, and
   // narrower again than who reviews the plans they teach from.
   'teaching-observations',
+  // A teacher's unprinted exam paper is theirs alone until the day of the
+  // exam, so the papers are not a facet of `exams` (registrations and
+  // results, which the office runs) nor of `documents` (the shared library).
+  'exam-papers',
   'exams',
   'certificates',
   'announcements',

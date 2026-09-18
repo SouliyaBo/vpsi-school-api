@@ -33,6 +33,7 @@ import { GuardiansModule } from './modules/guardians/guardians.module';
 import { HealthModule } from './modules/health/health.module';
 import { LessonPlansModule } from './modules/lesson-plans/lesson-plans.module';
 import { TeachingObservationsModule } from './modules/teaching-observations/teaching-observations.module';
+import { ExamPapersModule } from './modules/exam-papers/exam-papers.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { ReportsModule } from './modules/reports/reports.module';
@@ -168,6 +169,7 @@ import { UsersModule } from './modules/users/users.module';
     ReportsModule,
     LessonPlansModule,
     TeachingObservationsModule,
+    ExamPapersModule,
 
     // Phase 4 — exams and certificates
     ExamsModule,

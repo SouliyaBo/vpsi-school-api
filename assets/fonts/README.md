@@ -81,3 +81,13 @@ console.log('mark advance (must be 0):', run.positions[1].xAdvance);
 ```
 
 A non-zero mark advance means the font will produce malformed Lao.
+
+## MathType equations (WMF) — optional fonts
+
+A Word file written with MathType carries each equation as a WMF picture.
+LibreOffice (installed in the Docker image; `brew install --cask libreoffice`
+on a Mac) draws them into PNG at upload. It substitutes Liberation Serif for
+Times and its own Symbol for MathType's; the result reads well. For a closer
+match, copy MathType's **Symbol** and **MT Extra** faces from a Windows machine
+that has MathType into `/usr/share/fonts/mathtype/` in the image (or
+`~/Library/Fonts` on a Mac).

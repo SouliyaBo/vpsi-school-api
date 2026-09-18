@@ -71,6 +71,9 @@ export const ROLE_SEEDS: RoleSeed[] = [
       // every observation sheet, keys in a deputy's handwritten one under that
       // deputy's name, and withdraws a sheet that has already been filed.
       { resource: 'teaching-observations', actions: ['manage'] },
+      // `manage` is what lets the office open any teacher's paper — to print
+      // a set for a colleague who is away, or to check one before it is sat.
+      { resource: 'exam-papers', actions: ['manage'] },
       { resource: 'exams', actions: ['manage'] },
       { resource: 'certificates', actions: ['create', 'read'] },
       { resource: 'announcements', actions: ['manage'] },
@@ -131,6 +134,8 @@ export const ROLE_SEEDS: RoleSeed[] = [
       // wrote plus the sheets written about them, which the permission alone
       // cannot express. `delete` withdraws a draft of their own, never a filed one.
       { resource: 'teaching-observations', actions: ['create', 'read', 'update', 'delete'] },
+      // Full rights, narrowed in the service to the teacher's own papers.
+      { resource: 'exam-papers', actions: ['create', 'read', 'update', 'delete'] },
       { resource: 'reports', actions: ['read'] },
       ...readOnly(
         'locations',

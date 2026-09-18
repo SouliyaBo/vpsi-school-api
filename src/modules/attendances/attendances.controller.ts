@@ -79,10 +79,19 @@ export class AttendancesController {
 
   @Get('summary/student/:studentId/semester/:semesterId')
   @RequirePermissions({ resource: 'attendances', action: 'read' })
-  @ApiOperation({ summary: 'Absence/late/excused counts and attendance rate for a student' })
+  @ApiOperation({
+    summary: 'Absence/late/excused counts and attendance rate for a student',
+    description:
+      'Counts the whole term unless `month` narrows it to one calendar month — the window ' +
+      "the child's monthly mark card is read over.",
+  })
   @ApiResponse({ status: 200, type: AttendanceSummaryDto })
-  studentSummary(@Param('studentId') studentId: string, @Param('semesterId') semesterId: string) {
-    return this.service.getStudentSummary(studentId, semesterId);
+  studentSummary(
+    @Param('studentId') studentId: string,
+    @Param('semesterId') semesterId: string,
+    @Query() query: ClassAttendanceSummaryQueryDto,
+  ) {
+    return this.service.getStudentSummary(studentId, semesterId, undefined, query.month);
   }
 
   @Get('summary/student/:studentId/semester/:semesterId/by-subject')

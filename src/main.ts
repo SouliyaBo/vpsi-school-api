@@ -36,6 +36,11 @@ async function bootstrap(): Promise<void> {
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language', 'X-Request-Id'],
+    // A browser hides every response header but the safe-listed few from a
+    // cross-origin script, so the file name the API puts on a download
+    // (`ບົດສອບ／ຊຸດ A.docx`) is invisible to the SPA unless named here — and a
+    // Word file saved under a guessed `.pdf` name is a file that will not open.
+    exposedHeaders: ['Content-Disposition'],
   });
 
   // Behind a reverse proxy, so `request.ip` reflects X-Forwarded-For rather than

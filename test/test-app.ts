@@ -68,6 +68,7 @@ import { CertificatesModule } from 'src/modules/certificates/certificates.module
 import { DocumentsModule } from 'src/modules/documents/documents.module';
 import { ExamsModule } from 'src/modules/exams/exams.module';
 import { FeedbackModule } from 'src/modules/feedback/feedback.module';
+import { ExamPapersModule } from 'src/modules/exam-papers/exam-papers.module';
 import { LessonPlansModule } from 'src/modules/lesson-plans/lesson-plans.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
 import { PdfRendererService } from 'src/modules/reports/pdf/pdf-renderer.service';
@@ -76,6 +77,7 @@ import { ReportTemplatesService } from 'src/modules/reports/report-templates.ser
 import { ReportsController } from 'src/modules/reports/reports.controller';
 import { ReportsQueueService } from 'src/modules/reports/reports.queue';
 import { StudyCertificateRenderer } from 'src/modules/reports/pdf/study-certificate.renderer';
+import { StudySuspensionRenderer } from 'src/modules/reports/pdf/study-suspension.renderer';
 import { ReportsModule } from 'src/modules/reports/reports.module';
 import { GradingScaleModule } from 'src/modules/term-results/grading-scale.service';
 import { ReportsService } from 'src/modules/reports/reports.service';
@@ -154,6 +156,7 @@ class TestTermResultsModule {}
     // added to the real `ReportsModule` and not mirrored here takes the whole
     // suite down at boot rather than failing one test.
     StudyCertificateRenderer,
+    StudySuspensionRenderer,
     {
       provide: ReportsQueueService,
       useValue: {
@@ -167,6 +170,7 @@ class TestTermResultsModule {}
     ReportDataService,
     PdfRendererService,
     StudyCertificateRenderer,
+    StudySuspensionRenderer,
     ReportTemplatesService,
   ],
 })
@@ -248,6 +252,7 @@ export async function createTestApp(): Promise<TestContext> {
 
       LessonPlansModule,
       ExamsModule,
+      ExamPapersModule,
       CertificatesModule,
       AnnouncementsModule,
       CalendarModule,

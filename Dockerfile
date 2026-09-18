@@ -13,6 +13,12 @@ COPY package*.json ./
 FROM base AS development
 ENV NODE_ENV=development
 RUN apk add --no-cache font-noto-lao
+# LibreOffice draws the WMF/EMF pictures a Word file written with MathType
+# carries — every equation is one — so they can be printed as PNG; without it
+# such a paper uploads with its equations missing. Headless only, no Java. The
+# Liberation faces stand in for Times/Symbol in the equations; for a closer match
+# copy MathType's own faces (Symbol, MT Extra) into /usr/share/fonts/mathtype/.
+RUN apk add --no-cache libreoffice-draw libreoffice-common font-liberation
 # Phetsarath OT as well, so a dev container renders official letters in the same
 # face production does rather than in the Noto fallback.
 RUN apk add --no-cache --virtual .fetch-deps curl \
@@ -38,6 +44,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 # Lao fonts, so report and certificate PDFs render legibly.
 RUN apk add --no-cache font-noto-lao
+# LibreOffice draws the WMF/EMF pictures a Word file written with MathType
+# carries — every equation is one — so they can be printed as PNG; without it
+# such a paper uploads with its equations missing. Headless only, no Java. The
+# Liberation faces stand in for Times/Symbol in the equations; for a closer match
+# copy MathType's own faces (Symbol, MT Extra) into /usr/share/fonts/mathtype/.
+RUN apk add --no-cache libreoffice-draw libreoffice-common font-liberation
 # Phetsarath OT — the Lao government's typeface, which official letters
 # (ໃບຢັ້ງຢືນການສຶກສາ) are set in. Not in any Alpine package, and the repo's copy
 # is git-ignored along with the other fonts, so it is fetched here rather than

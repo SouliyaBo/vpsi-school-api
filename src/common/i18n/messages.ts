@@ -286,6 +286,60 @@ export const MESSAGES = {
     en: 'Changing a student’s code is the registrar’s decision',
   },
 
+  // ── Exam papers (ບົດສອບປາລະໄນ) ──────────────────────────────────────────────
+  'examPaper.notWord': {
+    lo: 'ໄຟລ໌ນີ້ບໍ່ແມ່ນເອກະສານ Word (.docx)',
+    en: 'The file is not a Word document (.docx)',
+  },
+  'examPaper.noQuestions': {
+    lo: 'ບໍ່ພົບຄຳຖາມໃນໄຟລ໌ — ຄຳຖາມຕ້ອງຂຶ້ນຕົ້ນດ້ວຍເລກ ເຊັ່ນ 1. ແລະ ຄຳຕອບດ້ວຍ A. B. C. D.',
+    en: 'No questions were found — a question starts with its number (1.) and options with A. B. C. D.',
+  },
+  'examPaper.noVariants': {
+    lo: 'ຍັງບໍ່ໄດ້ສ້າງຊຸດບົດສອບ — ກົດ ສ້າງຊຸດ ກ່ອນ',
+    en: 'No sets have been drawn yet — generate the sets first',
+  },
+  'examPaper.unknownSet': {
+    lo: 'ບໍ່ມີຊຸດນີ້',
+    en: 'There is no such set',
+  },
+  'examPaper.imageNotOwned': {
+    lo: 'ຮູບພາບບໍ່ແມ່ນຂອງບົດສອບນີ້',
+    en: 'That picture does not belong to this paper',
+  },
+  'examPaper.classroomRequired': {
+    lo: 'ກະລຸນາເລືອກຫ້ອງຮຽນ',
+    en: 'Choose a classroom',
+  },
+  'examPaper.noStudents': {
+    lo: 'ຫ້ອງນີ້ບໍ່ມີນັກຮຽນ',
+    en: 'The classroom has no students',
+  },
+  'examPaper.notTheOwner': {
+    lo: 'ບົດສອບນີ້ບໍ່ແມ່ນຂອງທ່ານ',
+    en: 'This paper is not yours',
+  },
+  'examPaper.subjectRequired': {
+    lo: 'ກະລຸນາລະບຸວິຊາຂອງບົດສອບກ່ອນ ຈຶ່ງສົ່ງຄະແນນເຂົ້າຄະແນນປະຈຳເດືອນໄດ້',
+    en: 'Set the paper’s subject before sending marks to the monthly sheet',
+  },
+  'examPaper.pointsExceedTest': {
+    lo: 'ຄະແນນເຕັມຂອງບົດສອບເກີນຊ່ອງ ກວດກາ ({{max}} ຄະແນນ) — ຕັ້ງຄະແນນເຕັມບໍ່ເກີນ {{max}}',
+    en: 'The paper’s total exceeds the ກວດກາ column ({{max}}) — set a total of at most {{max}}',
+  },
+  'examPaper.scanNeedsStudent': {
+    lo: 'ກະລຸນາລະບຸນັກຮຽນ ແລະ ຊຸດ ກ່ອນຢືນຢັນ',
+    en: 'Name the pupil and the set before confirming',
+  },
+  'examPaper.scanAlreadyConfirmed': {
+    lo: 'ໃບນີ້ຢືນຢັນແລ້ວ',
+    en: 'This sheet has already been confirmed',
+  },
+  'examPaper.nothingToPush': {
+    lo: 'ຍັງບໍ່ມີເຈ້ຍຕອບທີ່ກອກຄະແນນໄວ້',
+    en: 'No sheets with points have been keyed in yet',
+  },
+
   // ── Teaching observation (ຕິດຕາມການສອນຂອງຄູ) ───────────────────────────────
   'observation.observerRequired': {
     lo: 'ຕ້ອງລະບຸຜູ້ຕິດຕາມ — ບັນຊີນີ້ບໍ່ໄດ້ຜູກກັບຄູຄົນໃດ',

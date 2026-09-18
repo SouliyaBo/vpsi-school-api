@@ -19,9 +19,11 @@ import {
   CertificateVerificationDto,
   IssueCertificateDto,
   IssueStudyCertificateDto,
+  IssueStudySuspensionDto,
   QueryCertificatesDto,
   RevokeCertificateDto,
   StudyCertificatePrefillDto,
+  StudySuspensionPrefillDto,
 } from './dto/certificate.dto';
 
 @ApiTags('certificates')
@@ -108,6 +110,62 @@ export class CertificatesController {
     const { certificate, pdf } = await this.service.issueStudyVerification(dto, actor, ip);
     // The number is the one thing the caller cannot recompute, and it is already
     // spent by the time the bytes arrive.
+    response.setHeader('X-Certificate-Number', encodeURIComponent(certificate.certificateNumber));
+    response.setHeader('X-Certificate-Id', certificate._id.toString());
+    this.sendPdf(
+      response,
+      pdf,
+      `${certificate.certificateNumber.replace(/[^\p{L}\p{N}]+/gu, '-')}.pdf`,
+    );
+  }
+
+  @Get('study-suspension/prefill/:studentId')
+  @ApiBearerAuth()
+  @RequirePermissions({ resource: 'certificates', action: 'create' })
+  @ApiOperation({
+    summary: 'Draft values for a ບົດບັນທຶກ ຂໍໂຈະການຮຽນ',
+    description:
+      'What the register can answer for this pupil — the guardian who signs, their phone, ' +
+      'the address and the current class — plus `missing`, the fields it cannot. The ' +
+      'reason and the documents handed back are never filled: they print as ruled lines.',
+  })
+  @ApiResponse({ status: 200, type: StudySuspensionPrefillDto })
+  prefillStudySuspension(@Param('studentId') studentId: string) {
+    return this.service.prefillStudySuspension(studentId);
+  }
+
+  @Post('study-suspension/preview')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @RequirePermissions({ resource: 'certificates', action: 'create' })
+  @ApiOperation({
+    summary: 'Render a ບົດບັນທຶກ ຂໍໂຈະການຮຽນ without issuing it',
+    description: 'Streams the PDF. Allocates no number and writes no record.',
+  })
+  async previewStudySuspension(
+    @Body() dto: IssueStudySuspensionDto,
+    @Res() response: Response,
+  ): Promise<void> {
+    const pdf = await this.service.previewStudySuspension(dto);
+    this.sendPdf(response, pdf, 'study-suspension-draft.pdf');
+  }
+
+  @Post('study-suspension')
+  @ApiBearerAuth()
+  @RequirePermissions({ resource: 'certificates', action: 'create' })
+  @ApiOperation({
+    summary: 'Issue a ບົດບັນທຶກ ຂໍໂຈະການຮຽນ',
+    description:
+      "Allocates the next number in the school's outgoing-document series — the same " +
+      'series as ໃບຢັ້ງຢືນການສຶກສາ — records the written details and returns the PDF.',
+  })
+  async issueStudySuspension(
+    @Body() dto: IssueStudySuspensionDto,
+    @CurrentUser() actor: AuthenticatedUser,
+    @ClientIp() ip: string | null,
+    @Res() response: Response,
+  ): Promise<void> {
+    const { certificate, pdf } = await this.service.issueStudySuspension(dto, actor, ip);
     response.setHeader('X-Certificate-Number', encodeURIComponent(certificate.certificateNumber));
     response.setHeader('X-Certificate-Id', certificate._id.toString());
     this.sendPdf(

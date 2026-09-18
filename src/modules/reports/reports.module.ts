@@ -22,6 +22,7 @@ import {
 import { AttendancesModule } from '../attendances/attendances.module';
 import { PdfRendererService } from './pdf/pdf-renderer.service';
 import { StudyCertificateRenderer } from './pdf/study-certificate.renderer';
+import { StudySuspensionRenderer } from './pdf/study-suspension.renderer';
 import { ReportDataService } from './report-data.service';
 import { ReportTemplatesService } from './report-templates.service';
 import { ReportsController } from './reports.controller';
@@ -52,6 +53,7 @@ import { ReportsService } from './reports.service';
     ReportDataService,
     PdfRendererService,
     StudyCertificateRenderer,
+    StudySuspensionRenderer,
     ReportsQueueService,
     ReportsProcessor,
   ],
@@ -60,6 +62,7 @@ import { ReportsService } from './reports.service';
     ReportDataService,
     PdfRendererService,
     StudyCertificateRenderer,
+    StudySuspensionRenderer,
     ReportTemplatesService,
   ],
 })

@@ -196,6 +196,57 @@ export class StudyVerificationDetails {
 export const StudyVerificationDetailsSchema =
   SchemaFactory.createForClass(StudyVerificationDetails);
 
+/**
+ * The written details of a `study_suspension` memo, kept for the same reason
+ * `StudyVerificationDetails` is: the memo is what the parent signed, and a
+ * re-render must reproduce it as it was — not as the register reads today.
+ */
+@Schema({ _id: false })
+export class StudySuspensionDetails {
+  /** The guardian who signs, with title: `ທ້າວ ສະຫງ່ວນ ປອງປັນຍາ`. */
+  @Prop({ type: String, default: null, trim: true })
+  guardianNameLo?: string | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  guardianPhone?: string | null;
+
+  /** Bare names — the form prints `ບ້ານ`, `ເມືອງ`, `ແຂວງ` itself. */
+  @Prop({ type: String, default: null, trim: true })
+  villageLo?: string | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  districtLo?: string | null;
+
+  @Prop({ type: String, default: null, trim: true })
+  provinceLo?: string | null;
+
+  /** `ມ.1/ກ` — the memo names the section, unlike the study letter. */
+  @Prop({ type: String, default: null, trim: true })
+  classLabelLo?: string | null;
+
+  /** `2026-2027` — the year the pupil leaves the roll. */
+  @Prop({ type: String, default: null, trim: true })
+  schoolYearCode?: string | null;
+
+  /** The first day the pupil is off the roll. */
+  @Prop({ type: Date, default: null })
+  suspendedFrom?: Date | null;
+
+  /** `ເຫດຜົນ` — one line, as printed; null prints ruled lines to fill by hand. */
+  @Prop({ type: String, default: null, trim: true })
+  reasonLo?: string | null;
+
+  /** `ເອກະສານສົ່ງຄືນຜູ້ປົກຄອງ` — one entry per line; empty prints ruled lines. */
+  @Prop({ type: [String], default: [] })
+  documentsLo: string[];
+
+  /** Denormalized: the register code may be corrected after the memo is out. */
+  @Prop({ type: String, default: null, trim: true })
+  studentCode?: string | null;
+}
+
+export const StudySuspensionDetailsSchema = SchemaFactory.createForClass(StudySuspensionDetails);
+
 export type CertificateDocument = HydratedDocument<Certificate>;
 
 @Schema({ collection: 'certificates', ...baseSchemaOptions })
@@ -225,9 +276,13 @@ export class Certificate extends SoftDeletableDocument {
   @Prop({ type: String, default: null })
   descriptionLo?: string | null;
 
-  /** Set only for `study_verification`; null for the award types. */
+  /** Set only for `study_verification`; null for every other type. */
   @Prop({ type: StudyVerificationDetailsSchema, default: null })
   studyDetails?: StudyVerificationDetails | null;
+
+  /** Set only for `study_suspension`; null for every other type. */
+  @Prop({ type: StudySuspensionDetailsSchema, default: null })
+  suspensionDetails?: StudySuspensionDetails | null;
 
   @Prop({ type: Date, required: true })
   issuedDate: Date;

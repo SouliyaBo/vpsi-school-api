@@ -317,7 +317,8 @@ export class SeedService {
         value: 0,
         category: 'certificates',
         isPublic: false,
-        description: 'Digits to zero-pad a ໃບຢັ້ງຢືນການສຶກສາ number to; 0 for none',
+        description:
+          'Digits to zero-pad an outgoing letter number to (ໃບຢັ້ງຢືນ, ບົດບັນທຶກ); 0 for none',
       },
       {
         key: 'certificates.studyVerificationStartNumber',
@@ -325,7 +326,7 @@ export class SeedService {
         value: 99,
         category: 'certificates',
         isPublic: false,
-        description: 'First ໃບຢັ້ງຢືນການສຶກສາ number; ignored once one has been issued',
+        description: 'First outgoing letter number; ignored once one has been issued',
       },
       {
         key: 'school.defaultLocale',

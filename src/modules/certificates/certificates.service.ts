@@ -5,11 +5,13 @@ import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { toApiDocuments } from 'src/common/utils/serialize';
+import { REGISTER_LETTER_TYPES } from 'src/common/constants/enums';
 import {
   Certificate,
   CertificateDocument,
   Student,
   StudentDocument,
+  StudySuspensionDetails,
   StudyVerificationDetails,
 } from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
@@ -20,16 +22,22 @@ import { PdfRendererService } from '../reports/pdf/pdf-renderer.service';
 import { ReportLayout } from '../reports/pdf/layout.types';
 import { ReportTemplatesService } from '../reports/report-templates.service';
 import { StudyCertificateRenderer } from '../reports/pdf/study-certificate.renderer';
+import { StudySuspensionRenderer } from '../reports/pdf/study-suspension.renderer';
 import { SettingsService } from '../settings/settings.service';
 import {
   StudyCertificateDataService,
   StudyCertificatePrefill,
 } from './study-certificate-data.service';
+import {
+  StudySuspensionDataService,
+  StudySuspensionPrefill,
+} from './study-suspension-data.service';
 import { SchoolYearsService } from '../school-years/school-years.service';
 import { StorageService } from '../storage/storage.service';
 import {
   IssueCertificateDto,
   IssueStudyCertificateDto,
+  IssueStudySuspensionDto,
   QueryCertificatesDto,
   RevokeCertificateDto,
 } from './dto/certificate.dto';
@@ -46,6 +54,8 @@ export class CertificatesService {
     private readonly renderer: PdfRendererService,
     private readonly studyRenderer: StudyCertificateRenderer,
     private readonly studyData: StudyCertificateDataService,
+    private readonly suspensionRenderer: StudySuspensionRenderer,
+    private readonly suspensionData: StudySuspensionDataService,
     private readonly settings: SettingsService,
     private readonly storage: StorageService,
     private readonly schoolYears: SchoolYearsService,
@@ -101,14 +111,17 @@ export class CertificatesService {
     actor: AuthenticatedUser,
     ip: string | null,
   ): Promise<CertificateDocument> {
-    if (dto.type === 'study_verification') {
+    if (dto.type === 'study_verification' || dto.type === 'study_suspension') {
       // Not a rejection of the caller's intent so much as of this route: the
-      // letter needs a birthplace, parents and a study period, none of which
-      // this DTO carries, and issuing it here would burn a number on a letter
+      // letters need a birthplace, a guardian, a study period — none of which
+      // this DTO carries — and issuing one here would burn a number on a letter
       // with four dotted lines in it.
       throw AppException.badRequest('common.validationFailed', {
         field: 'type',
-        reason: 'use POST /certificates/study-verification for ໃບຢັ້ງຢືນການສຶກສາ',
+        reason:
+          dto.type === 'study_verification'
+            ? 'use POST /certificates/study-verification for ໃບຢັ້ງຢືນການສຶກສາ'
+            : 'use POST /certificates/study-suspension for ບົດບັນທຶກ ຂໍໂຈະການຮຽນ',
       });
     }
 
@@ -181,7 +194,7 @@ export class CertificatesService {
    *
    * Worth its own path because the numbers are gap-free and outsiders verify
    * them: a teacher who wants to check the wording before printing must be able
-   * to do so without consuming `100/ວຈພທນ(ຄນຮ)`. Where the number would go the
+   * to do so without consuming `100/ວຈພທນ(ຄນຮ)`. The same goes for the suspension memo. Where the number would go the
    * preview prints `(ຮ່າງ)`, so a printed draft cannot pass as a real letter.
    */
   async previewStudyVerification(dto: IssueStudyCertificateDto): Promise<Buffer> {
@@ -220,7 +233,7 @@ export class CertificatesService {
     const details = await this.studyData.resolveDetails(dto.studentId, dto);
 
     const certificate = await this.tx.run(async (session) => {
-      const certificateNumber = await this.allocateStudyVerificationNumber(session);
+      const certificateNumber = await this.allocateRegisterNumber(session);
 
       const [created] = await this.model.create(
         [
@@ -260,7 +273,94 @@ export class CertificatesService {
     });
 
     const pdf = await this.renderStudyVerification(certificate);
-    await this.storeStudyVerification(certificate, pdf);
+    await this.storeLetter(certificate, pdf);
+
+    return { certificate: await this.findOne(certificate._id.toString()), pdf };
+  }
+
+  /** The draft the office reviews before a suspension memo is issued. */
+  prefillStudySuspension(studentId: string): Promise<StudySuspensionPrefill> {
+    return this.suspensionData.prefill(studentId);
+  }
+
+  /** Renders a suspension memo without issuing it — no number, no record, no file. */
+  async previewStudySuspension(dto: IssueStudySuspensionDto): Promise<Buffer> {
+    const issuedDate = dto.issuedDate ? new Date(dto.issuedDate) : new Date();
+    const details = await this.suspensionData.resolveDetails(dto.studentId, dto, issuedDate);
+    const data = await this.suspensionData.assemble({
+      studentId: dto.studentId,
+      certificateNumber: '(ຮ່າງ)',
+      issuedDate,
+      details,
+    });
+    return this.suspensionRenderer.render(data);
+  }
+
+  /**
+   * Issues a `ບົດບັນທຶກ ຂໍໂຈະການຮຽນ` and returns the record together with its PDF.
+   *
+   * Numbered from the same register as the study letter — see
+   * `allocateRegisterNumber`. Only the paper is produced here: striking the
+   * pupil off the roll is the enrollment's business and is done there, so a memo
+   * that the parent then declines to sign leaves the register untouched.
+   */
+  async issueStudySuspension(
+    dto: IssueStudySuspensionDto,
+    actor: AuthenticatedUser,
+    ip: string | null,
+  ): Promise<{ certificate: CertificateDocument; pdf: Buffer }> {
+    const student = await this.studentModel.findById(dto.studentId).lean().exec();
+    if (!student) throw AppException.badRequest('common.notFound', { field: 'studentId' });
+
+    const schoolYear = dto.schoolYearId
+      ? await this.schoolYears.findOneOrFail(dto.schoolYearId)
+      : await this.schoolYears.getActiveOrFail();
+
+    const issuedDate = dto.issuedDate ? new Date(dto.issuedDate) : new Date();
+    const details = await this.suspensionData.resolveDetails(dto.studentId, dto, issuedDate);
+
+    const certificate = await this.tx.run(async (session) => {
+      const certificateNumber = await this.allocateRegisterNumber(session);
+
+      const [created] = await this.model.create(
+        [
+          {
+            certificateNumber,
+            studentId: student._id,
+            studentNameLo: `${student.firstNameLo} ${student.lastNameLo}`,
+            type: 'study_suspension',
+            schoolYearId: schoolYear._id,
+            titleLo: 'ບົດບັນທຶກ ຂໍໂຈະການຮຽນ',
+            issuedDate,
+            issuedBy: new Types.ObjectId(actor.sub),
+            suspensionDetails: details,
+          },
+        ],
+        { session },
+      );
+
+      await this.audit.record(
+        {
+          action: 'create',
+          entityType: 'certificates',
+          entityId: created._id,
+          userId: actor.sub,
+          username: actor.username,
+          newValue: {
+            certificateNumber,
+            studentCode: student.studentCode,
+            type: 'study_suspension',
+          },
+          ip,
+        },
+        session,
+      );
+
+      return created;
+    });
+
+    const pdf = await this.renderStudySuspension(certificate);
+    await this.storeLetter(certificate, pdf);
 
     return { certificate: await this.findOne(certificate._id.toString()), pdf };
   }
@@ -283,7 +383,7 @@ export class CertificatesService {
       if (stored) return { pdf: stored, filename };
     }
 
-    if (certificate.type !== 'study_verification') {
+    if (!this.isRegisterLetter(certificate)) {
       // The award types render from a template plus marks, which
       // `regenerateFile` already knows how to redo and store.
       await this.regenerateFile(id, actor);
@@ -293,8 +393,11 @@ export class CertificatesService {
       return { pdf: stored, filename };
     }
 
-    const pdf = await this.renderStudyVerification(certificate);
-    await this.storeStudyVerification(certificate, pdf);
+    const pdf =
+      certificate.type === 'study_suspension'
+        ? await this.renderStudySuspension(certificate)
+        : await this.renderStudyVerification(certificate);
+    await this.storeLetter(certificate, pdf);
     return { pdf, filename };
   }
 
@@ -470,19 +573,23 @@ export class CertificatesService {
   }
 
   /**
-   * Allocates the next `ໃບຢັ້ງຢືນການສຶກສາ` number, e.g. `99/ວຈພທນ(ຄນຮ)`.
+   * Allocates the next number in the school's register of outgoing documents,
+   * e.g. `99/ວຈພທນ(ຄນຮ)` — shared by `ໃບຢັ້ງຢືນການສຶກສາ` and `ບົດບັນທຶກ ຂໍໂຈະການຮຽນ`.
    *
-   * A different shape from the award series on purpose: this is a numbered
-   * outgoing letter of the school's own register, which is what the department
-   * code after the slash means, and its series continues from where the paper
-   * book left off — hence the configurable start rather than 1.
+   * A different shape from the award series on purpose: these are numbered
+   * outgoing letters of the school's own register, which is what the department
+   * code after the slash means, and the series continues from where the paper
+   * book left off — hence the configurable start rather than 1. One series for
+   * both kinds of letter because that is how the book is kept, and because the
+   * number is unique across the collection: two series with the same code would
+   * collide at the first shared ordinal.
    *
    * The ordinals are compared as **numbers**. Sorting them as strings, which is
    * what the award series does, puts `99` after `100` and would hand out `100`
    * twice; the unique index would then reject the second issue rather than
    * silently reuse it, but the office would be stuck.
    */
-  private async allocateStudyVerificationNumber(session: ClientSession): Promise<string> {
+  private async allocateRegisterNumber(session: ClientSession): Promise<string> {
     const [code, start, padding] = await Promise.all([
       this.settings.getValue<string>('school.documentCodeLo'),
       this.settings.getValue<number>('certificates.studyVerificationStartNumber'),
@@ -490,7 +597,7 @@ export class CertificatesService {
     ]);
 
     const issued = await this.model
-      .find({ type: 'study_verification' })
+      .find({ type: { $in: [...REGISTER_LETTER_TYPES] } })
       .select('certificateNumber')
       .session(session)
       .lean()
@@ -513,6 +620,20 @@ export class CertificatesService {
     return `${ordinal}/${code ?? 'ຄມຮ'}`;
   }
 
+  private isRegisterLetter(certificate: CertificateDocument): boolean {
+    return (REGISTER_LETTER_TYPES as readonly string[]).includes(certificate.type);
+  }
+
+  private async renderStudySuspension(certificate: CertificateDocument): Promise<Buffer> {
+    const data = await this.suspensionData.assemble({
+      studentId: certificate.studentId.toString(),
+      certificateNumber: certificate.certificateNumber,
+      issuedDate: certificate.issuedDate,
+      details: (certificate.suspensionDetails ?? {}) as StudySuspensionDetails,
+    });
+    return this.suspensionRenderer.render(data);
+  }
+
   private async renderStudyVerification(certificate: CertificateDocument): Promise<Buffer> {
     const data = await this.studyData.assemble({
       studentId: certificate.studentId.toString(),
@@ -528,10 +649,7 @@ export class CertificatesService {
    * already holds the bytes, and losing the archive copy must not turn into the
    * parent being told to come back tomorrow.
    */
-  private async storeStudyVerification(
-    certificate: CertificateDocument,
-    pdf: Buffer,
-  ): Promise<void> {
+  private async storeLetter(certificate: CertificateDocument, pdf: Buffer): Promise<void> {
     const fileKey = `certificates/${certificate._id.toString()}.pdf`;
     try {
       await this.storage.putBuffer(fileKey, pdf, 'application/pdf');

@@ -1,6 +1,6 @@
 # Deploying the API to EC2
 
-Target: `18.140.239.33`, API only. The admin SPA is not part of this yet.
+Target: `3.26.219.236`, API only. The admin SPA is not part of this yet.
 
 What runs on the box: the API, the queue worker that shares its image, and the
 Redis those two use. MongoDB stays on Atlas — there is no database to move.
@@ -35,8 +35,8 @@ Without it the API hangs on connect and never passes readiness.
 The instance logs in as `ubuntu`, so this is an Ubuntu AMI. From your laptop:
 
 ```bash
-chmod 400 vpsi.school.pem          # ssh refuses a key others can read
-ssh -i vpsi.school.pem ubuntu@18.140.239.33
+chmod 400 vpsi-api.pem          # ssh refuses a key others can read
+ssh -i vpsi-api.pem ubuntu@3.26.219.236
 ```
 
 Everything below runs on the server.
@@ -99,7 +99,7 @@ shell. Log out and back in:
 
 ```bash
 exit
-ssh -i vpsi.school.pem ubuntu@18.140.239.33
+ssh -i vpsi-api.pem ubuntu@3.26.219.236
 ```
 
 ### 2e. Verify
@@ -148,8 +148,8 @@ your laptop, in `VPSI-SCHOOL/`:
 rsync -av --delete \
   --exclude node_modules --exclude dist --exclude coverage \
   --exclude .env --exclude .git \
-  -e "ssh -i vpsi.school.pem" \
-  vpsischool-api/ ubuntu@18.140.239.33:~/vpsischool-api/
+  -e "ssh -i vpsi-api.pem" \
+  vpsischool-api/ ubuntu@3.26.219.236:~/vpsischool-api/
 ```
 
 `--exclude .env` is deliberate: that is the development file. The production one
@@ -193,14 +193,14 @@ reach the instance's own public IP (AWS does not hairpin it). Use S3 unless you
 have a domain name to point at MinIO.
 
 ```bash
-aws s3api create-bucket --bucket vpsischool-files \
+aws s3api create-bucket --bucket vpsi-school-images \
   --region ap-southeast-1 \
   --create-bucket-configuration LocationConstraint=ap-southeast-1
 ```
 
 Keep the bucket private — the signed URLs are the access mechanism, and a public
 bucket makes them pointless. Create an IAM user limited to
-`s3:GetObject`/`PutObject`/`DeleteObject` on `arn:aws:s3:::vpsischool-files/*`
+`s3:GetObject`/`PutObject`/`DeleteObject` on `arn:aws:s3:::vpsi-school-images/*`
 plus `s3:ListBucket` on the bucket, and put its keys in `.env.production`.
 
 The API starts and serves every non-file route even when the bucket is
@@ -208,7 +208,7 @@ unreachable, so you can defer this — uploads fail, nothing else does.
 
 ## 5. Build and start
 
-The instance is 1 vCPU with 951 MiB of RAM. Building there works — there is a
+The instance is 2 vCPU with 908 MiB of RAM (Ubuntu 26.04, amd64). Building there works — there is a
 2 GB swapfile to fall back on — but `npm ci` followed by the TypeScript compiler
 (measured at a 536 MB peak on its own) is slow and close to the edge. Building
 elsewhere and shipping the image avoids it, and also means no source code and no
@@ -235,9 +235,9 @@ Then ship it — roughly 72 MB gzipped:
 
 ```bash
 docker save vpsischool-api:prod | gzip -6 > api-prod.tar.gz
-scp -i vpsi.school.pem -C api-prod.tar.gz ubuntu@18.140.239.33:/tmp/
+scp -i vpsi-api.pem -C api-prod.tar.gz ubuntu@3.26.219.236:/tmp/
 
-ssh -i vpsi.school.pem ubuntu@18.140.239.33 \
+ssh -i vpsi-api.pem ubuntu@3.26.219.236 \
   'gunzip -c /tmp/api-prod.tar.gz | docker load && rm /tmp/api-prod.tar.gz'
 ```
 
@@ -276,7 +276,7 @@ curl -s localhost:3000/v1/health
 curl -s localhost:3000/v1/health/ready     # database: "connected"
 
 # From your laptop
-curl -s http://18.140.239.33:3000/v1/health
+curl -s http://3.26.219.236:3000/v1/health
 ```
 
 `/v1/health` and not `/health`: URI versioning applies even to the two routes
@@ -285,12 +285,12 @@ excluded from the global `api` prefix.
 A real request, end to end:
 
 ```bash
-curl -s -X POST http://18.140.239.33:3000/api/v1/auth/login \
+curl -s -X POST http://3.26.219.236:3000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"..."}'
 ```
 
-Then point the admin at it by setting `VITE_API_BASE_URL=http://18.140.239.33:3000/api/v1`
+Then point the admin at it by setting `VITE_API_BASE_URL=http://3.26.219.236:3000/api/v1`
 and adding that origin to `CORS_ORIGINS`.
 
 ## 7. Day-to-day

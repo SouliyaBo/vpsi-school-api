@@ -44,6 +44,21 @@ function withPrefix(entry: AddressableLocation): string {
 }
 
 /**
+ * The name without its level word: `ໂພນສະຫວັນ` for a village stored as
+ * `ບ້ານໂພນສະຫວັນ`. For a form that prints `ບ້ານ … ເມືອງ … ແຂວງ …` as its own
+ * labels, where `withPrefix` would double the word.
+ */
+export function bareLocationName(entry: AddressableLocation): string {
+  const prefix = PREFIX[entry.type];
+  const name = entry.nameLo.trim();
+  if (name.startsWith(prefix)) {
+    const remainder = name.slice(prefix.length).trim();
+    return remainder.length > 0 ? remainder : name;
+  }
+  return name;
+}
+
+/**
  * Writes a location as an official address line: `ບ້ານ ດອນແດງ ເມືອງ ຈັນທະບູລີ
  * ແຂວງ ນະຄອນຫຼວງວຽງຈັນ`.
  *

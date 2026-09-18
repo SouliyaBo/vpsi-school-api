@@ -787,12 +787,38 @@ export class MonthlyMarksService {
         return monthScore(totals, strands.length).value;
       });
 
+      /**
+       * ກວດກາ on its own, out of 6 — the one column of the four the parent
+       * report prints beside ລວມ.
+       *
+       * The school's letter home shows the test mark as its own line above the
+       * month's total, so a parent can see whether a 6.5 is a child who sat the
+       * test badly or one who missed the notebook and activity marks. Averaged
+       * across strands the way ລວມ is, for the subjects that have them.
+       */
+      const testScores = subjects.map((subject) => {
+        const written = byStudent?.get(subject._id.toString());
+        if (!written) return null;
+        const tests = this.strandsOf(subject)
+          .map((strand) => written.get(strand ?? '')?.test ?? null)
+          .filter((test): test is number => test !== null);
+        if (tests.length === 0) return null;
+        return round2(tests.reduce((sum, test) => sum + test, 0) / tests.length);
+      });
+
       const recorded = scores.filter((score): score is number => score !== null);
       const average = acrossSubjects(scores, subjects.length);
 
       return {
         ...student,
         scores,
+        testScores,
+        /**
+         * ເກຣດ per subject — the letter for each month's ລວມ, banded on the same
+         * scale as the average's, so the parent report cannot band a subject on
+         * one rule and the month on another.
+         */
+        subjectGrades: scores.map((score) => (score === null ? null : gradeOf(score))),
         /** ລວມ — the marks as written, before they are divided. */
         total: recorded.length > 0 ? round2(recorded.reduce((sum, score) => sum + score, 0)) : null,
         average: average.value,
@@ -928,7 +954,15 @@ export class MonthlyMarksService {
         subjects: [],
         monthly: [],
         subjectRows: [],
-        summary: { subjects: 0, monthsRecorded: 0, termAverage: null, termComplete: false },
+        summary: {
+          subjects: 0,
+          monthsRecorded: 0,
+          termTotal: null,
+          termSubjectsRecorded: 0,
+          termAverage: null,
+          termComplete: false,
+          termGrade: null,
+        },
       };
     }
 
@@ -1004,6 +1038,24 @@ export class MonthlyMarksService {
       });
     };
 
+    /**
+     * ກວດກາ on its own, out of 6, per subject — the parent report's own line,
+     * derived exactly as the class summary derives it so the child's page and
+     * the letter home cannot show two different test marks.
+     */
+    const testScoresOf = (student: string, month: number): (number | null)[] => {
+      const byMonth = cells.get(student)?.get(month);
+      return subjects.map((subject) => {
+        const written = byMonth?.get(subject._id.toString());
+        if (!written) return null;
+        const tests = (strandsBySubject.get(subject._id.toString()) ?? [null])
+          .map((strand) => written.get(strand ?? '')?.test ?? null)
+          .filter((test): test is number => test !== null);
+        if (tests.length === 0) return null;
+        return round2(tests.reduce((sum, test) => sum + test, 0) / tests.length);
+      });
+    };
+
     const gradeOf = (value: number) => gradeFor((value / MARK_MAX) * 100, scale).grade;
 
     const monthly = months.map((month) => {
@@ -1025,6 +1077,9 @@ export class MonthlyMarksService {
       return {
         month,
         scores,
+        testScores: testScoresOf(query.studentId, month),
+        /** The letter for each subject's ລວມ, on the same scale as the average's. */
+        subjectGrades: scores.map((score) => (score === null ? null : gradeOf(score))),
         /** ລວມ — the marks as written, before they are divided. */
         total: recorded.length > 0 ? round2(recorded.reduce((sum, score) => sum + score, 0)) : null,
         average: average.value,
@@ -1064,6 +1119,8 @@ export class MonthlyMarksService {
         examScore: term?.examScore ?? null,
         bonus: term?.bonus ?? null,
         semesterMark: mark.value,
+        /** The letter for ພາກຮຽນ, banded as a month's ລວມ is. */
+        semesterGrade: mark.value === null ? null : gradeOf(mark.value),
         isPassing: isPassing(mark.value),
       };
     });
@@ -1071,6 +1128,9 @@ export class MonthlyMarksService {
     // ສະເລ່ຍ over the term marks, divided by the subjects the grade sits — the
     // same divisor the monthly average uses, so a term short of a subject reads
     // as unfinished rather than as finished and low.
+    const termMarksRecorded = subjectRows
+      .map((row) => row.semesterMark)
+      .filter((mark): mark is number => mark !== null);
     const termAverage = acrossSubjects(
       subjectRows.map((row) => row.semesterMark),
       subjects.length,
@@ -1094,8 +1154,20 @@ export class MonthlyMarksService {
       summary: {
         subjects: subjects.length,
         monthsRecorded: monthly.filter((entry) => entry.average !== null).length,
+        /** ລວມ of the term marks as written — the parent block's standing figure. */
+        termTotal:
+          termMarksRecorded.length > 0
+            ? round2(termMarksRecorded.reduce((sum, mark) => sum + mark, 0))
+            : null,
+        termSubjectsRecorded: termMarksRecorded.length,
         termAverage: termAverage.value,
         termComplete: termAverage.isComplete,
+        // ເກຣດ for the term, withheld while a subject is still short of its
+        // ພາກຮຽນ — for the reason a month's is.
+        termGrade:
+          termAverage.isComplete && termAverage.value !== null
+            ? gradeOf(termAverage.value)
+            : null,
         // A student off the sheet — left the school, or moved out of this room —
         // is still shown their marks, with the page free to say so.
         onRoster: rosterRow !== undefined,
