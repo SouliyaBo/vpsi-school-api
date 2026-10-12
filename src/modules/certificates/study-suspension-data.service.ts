@@ -358,9 +358,15 @@ export class StudySuspensionDataService {
       this.schoolYearModel.findById(enrollment.schoolYearId).select('code').lean().exec(),
     ]);
 
-    const classLabelLo = gradeLevel
-      ? `ມ.${gradeLevel.level}${classroom?.name ? `/${classroom.name}` : ''}`
-      : null;
+    // Classrooms are named with their grade already (`ມ.1/ກ`), so the name is
+    // the label; prefixing the grade again printed `ມ.1/ມ.1/ກ`. The grade is
+    // only added for a room named by its section alone, or no room at all.
+    const room = classroom?.name?.trim();
+    const grade = gradeLevel ? `ມ.${gradeLevel.level}` : null;
+    let classLabelLo: string | null = null;
+    if (room && (room.startsWith('ມ.') || !grade)) classLabelLo = room;
+    else if (room && grade) classLabelLo = `${grade}/${room}`;
+    else classLabelLo = grade;
 
     return { classLabelLo, schoolYearCode: year?.code ?? null };
   }

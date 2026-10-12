@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
 export type ExamResponseDocument = HydratedDocument<ExamResponse>;
@@ -17,10 +17,10 @@ export type ExamResponseDocument = HydratedDocument<ExamResponse>;
  */
 @Schema({ collection: 'examResponses', ...baseSchemaOptions })
 export class ExamResponse extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'ExamPaper', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ExamPaper', required: true, index: true })
   paperId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   /** Copied from the enrollment when keyed in, as the mark sheets do. */
@@ -30,7 +30,7 @@ export class ExamResponse extends SoftDeletableDocument {
   @Prop({ type: String, required: true })
   studentNameLo: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', default: null, index: true })
   classroomId?: Types.ObjectId | null;
 
   /** Which set the pupil sat — `A`, `B` … (`setLabel`: `set` is a Document method). */
@@ -58,7 +58,7 @@ export class ExamResponse extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: ['manual', 'scan'], default: 'manual' })
   source: 'manual' | 'scan';
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   recordedById?: Types.ObjectId | null;
 }
 

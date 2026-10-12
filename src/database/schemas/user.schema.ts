@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { PERSON_TYPES, PersonType, USER_STATUSES, UserStatus } from 'src/common/constants/enums';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
@@ -47,7 +47,7 @@ export class User extends SoftDeletableDocument {
   @Prop({ type: String, required: true, select: false })
   passwordHash: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Role', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Role', required: true, index: true })
   roleId: Types.ObjectId;
 
   /**
@@ -57,7 +57,7 @@ export class User extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: PERSON_TYPES })
   personType: PersonType;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   personId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true, enum: USER_STATUSES, default: 'active' })
@@ -95,6 +95,39 @@ export class User extends SoftDeletableDocument {
 
   @Prop({ type: String, default: 'lo' })
   locale: string;
+
+  /**
+   * The Telegram chat this account's notifications are delivered to.
+   *
+   * Telegram's own id for the private conversation between the bot and the
+   * person, learned when they press Start — a phone number cannot be used to
+   * message anybody, so there is nothing to derive it from and it has to be
+   * collected. `null` means the account has not linked, and is simply skipped
+   * when notifications go out.
+   *
+   * A string rather than a number: Telegram's ids fit in a 64-bit integer, which
+   * JavaScript does not have, and group ids are already beyond what a `number`
+   * holds exactly.
+   */
+  @Prop({ type: String, default: null })
+  telegramChatId?: string | null;
+
+  /**
+   * The one-time code the person sends the bot as `/start <code>`.
+   *
+   * Short-lived and single-use. It exists because the bot has no way to know who
+   * is writing to it: anybody can find the bot, so a message proves only that
+   * *somebody* pressed Start. The code is what ties that chat to this account,
+   * and it is cleared the moment it is spent.
+   */
+  @Prop({ type: String, default: null, select: false })
+  telegramLinkCode?: string | null;
+
+  @Prop({ type: Date, default: null, select: false })
+  telegramLinkCodeExpiresAt?: Date | null;
+
+  @Prop({ type: Date, default: null })
+  telegramLinkedAt?: Date | null;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
@@ -111,11 +144,25 @@ UserSchema.set('toJSON', {
     delete output.refreshTokens;
     delete output.passwordResetTokenHash;
     delete output.passwordResetExpiresAt;
+    // The chat id is a delivery address, not something a client ever needs; the
+    // link endpoint reports whether an account is linked and nothing more.
+    delete output.telegramChatId;
+    delete output.telegramLinkCode;
+    delete output.telegramLinkCodeExpiresAt;
     return output;
   },
 });
 
 UserSchema.index({ username: 1 }, { unique: true });
+/** Looking an account up from an incoming `/start <code>`, and from a chat id. */
+UserSchema.index(
+  { telegramLinkCode: 1 },
+  { partialFilterExpression: { telegramLinkCode: { $type: 'string' } } },
+);
+UserSchema.index(
+  { telegramChatId: 1 },
+  { partialFilterExpression: { telegramChatId: { $type: 'string' } } },
+);
 UserSchema.index(
   { email: 1 },
   { unique: true, partialFilterExpression: { email: { $type: 'string' } } },

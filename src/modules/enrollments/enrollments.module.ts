@@ -10,7 +10,7 @@ import { EnrollmentsService } from './enrollments.service';
   imports: [
     MongooseModule.forFeature([{ name: Enrollment.name, schema: EnrollmentSchema }]),
     ClassroomsModule,
-    // Provides the Student model.
+    // Provides the Student and SchoolYear models.
     StudentsModule,
   ],
   controllers: [EnrollmentsController],

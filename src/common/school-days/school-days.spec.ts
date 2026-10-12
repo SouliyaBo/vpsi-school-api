@@ -151,3 +151,107 @@ describe('recordingDeadline', () => {
     expect(hoursLate(at('2026-09-12T03:00:00.000Z'), deadline!)).toBe(0);
   });
 });
+
+/**
+ * ຫຍຸດສະເພາະຊັ້ນ — the school stands one year or one room down without closing.
+ *
+ * ມ.7 sit a national exam, a room's teacher is away. The rest of the school
+ * teaches that day and owes its registers; only the named classes do not. The
+ * rule that makes this safe is the one asserted first: a question with no class
+ * in it is answered by the school-wide events alone, so nothing here can empty
+ * a register that was owed.
+ */
+describe('a day off for one class only', () => {
+  const M1 = 'grade-m1';
+  const M1A = 'room-m1a';
+  const M1B = 'room-m1b';
+  const M2A = 'room-m2a';
+
+  const scoped = new SchoolDayCalendar([
+    {
+      titleLo: 'ມ.1 ຫຍຸດ',
+      type: 'holiday',
+      dayEffect: 'closed',
+      startDate: '2026-09-15',
+      endDate: '2026-09-15',
+      appliesTo: { gradeLevelIds: [M1], classroomIds: [] },
+    },
+    {
+      titleLo: 'ມ.2/ກ ຫຍຸດ',
+      type: 'holiday',
+      dayEffect: 'closed',
+      startDate: '2026-09-16',
+      endDate: '2026-09-16',
+      appliesTo: { gradeLevelIds: [], classroomIds: [M2A] },
+    },
+    {
+      titleLo: 'ພັກທົ່ວໂຮງຮຽນ',
+      type: 'holiday',
+      dayEffect: 'closed',
+      startDate: '2026-09-17',
+      endDate: '2026-09-17',
+    },
+  ]);
+
+  it('leaves the school open on a day one year is off', () => {
+    // The fact that protects every other register: asked without a class, a
+    // class-scoped closure has nothing to say.
+    expect(scoped.isTeachingDay('2026-09-15')).toBe(true);
+    expect(scoped.classify('2026-09-15').events).toHaveLength(0);
+  });
+
+  it('closes every room of a grade level the office named', () => {
+    expect(scoped.isTeachingDay('2026-09-15', { classroomId: M1A, gradeLevelId: M1 })).toBe(false);
+    expect(scoped.isTeachingDay('2026-09-15', { classroomId: M1B, gradeLevelId: M1 })).toBe(false);
+  });
+
+  it('leaves the other years teaching that same day', () => {
+    expect(scoped.isTeachingDay('2026-09-15', { classroomId: M2A, gradeLevelId: 'grade-m2' })).toBe(
+      true,
+    );
+  });
+
+  it('closes one room without closing its year', () => {
+    expect(scoped.isTeachingDay('2026-09-16', { classroomId: M2A, gradeLevelId: 'grade-m2' })).toBe(
+      false,
+    );
+    // The sibling room shares the grade level and is still taught — naming a
+    // room must not take its year down with it.
+    expect(
+      scoped.isTeachingDay('2026-09-16', { classroomId: 'room-m2b', gradeLevelId: 'grade-m2' }),
+    ).toBe(true);
+  });
+
+  it('still closes everybody on a school-wide holiday', () => {
+    expect(scoped.isTeachingDay('2026-09-17')).toBe(false);
+    expect(scoped.isTeachingDay('2026-09-17', { classroomId: M1A, gradeLevelId: M1 })).toBe(false);
+    expect(scoped.isTeachingDay('2026-09-17', { classroomId: M2A, gradeLevelId: 'grade-m2' })).toBe(
+      false,
+    );
+  });
+
+  it('counts the year down one teaching day against the school', () => {
+    // Mon 14 – Fri 18 Sep: the school teaches four (17 Sep is shut school-wide),
+    // ມ.1 three — the day of its own closure comes off as well.
+    expect(scoped.countTeachingDays('2026-09-14', '2026-09-18')).toBe(4);
+    expect(
+      scoped.countTeachingDays('2026-09-14', '2026-09-18', { classroomId: M1A, gradeLevelId: M1 }),
+    ).toBe(3);
+  });
+
+  it('names the closure among the day’s events, so a report can say why', () => {
+    const day = scoped.classify('2026-09-15', { classroomId: M1A, gradeLevelId: M1 });
+    expect(day.events.map((event) => event.titleLo)).toEqual(['ມ.1 ຫຍຸດ']);
+  });
+
+  it('moves only that class’s deadline', () => {
+    // Mon 14 Sep's write-up would be due Tue 15 Sep noon; ມ.1 is off that day, so
+    // its deadline moves to Wednesday while everyone else's stays put.
+    expect(recordingDeadline('2026-09-14', scoped)?.toISOString()).toBe('2026-09-15T05:00:00.000Z');
+    expect(
+      recordingDeadline('2026-09-14', scoped, {
+        forClass: { classroomId: M1A, gradeLevelId: M1 },
+      })?.toISOString(),
+    ).toBe('2026-09-16T05:00:00.000Z');
+  });
+});

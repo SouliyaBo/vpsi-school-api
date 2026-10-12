@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   DOCUMENT_VISIBILITIES,
   DocumentVisibility,
@@ -57,7 +57,7 @@ export type GeneratedReportDocument = HydratedDocument<GeneratedReport>;
 
 @Schema({ collection: 'generatedReports', ...baseSchemaOptions })
 export class GeneratedReport extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'ReportTemplate', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ReportTemplate', required: true, index: true })
   templateId: Types.ObjectId;
 
   @Prop({ type: String, required: true, enum: REPORT_TYPES })
@@ -68,13 +68,13 @@ export class GeneratedReport extends SoftDeletableDocument {
   params: Record<string, unknown>;
 
   /** Subject of the report, when it targets a single student. */
-  @Prop({ type: Types.ObjectId, ref: 'Student', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', default: null, index: true })
   studentId?: Types.ObjectId | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', default: null })
   classroomId?: Types.ObjectId | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', default: null })
   semesterId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true, enum: REPORT_STATUSES, default: 'queued' })
@@ -93,7 +93,7 @@ export class GeneratedReport extends SoftDeletableDocument {
   @Prop({ type: String, default: null })
   jobId?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   requestedBy: Types.ObjectId;
 
   @Prop({ type: Date, default: null })
@@ -128,7 +128,7 @@ export class SchoolDocument extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: DOCUMENT_VISIBILITIES, default: 'staff' })
   visibility: DocumentVisibility;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   uploadedBy: Types.ObjectId;
 
   @Prop({ type: Number, default: 0 })

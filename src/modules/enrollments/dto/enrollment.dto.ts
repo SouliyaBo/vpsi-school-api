@@ -16,6 +16,11 @@ import {
 import { ENROLLMENT_STATUSES, EnrollmentStatus } from 'src/common/constants/enums';
 import { PaginationQueryDto } from 'src/common/dto/pagination.dto';
 
+/** Shared so the three places that accept the field describe it the same way. */
+const ENGLISH_CLASS_DESCRIPTION =
+  '`ຫ້ອງພາກອັງກິດ` — the English-programme room, as the office writes it. ' +
+  'Unrelated to the homeroom classroom.';
+
 export class CreateEnrollmentDto {
   @ApiProperty()
   @IsMongoId()
@@ -29,6 +34,12 @@ export class CreateEnrollmentDto {
   @IsDateString()
   @IsOptional()
   enrolledAt?: string;
+
+  @ApiPropertyOptional({ description: ENGLISH_CLASS_DESCRIPTION, example: 'EP-A' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  englishClass?: string;
 }
 
 /** One row of a bulk enroll. */
@@ -41,6 +52,12 @@ export class BulkEnrollmentItemDto {
   @ApiProperty()
   @IsMongoId()
   classroomId: string;
+
+  @ApiPropertyOptional({ description: ENGLISH_CLASS_DESCRIPTION, example: 'EP-A' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  englishClass?: string;
 }
 
 export class BulkEnrollDto {
@@ -51,6 +68,23 @@ export class BulkEnrollDto {
   @ValidateNested({ each: true })
   @Type(() => BulkEnrollmentItemDto)
   items: BulkEnrollmentItemDto[];
+}
+
+/**
+ * Edits to a placement that are not a move.
+ *
+ * Only `englishClass`: the classroom, year and grade are what a transfer is for,
+ * and letting them be patched here would leave the classroom headcounts wrong.
+ */
+export class UpdateEnrollmentDto {
+  @ApiPropertyOptional({
+    description: `${ENGLISH_CLASS_DESCRIPTION} Send an empty string to clear it.`,
+    example: 'EP-A',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  englishClass?: string;
 }
 
 export class ChangeEnrollmentStatusDto {
@@ -80,6 +114,13 @@ export class QueryEnrollmentsDto extends PaginationQueryDto {
   @IsIn(ENROLLMENT_STATUSES)
   @IsOptional()
   status?: EnrollmentStatus;
+
+  /** Exact match, so an English room can be listed the way a classroom can. */
+  @ApiPropertyOptional({ description: ENGLISH_CLASS_DESCRIPTION, example: 'EP-A' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  englishClass?: string;
 }
 
 export class BulkEnrollResultDto {

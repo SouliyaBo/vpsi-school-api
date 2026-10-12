@@ -6,11 +6,13 @@ import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { AttendancesService } from './attendances.service';
 import {
+  AttendanceAbsenceRowDto,
   AttendanceSubjectSummaryDto,
   AttendanceSummaryDto,
   ClassAttendanceSummaryQueryDto,
   QueryAttendancesDto,
   RecordAttendanceDto,
+  SemesterAbsencesQueryDto,
 } from './dto/attendance.dto';
 
 @ApiTags('attendances')
@@ -82,8 +84,9 @@ export class AttendancesController {
   @ApiOperation({
     summary: 'Absence/late/excused counts and attendance rate for a student',
     description:
-      'Counts the whole term unless `month` narrows it to one calendar month — the window ' +
-      "the child's monthly mark card is read over.",
+      'Counts the whole term unless `month` or `from`/`to` narrows it — the month is the ' +
+      "window the child's monthly mark card is read over. `subjectId` counts one subject's " +
+      'lessons only.',
   })
   @ApiResponse({ status: 200, type: AttendanceSummaryDto })
   studentSummary(
@@ -91,7 +94,7 @@ export class AttendancesController {
     @Param('semesterId') semesterId: string,
     @Query() query: ClassAttendanceSummaryQueryDto,
   ) {
-    return this.service.getStudentSummary(studentId, semesterId, undefined, query.month);
+    return this.service.getStudentSummary(studentId, semesterId, undefined, query);
   }
 
   @Get('summary/student/:studentId/semester/:semesterId/by-subject')
@@ -115,8 +118,9 @@ export class AttendancesController {
   @ApiOperation({
     summary: 'The same summary for every student in a classroom',
     description:
-      'Counts the whole term unless `month` narrows it to one calendar month, which is what ' +
-      'the monthly mark sheet prints. Students with nothing recorded are not listed.',
+      'Counts the whole term unless `month` or `from`/`to` narrows it — the month is what the ' +
+      "monthly mark sheet prints. `subjectId` counts one subject's lessons only. Students with " +
+      'nothing recorded are not listed.',
   })
   @ApiResponse({ status: 200, type: [AttendanceSummaryDto] })
   classroomSummary(
@@ -124,7 +128,26 @@ export class AttendancesController {
     @Param('semesterId') semesterId: string,
     @Query() query: ClassAttendanceSummaryQueryDto,
   ) {
-    return this.service.getClassroomSummary(classroomId, semesterId, query.month);
+    return this.service.getClassroomSummary(classroomId, semesterId, query);
+  }
+
+  @Get('summary/semester/:semesterId/absences')
+  @RequirePermissions({ resource: 'attendances', action: 'read' })
+  @ApiOperation({
+    summary: 'Every student whose ວັນຂາດ have reached a threshold, across the school',
+    description:
+      'The class summary answers for one room; the office asks who is at 15 or 30 days in ' +
+      'any room. Absences with and without a reason are added, under the same rule as every ' +
+      'other summary (three lates are a day). Takes the same window as the class summary. ' +
+      'Worst first, each with the room they were most recently marked in.',
+  })
+  @ApiResponse({ status: 200, type: [AttendanceAbsenceRowDto] })
+  semesterAbsences(
+    @Param('semesterId') semesterId: string,
+    @Query() query: SemesterAbsencesQueryDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.service.getSemesterAbsences(semesterId, query, actor);
   }
 
   @Post()

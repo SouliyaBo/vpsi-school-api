@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
 /**
@@ -70,10 +70,10 @@ export type ConductDeductionDocument = HydratedDocument<ConductDeduction>;
 
 @Schema({ collection: 'conductDeductions', ...baseSchemaOptions })
 export class ConductDeduction extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
   /**
@@ -82,17 +82,17 @@ export class ConductDeduction extends SoftDeletableDocument {
    * Resolved server-side from `date` rather than accepted from the client, so a
    * deduction cannot be filed into a term it did not happen in.
    */
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
   /** Normalized to UTC midnight so a day is one exact value, never a range. */
   @Prop({ type: Date, required: true })
   date: Date;
 
-  @Prop({ type: Types.ObjectId, ref: 'ConductRule', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ConductRule', required: true, index: true })
   ruleId: Types.ObjectId;
 
   /**
@@ -126,7 +126,7 @@ export class ConductDeduction extends SoftDeletableDocument {
   @Prop({ type: String, default: null, trim: true })
   revokeReason?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 }
 

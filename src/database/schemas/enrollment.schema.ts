@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { ENROLLMENT_STATUSES, EnrollmentStatus } from 'src/common/constants/enums';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
@@ -13,7 +13,7 @@ export type EnrollmentDocument = HydratedDocument<Enrollment>;
  */
 @Schema({ collection: 'enrollments', ...baseSchemaOptions })
 export class Enrollment extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   /** denormalized from Student — immutable, lets class rosters render without a lookup */
@@ -24,13 +24,13 @@ export class Enrollment extends SoftDeletableDocument {
   @Prop({ type: String, required: true })
   studentNameLo: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true, index: true })
   schoolYearId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'GradeLevel', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'GradeLevel', required: true })
   gradeLevelId: Types.ObjectId;
 
   @Prop({ type: Date, required: true })
@@ -43,6 +43,21 @@ export class Enrollment extends SoftDeletableDocument {
   @Prop({ type: Number, default: null })
   rollNumber?: number | null;
 
+  /**
+   * `ຫ້ອງພາກອັງກິດ` — the English-programme room, which is not the homeroom.
+   *
+   * The English lessons regroup the year into their own rooms, so a child in
+   * `ມ.1/ກ` sits in `EP-A` for English and the two lists have no relation the
+   * system could derive. Held as the office writes it rather than as a
+   * `Classroom` ref: these rooms have no register, no roll numbers and no
+   * capacity — only a label on the child.
+   *
+   * Lives here rather than on `Student` because the grouping is re-made every
+   * year, so last year's room must stay readable next to last year's homeroom.
+   */
+  @Prop({ type: String, default: null, trim: true })
+  englishClass?: string | null;
+
   // ── Status-change trail ───────────────────────────────────────────────────
 
   @Prop({ type: Date, default: null })
@@ -52,7 +67,7 @@ export class Enrollment extends SoftDeletableDocument {
   statusReason?: string | null;
 
   /** Set when `status` is `transferred` and the student moved within the school. */
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', default: null })
   transferredToClassroomId?: Types.ObjectId | null;
 }
 

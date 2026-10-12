@@ -57,6 +57,17 @@ const DEFAULT_SCHOOL_DAY = {
   days: [0, 1, 2, 3, 4, 5, 6],
 };
 
+/**
+ * A calendar date, collapsed to the UTC midnight every school day is stored at.
+ *
+ * Local here rather than imported from the roll call: this module is upstream of
+ * it, and an import the other way would be a module edge for four lines.
+ */
+function toUtcMidnight(value: Date | string): Date {
+  const date = value instanceof Date ? value : new Date(value);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
 @Injectable()
 export class TeachingAssignmentsService extends BaseCrudService<TeachingAssignmentDocument> {
   protected readonly entityType = 'teachingAssignments';
@@ -201,21 +212,99 @@ export class TeachingAssignmentsService extends BaseCrudService<TeachingAssignme
 
   async update(id: string, dto: UpdateTeachingAssignmentDto, context: CrudContext) {
     const current = await this.findOneOrFail(id);
+    const { effectiveFrom, scheduleNote, ...rest } = dto;
 
-    if (dto.schedule) {
-      await this.assertValidSchedule(dto.schedule);
-      await this.assertNoConflict(
-        {
-          teacherId: current.teacherId.toString(),
-          classroomId: current.classroomId.toString(),
-          schedule: dto.schedule,
-        },
-        current.semesterId.toString(),
-        id,
-      );
+    if (!dto.schedule) return this.updateDocument(id, rest, context);
+
+    await this.assertValidSchedule(dto.schedule);
+    // Checked against what the other lessons say *now*, which is what "from now
+    // on" means: a clash in a week that has already been taught is a fact about
+    // the past, and refusing a revision over it would leave the timetable unable
+    // to be corrected at all.
+    await this.assertNoConflict(
+      {
+        teacherId: current.teacherId.toString(),
+        classroomId: current.classroomId.toString(),
+        schedule: dto.schedule,
+      },
+      current.semesterId.toString(),
+      id,
+    );
+
+    return this.replaceSchedule(current, dto.schedule, context, {
+      effectiveFrom,
+      note: scheduleNote,
+      rest,
+    });
+  }
+
+  /**
+   * Moves a lesson, and records the days its old arrangement applied to.
+   *
+   * The only writer of `schedule` and of `scheduleHistory`, which is what keeps
+   * the field and the list from disagreeing — see the field's own note.
+   *
+   * The new arrangement owns `[effectiveFrom, ∞)`, so the spells are rebuilt
+   * rather than appended to: anything starting on or after that day described days
+   * the new one now claims, and leaving it in place would shadow the change —
+   * `slotsOn` takes the first spell that matches, so an older entry would keep
+   * answering for days the office has just said belong to the new timetable. A
+   * spell straddling the day is truncated to it, and spells wholly before it are
+   * left alone.
+   *
+   * The spell that closes the *first* revision starts at the start of term, not at
+   * the lesson's own `createdAt`: the reports owe a lesson from the window they are
+   * asked for rather than from the day somebody keyed the row in, and offices enter
+   * timetables late. That also gives the correction case a meaning worth having —
+   * an `effectiveFrom` at or before the start of term closes nothing, because there
+   * is no "before", which is exactly what "this is what the timetable always should
+   * have said" means.
+   */
+  private async replaceSchedule(
+    current: TeachingAssignmentDocument,
+    schedule: SchedulePeriod[],
+    context: CrudContext,
+    options: {
+      effectiveFrom?: string;
+      note?: string;
+      rest: Omit<UpdateTeachingAssignmentDto, 'schedule' | 'effectiveFrom' | 'scheduleNote'> & {
+        schedule?: SchedulePeriod[];
+      };
+    },
+  ) {
+    const from = toUtcMidnight(options.effectiveFrom ?? new Date());
+    const changedBy = context.actor?.sub ? new Types.ObjectId(context.actor.sub) : null;
+    const note = options.note?.trim() || null;
+
+    const kept = current.scheduleHistory
+      .filter((spell) => spell.from < from)
+      .map((spell) => ({
+        schedule: spell.schedule,
+        from: spell.from,
+        to: spell.to === null || spell.to === undefined || spell.to > from ? from : spell.to,
+        changedBy: spell.changedBy ?? null,
+        note: spell.note ?? null,
+      }));
+
+    // Nothing recorded yet: the arrangement being replaced is the current one, and
+    // it has applied for as long as anything asks — since the start of term.
+    if (current.scheduleHistory.length === 0) {
+      const term = await this.semesters.findOne(current.semesterId.toString()).catch(() => null);
+      const openedAt = toUtcMidnight(term?.startDate ?? current.createdAt ?? from);
+      if (openedAt < from) {
+        kept.push({ schedule: current.schedule, from: openedAt, to: from, changedBy, note });
+      }
     }
 
-    return this.updateDocument(id, dto, context);
+    await this.model
+      .updateOne(
+        { _id: current._id, deletedAt: null },
+        { $set: { scheduleHistory: [...kept, { schedule, from, to: null, changedBy, note }] } },
+        { session: context.session },
+      )
+      .exec();
+
+    return this.updateDocument(current._id.toString(), { ...options.rest, schedule }, context);
   }
 
   remove(id: string, context: CrudContext) {

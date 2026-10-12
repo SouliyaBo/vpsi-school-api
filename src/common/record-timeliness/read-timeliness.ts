@@ -1,7 +1,8 @@
 import { Types } from 'mongoose';
 import type { TimelinessQueryDto } from '../dto/timeliness-query.dto';
+import type { SubstitutionIndex } from '../lesson-access/lesson-write-access';
 import { loadCoverageAssignments } from '../lesson-coverage/coverage-assignments';
-import type { SchoolDayCalendar } from '../school-days/school-days';
+import type { ClassDayRef, SchoolDayCalendar } from '../school-days/school-days';
 import {
   buildTimeliness,
   type RecordTimeliness,
@@ -39,7 +40,31 @@ export interface TimelinessDeps {
   };
   assignments: Parameters<typeof loadCoverageAssignments>[0];
   log: Parameters<typeof loadWrittenLessons>[0];
-  calendar: { calendarFor(from: Date, to: Date): Promise<SchoolDayCalendar> };
+  calendar: {
+    calendarFor(from: Date, to: Date): Promise<SchoolDayCalendar>;
+    /**
+     * Each classroom placed in its grade level, for class-scoped closures.
+     *
+     * Optional so a caller with a hand-built calendar — the specs — needs only
+     * `calendarFor`; without it every row is judged school-wide.
+     */
+    classRefs?(classroomIds: string[]): Promise<ReadonlyMap<string, ClassDayRef>>;
+  };
+  /**
+   * Cover claimed inside the window — `LessonAccessService`, structurally.
+   *
+   * Optional so the specs can build a report without one, which is also the honest
+   * reading of a caller that has not been wired yet: nobody covered anything.
+   */
+  substitutions?: {
+    substitutionIndex(scope: {
+      semesterId?: Types.ObjectId | string | null;
+      from: Date;
+      to: Date;
+      classroomId?: string | null;
+    }): Promise<SubstitutionIndex>;
+    coveredAssignmentIds(teacherId: string, from: Date, to: Date): Promise<string[]>;
+  };
 }
 
 /** `yyyy-MM-dd` → the UTC midnight a stored `date` is normalized to. */
@@ -95,12 +120,27 @@ export async function readTimeliness(
 
   const calendar = await deps.calendar.calendarFor(window.start, window.end);
 
+  // A teacher's own report has to include the lessons they covered, which the
+  // timetable files under somebody else's name — see `alsoAssignmentIds`.
+  const covered =
+    query.teacherId && deps.substitutions
+      ? await deps.substitutions.coveredAssignmentIds(query.teacherId, window.start, window.end)
+      : [];
+
   const assignments = semester
     ? await loadCoverageAssignments(deps.assignments, semester._id, {
         teacherId: query.teacherId,
         classroomId: query.classroomId,
+        alsoAssignmentIds: covered,
       })
     : [];
+
+  const substitutions = await deps.substitutions?.substitutionIndex({
+    semesterId: semester?._id ?? null,
+    from: window.start,
+    to: window.end,
+    classroomId: query.classroomId,
+  });
 
   const written = await loadWrittenLessons(
     deps.log,
@@ -109,9 +149,21 @@ export async function readTimeliness(
     window.end,
   );
 
+  // Only the rooms this report actually reads, so a whole-school timetable does
+  // not pull the classroom collection for a report about one teacher.
+  const classRefs = await deps.calendar.classRefs?.([
+    ...new Set(assignments.map((assignment) => assignment.classroomId)),
+  ]);
+
   return buildTimeliness(window, assignments, written, calendar, {
     rule,
     now,
+    classRefs,
+    substitutions,
+    // Widening the timetable above also pulled in the *owner's* share of every
+    // covered lesson, which is a colleague's row and none of this report's
+    // business. Dropped inside the builder so the summary is narrowed with it.
+    onlyTeacherId: covered.length > 0 ? query.teacherId : null,
     semester: semester
       ? { id: semester._id.toString(), nameLo: semester.nameLo, nameEn: semester.nameEn ?? null }
       : null,

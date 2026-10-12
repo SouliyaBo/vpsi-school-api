@@ -187,6 +187,34 @@ export const MESSAGES = {
     lo: 'ນັກຮຽນຄົນນີ້ບໍ່ໄດ້ຢູ່ໃນຫ້ອງນີ້',
     en: 'That student is not enrolled in this classroom',
   },
+  'score.columnNotMarked': {
+    lo: 'ວິຊານີ້ບໍ່ໄດ້ເກັບຄະແນນຊ່ອງນີ້',
+    en: 'This subject is not marked on that column',
+  },
+  'score.columnMaxInvalid': {
+    lo: 'ຄະແນນເຕັມທັງ 4 ຊ່ອງຕ້ອງລວມກັນເທົ່າກັບ 10',
+    en: "The four monthly columns' maximum marks must total 10",
+  },
+
+  // ── Teacher departure (ການສົ່ງມອບການສອນ) ───────────────────────────────────
+  'teacher.stillResponsible': {
+    lo: 'ຍັງລຶບບໍ່ໄດ້ ເພາະຄູທ່ານນີ້ຍັງຮັບຜິດຊອບຕາຕະລາງສອນ ຫຼື ຫ້ອງປະຈຳຢູ່ — ກະລຸນາສົ່ງມອບໃຫ້ຄູຜູ້ອື່ນກ່ອນ',
+    en:
+      'This teacher still holds a timetable or a homeroom, so the record cannot be ' +
+      'removed — hand the work over to another teacher first',
+  },
+  'teacher.handoverToSelf': {
+    lo: 'ສົ່ງມອບໃຫ້ຄູຄົນເກົ່າບໍ່ໄດ້ — ກະລຸນາເລືອກຄູຜູ້ຮັບມອບ',
+    en: 'A teacher cannot hand over to themselves — choose the teacher taking over',
+  },
+  'teacher.handoverTargetInactive': {
+    lo: 'ຄູຜູ້ຮັບມອບຕ້ອງເປັນຄູທີ່ຍັງປະຈຳການຢູ່',
+    en: 'The teacher taking over must still be in service',
+  },
+  'teacher.nothingToHandOver': {
+    lo: 'ຄູທ່ານນີ້ບໍ່ມີຕາຕະລາງສອນ ຫຼື ຫ້ອງປະຈຳທີ່ຕ້ອງສົ່ງມອບ',
+    en: 'This teacher holds no timetable or homeroom to hand over',
+  },
 
   // ── Attendance ────────────────────────────────────────────────────────────
   'attendance.futureDate': {
@@ -210,6 +238,28 @@ export const MESSAGES = {
     en: 'You are not the teacher assigned to this lesson',
   },
 
+  // ── Lesson substitution (ການມອບໝາຍສອນແທນ) ─────────────────────────────────
+  'substitution.alreadyClaimed': {
+    lo: 'ຊົ່ວໂມງນີ້ມີຄູຮັບສອນແທນໄວ້ແລ້ວ',
+    en: 'Another teacher has already claimed cover for this lesson',
+  },
+  'substitution.ownLesson': {
+    lo: 'ທ່ານເປັນຄູສອນຂອງຊົ່ວໂມງນີ້ຢູ່ແລ້ວ ບໍ່ຈຳເປັນຕ້ອງຮັບສອນແທນ',
+    en: 'You are already the teacher of this lesson; no cover is needed',
+  },
+  'substitution.claimWindowClosed': {
+    lo: 'ໝົດກຳນົດຮັບສອນແທນຂອງຊົ່ວໂມງນີ້ແລ້ວ — ກະລຸນາແຈ້ງຫ້ອງການວິຊາການ',
+    en: 'The window to claim cover for this lesson has closed — ask the academic office',
+  },
+  'substitution.notATeacher': {
+    lo: 'ມີແຕ່ຄູສອນເທົ່ານັ້ນທີ່ຮັບສອນແທນໄດ້',
+    en: 'Only a teacher can claim cover for a lesson',
+  },
+  'substitution.notYours': {
+    lo: 'ທ່ານຖອນໄດ້ແຕ່ການສອນແທນຂອງຕົນເອງ',
+    en: 'You may only withdraw cover you claimed yourself',
+  },
+
   // ── Behavior log ──────────────────────────────────────────────────────────
   'behaviorLog.futureDate': {
     lo: 'ບໍ່ສາມາດບັນທຶກພຶດຕິກຳລ່ວງໜ້າໄດ້',
@@ -222,6 +272,44 @@ export const MESSAGES = {
   'behaviorLog.duplicateStudent': {
     lo: 'ມີຊື່ນັກຮຽນຊ້ຳກັນໃນລາຍການດຽວ',
     en: 'The same student is listed twice in one entry',
+  },
+
+  // ── Homeroom review (ການຕິດຕາມນັກຮຽນຂອງຄູປະຈຳຫ້ອງ) ─────────────────────────
+  'homeroomReview.notHomeroomTeacher': {
+    lo: 'ທ່ານບໍ່ແມ່ນຄູປະຈຳຫ້ອງນີ້',
+    en: 'You are not the homeroom teacher of that class',
+  },
+  'homeroomReview.notReviewDay': {
+    lo: 'ວັນທີ່ເລືອກບໍ່ແມ່ນວັນຕິດຕາມ (ວັນພຸດ ຫຼື ວັນສຸກ ທີ່ໂຮງຮຽນເປີດສອນ)',
+    en: 'That date is not a review day — a Wednesday or Friday the school taught on',
+  },
+  'homeroomReview.noReviewDayYet': {
+    lo: 'ຍັງບໍ່ມີວັນຕິດຕາມໃນພາກຮຽນນີ້',
+    en: 'The term has not reached its first review day yet',
+  },
+  'homeroomReview.alreadyFiled': {
+    lo: 'ຫ້ອງນີ້ໄດ້ຢືນຢັນການຕິດຕາມຂອງວັນນີ້ແລ້ວ — ໃຫ້ແກ້ໄຂລາຍການເກົ່າແທນ',
+    en: 'This class has already confirmed that review day — amend the existing one',
+  },
+  'homeroomReview.studentNotOnRoll': {
+    lo: 'ມີນັກຮຽນທີ່ບໍ່ຢູ່ໃນບັນຊີຫ້ອງນີ້',
+    en: 'A student named is not on this class roster',
+  },
+  'homeroomReview.channelRequired': {
+    lo: 'ກະລຸນາລະບຸຊ່ອງທາງທີ່ແຈ້ງຜູ້ປົກຄອງ',
+    en: 'Say how the guardian was contacted',
+  },
+  'homeroomReview.channelNotAllowed': {
+    lo: 'ບໍ່ຕ້ອງລະບຸຊ່ອງທາງ ເມື່ອຍັງບໍ່ໄດ້ແຈ້ງຜູ້ປົກຄອງ',
+    en: 'A contact channel belongs only to an action that reached a guardian',
+  },
+  'homeroomReview.noHomeroomTeacher': {
+    lo: 'ຫ້ອງນີ້ຍັງບໍ່ມີຄູປະຈຳຫ້ອງ',
+    en: 'That class has no homeroom teacher on file',
+  },
+  'homeroomReview.monthNotInSemester': {
+    lo: 'ເດືອນທີ່ເລືອກບໍ່ຢູ່ໃນພາກຮຽນນີ້',
+    en: 'That month does not fall in the chosen term',
   },
 
   // ── Conduct deductions (ຕັດຄະແນນກົດລະບຽບ) ──────────────────────────────────
@@ -370,8 +458,8 @@ export const MESSAGES = {
     en: 'All six criteria must be scored before filing — still blank: {criteria}',
   },
   'observation.duplicateVisit': {
-    lo: 'ການປະເມີນຄັ້ງທີ {visitNumber} ຂອງຄູຄົນນີ້ໃນພາກຮຽນນີ້ມີແລ້ວ',
-    en: 'Visit number {visitNumber} already exists for this teacher this term',
+    lo: 'ທ່ານໄດ້ປະເມີນຄູຄົນນີ້ ວິຊານີ້ ຄັ້ງທີ {visitNumber} ໄປແລ້ວໃນພາກຮຽນນີ້',
+    en: 'You have already filed visit {visitNumber} for this teacher and subject this term',
   },
 
   // ── Health ────────────────────────────────────────────────────────────────

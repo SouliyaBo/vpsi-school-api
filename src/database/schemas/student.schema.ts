@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   GENDERS,
   GUARDIAN_RELATIONSHIPS,
@@ -23,7 +23,7 @@ import { baseSchemaOptions, LAO_COLLATION, SoftDeletableDocument } from './base.
  */
 @Schema({ _id: false })
 export class StudentGuardianLink {
-  @Prop({ type: Types.ObjectId, ref: 'Guardian', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Guardian', required: true })
   guardianId: Types.ObjectId;
 
   @Prop({ type: String, required: true }) // denormalized from Guardian
@@ -119,7 +119,7 @@ export class Student extends SoftDeletableDocument {
    * child born in Savannakhet can be placed no finer than its district — and a
    * district on file beats a district buried in free text.
    */
-  @Prop({ type: Types.ObjectId, ref: 'Location', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location', default: null, index: true })
   birthLocationId?: Types.ObjectId | null;
 
   /** The part of the birthplace the tree has no node for — usually the village. */
@@ -156,7 +156,7 @@ export class Student extends SoftDeletableDocument {
   @Prop({ type: String, default: null, trim: true })
   contactName?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'Location', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location', default: null, index: true })
   villageId?: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })

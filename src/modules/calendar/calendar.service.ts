@@ -5,11 +5,17 @@ import { AppException } from 'src/common/exceptions/app.exception';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import { DEFAULT_DAY_EFFECT, SchoolDayEffect } from 'src/common/constants/enums';
 import {
+  type ClassDayRef,
   SchoolDay,
   SchoolDayCalendar,
   type SchoolDayEvent,
 } from 'src/common/school-days/school-days';
-import { CalendarEvent, CalendarEventDocument } from 'src/database/schemas';
+import {
+  CalendarEvent,
+  CalendarEventDocument,
+  Classroom,
+  ClassroomDocument,
+} from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { SchoolYearsService } from '../school-years/school-years.service';
 import {
@@ -28,6 +34,9 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
     @InjectModel(CalendarEvent.name) model: Model<CalendarEventDocument>,
     audit: AuditLogsService,
     private readonly schoolYears: SchoolYearsService,
+    // Read only to place a classroom in its grade level — a day off written
+    // against `ມ.1` has to close every room in it.
+    @InjectModel(Classroom.name) private readonly classroomModel: Model<ClassroomDocument>,
   ) {
     super(model, audit);
   }
@@ -109,6 +118,8 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
           targetType: target.targetType,
           targetId: target.targetId ? new Types.ObjectId(target.targetId) : null,
         })),
+        appliesToGradeLevelIds: toObjectIds(dto.appliesToGradeLevelIds),
+        appliesToClassroomIds: toObjectIds(dto.appliesToClassroomIds),
       } as unknown as Partial<CalendarEventDocument>,
       context,
     );
@@ -139,6 +150,15 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
       }));
     }
 
+    // An empty array is a real edit — it is how a class-only closure becomes a
+    // school-wide one — so these are written whenever the field was sent at all.
+    if (dto.appliesToGradeLevelIds) {
+      patch.appliesToGradeLevelIds = toObjectIds(dto.appliesToGradeLevelIds);
+    }
+    if (dto.appliesToClassroomIds) {
+      patch.appliesToClassroomIds = toObjectIds(dto.appliesToClassroomIds);
+    }
+
     return this.updateDocument(id, patch, context);
   }
 
@@ -161,7 +181,10 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
   async calendarFor(from: Date, to: Date): Promise<SchoolDayCalendar> {
     const events = await this.model
       .find({ startDate: { $lte: to }, endDate: { $gte: from }, deletedAt: null })
-      .select('titleLo titleEn type dayEffect startDate endDate isHalfDay')
+      .select(
+        'titleLo titleEn type dayEffect startDate endDate isHalfDay ' +
+          'appliesToGradeLevelIds appliesToClassroomIds',
+      )
       .sort({ startDate: 1 })
       .lean()
       .exec();
@@ -177,6 +200,12 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
         startDate: event.startDate,
         endDate: event.endDate,
         isHalfDay: event.isHalfDay ?? false,
+        // Ids as strings: the pure calendar compares them without Mongoose, and
+        // a raw ObjectId would only ever match itself by reference.
+        appliesTo: {
+          gradeLevelIds: (event.appliesToGradeLevelIds ?? []).map(String),
+          classroomIds: (event.appliesToClassroomIds ?? []).map(String),
+        },
       })),
       // Deliberately without school-year bounds: a report reaches this for a
       // window it has already chosen, and marking those days `out_of_year`
@@ -186,9 +215,118 @@ export class CalendarService extends BaseCrudService<CalendarEventDocument> {
     );
   }
 
-  /** Every day of a range, classified — what the calendar screen paints. */
-  async schoolDays(from: Date, to: Date): Promise<SchoolDay[]> {
+  /**
+   * Every day of a range, classified — what the calendar screen paints.
+   *
+   * `forClass` narrows it to one class's view of the year, so a room can be
+   * shown the days *it* is off. Without one the answer is the school's, and a
+   * class-only closure is not part of it.
+   */
+  async schoolDays(from: Date, to: Date, forClass?: ClassDayRef | null): Promise<SchoolDay[]> {
     const calendar = await this.calendarFor(from, to);
-    return calendar.range(from, to);
+    return calendar.range(from, to, forClass);
   }
+
+  /**
+   * The non-teaching days of a window, school-wide and per classroom.
+   *
+   * What every coverage report needs, in one read: the shared set for a room
+   * with nothing special about it, and a lookup that adds the days a particular
+   * class was stood down. Built here rather than in each report so the four of
+   * them cannot end up with four ideas of whose holiday it was.
+   *
+   * The classroom read is skipped entirely when no event in the window names a
+   * class, which is almost every window — a school-wide calendar should not cost
+   * a second query.
+   */
+  async nonTeachingDaysFor(
+    from: Date,
+    to: Date,
+  ): Promise<{
+    schoolWide: Set<string>;
+    forClassroom: (classroomId: string) => ReadonlySet<string> | undefined;
+  }> {
+    const calendar = await this.calendarFor(from, to);
+    const schoolWide = calendar.nonTeachingDays(from, to);
+
+    const scoped = await this.model
+      .countDocuments({
+        startDate: { $lte: to },
+        endDate: { $gte: from },
+        deletedAt: null,
+        $or: [
+          { appliesToGradeLevelIds: { $exists: true, $ne: [] } },
+          { appliesToClassroomIds: { $exists: true, $ne: [] } },
+        ],
+      })
+      .exec();
+
+    if (scoped === 0) return { schoolWide, forClassroom: () => schoolWide };
+
+    const classrooms = await this.classroomModel
+      .find({ deletedAt: null })
+      .select('gradeLevelId')
+      .lean()
+      .exec();
+    const gradeByClassroom = new Map(
+      classrooms.map((room) => [String(room._id), String(room.gradeLevelId)]),
+    );
+
+    // Memoized: a week's report asks the same handful of rooms once per
+    // assignment, and each answer is a walk over the window.
+    const cache = new Map<string, ReadonlySet<string>>();
+    return {
+      schoolWide,
+      forClassroom: (classroomId: string) => {
+        const cached = cache.get(classroomId);
+        if (cached) return cached;
+        const days = calendar.nonTeachingDays(from, to, {
+          classroomId,
+          gradeLevelId: gradeByClassroom.get(classroomId) ?? null,
+        });
+        cache.set(classroomId, days);
+        return days;
+      },
+    };
+  }
+
+  /**
+   * The grade level a classroom belongs to, for callers that hold only a room.
+   *
+   * A day off written against `ມ.1` has to close `ມ.1/ກ`, and the room alone
+   * does not say which year it is in.
+   */
+  async classRefFor(classroomId?: string | null): Promise<ClassDayRef | null> {
+    if (!classroomId) return null;
+    return (await this.classRefs([classroomId])).get(String(classroomId)) ?? null;
+  }
+
+  /** The same for a batch — one read for a whole report's rooms. */
+  async classRefs(classroomIds: string[]): Promise<ReadonlyMap<string, ClassDayRef>> {
+    const refs = new Map<string, ClassDayRef>();
+    if (classroomIds.length === 0) return refs;
+
+    const rooms = await this.classroomModel
+      .find({ _id: { $in: classroomIds.map((id) => new Types.ObjectId(id)) } })
+      .select('gradeLevelId')
+      .lean()
+      .exec();
+
+    // Seeded from the ids asked for, not from the rows found: a room that has
+    // been deleted still appears on last term's timetable, and leaving it out
+    // would make its rows fall back to a school-wide calendar without saying so.
+    for (const id of classroomIds) refs.set(String(id), { classroomId: String(id) });
+    for (const room of rooms) {
+      refs.set(String(room._id), {
+        classroomId: String(room._id),
+        gradeLevelId: room.gradeLevelId ? String(room.gradeLevelId) : null,
+      });
+    }
+    return refs;
+  }
+}
+
+/** Ids as the document holds them; `undefined` stays `undefined` so a patch can tell. */
+function toObjectIds(ids?: string[]): Types.ObjectId[] | undefined {
+  return ids?.map((id) => new Types.ObjectId(id));
 }

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { EXAM_OPTION_LABEL_STYLES, ExamOptionLabelStyle } from 'src/common/constants/enums';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
@@ -145,17 +145,17 @@ export class ExamPaper extends SoftDeletableDocument {
   @Prop({ type: String, required: true, trim: true })
   title: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
   createdById: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', default: null, index: true })
   subjectId?: Types.ObjectId | null;
 
   /** The class the paper is for; also what the seat plan defaults to. */
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', default: null, index: true })
   classroomId?: Types.ObjectId | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', default: null, index: true })
   semesterId?: Types.ObjectId | null;
 
   /** The Word file as uploaded, kept so the teacher can get it back. */

@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsInt,
   IsMongoId,
   IsOptional,
@@ -101,6 +102,34 @@ export class UpdateTeachingAssignmentDto {
   @Type(() => SchedulePeriodDto)
   @IsOptional()
   schedule?: SchedulePeriodDto[];
+
+  /**
+   * The first day the new `schedule` applies to. Defaults to today.
+   *
+   * The timetable is a fact about each day, not about now: every report derives
+   * which days a lesson was owed on by reading its weekday, so a schedule replaced
+   * in place used to change the weeks behind it as well — the Mondays a teacher
+   * taught and marked stopped counting, and Wednesdays they never taught appeared
+   * as gaps, right back to the start of term.
+   *
+   * Today by default, because "from now on" is what a timetable revision means and
+   * forgetting to say so is the failure this exists to prevent. Backdate it — to
+   * the start of term, say — to correct an arrangement that was always wrong,
+   * which is the one case where rewriting the past is what the office wants.
+   */
+  @ApiPropertyOptional({
+    example: '2026-10-06',
+    description: 'First day the new schedule applies to; defaults to today',
+  })
+  @IsDateString()
+  @IsOptional()
+  effectiveFrom?: string;
+
+  @ApiPropertyOptional({ description: 'ເຫດຜົນ — kept with the schedule spell it closes' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  scheduleNote?: string;
 
   @ApiPropertyOptional()
   @IsBoolean()

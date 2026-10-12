@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { LESSON_PLAN_STATUSES, LessonPlanStatus } from 'src/common/constants/enums';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
@@ -39,7 +39,7 @@ export const LessonActivitySchema = SchemaFactory.createForClass(LessonActivity)
 /** One approve/return decision. The array is the full review history. */
 @Schema({ _id: true })
 export class LessonPlanReview {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   reviewerId: Types.ObjectId;
 
   @Prop({ type: String, required: true }) // denormalized reviewer name
@@ -82,16 +82,16 @@ export type LessonPlanDocument = HydratedDocument<LessonPlan>;
 
 @Schema({ collection: 'lessonPlans', ...baseSchemaOptions })
 export class LessonPlan extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
   teacherId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
   @Prop({ type: String, required: true, trim: true })
@@ -183,7 +183,7 @@ export type LessonPlanMonthDocument = HydratedDocument<LessonPlanMonth>;
  */
 @Schema({ collection: 'lessonPlanMonths', ...baseSchemaOptions })
 export class LessonPlanMonth extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
   /** Calendar year and month (1–12) — not a term week number. */
@@ -204,7 +204,7 @@ export class LessonPlanMonth extends SoftDeletableDocument {
   @Prop({ type: Date, default: null })
   publishedAt?: Date | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   publishedBy?: Types.ObjectId | null;
 
   /** Instruction from the academic head, shown to every teacher on the list. */
@@ -232,10 +232,10 @@ export type LessonPlanTaskDocument = HydratedDocument<LessonPlanTask>;
  */
 @Schema({ collection: 'lessonPlanTasks', ...baseSchemaOptions })
 export class LessonPlanTask extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'LessonPlanMonth', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'LessonPlanMonth', required: true, index: true })
   monthId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
   /**
@@ -244,16 +244,16 @@ export class LessonPlanTask extends SoftDeletableDocument {
    * Kept so a line can be traced back after the fact — and so regenerating a
    * draft recognises the lines it already produced rather than duplicating them.
    */
-  @Prop({ type: Types.ObjectId, ref: 'TeachingAssignment', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'TeachingAssignment', required: true })
   teachingAssignmentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
   teacherId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true })
   classroomId: Types.ObjectId;
 
   /** Monday at UTC midnight — the same key a plan is filed under. */
@@ -275,7 +275,7 @@ export class LessonPlanTask extends SoftDeletableDocument {
   dueDate: Date;
 
   /** Set the first time the teacher uploads against this line. */
-  @Prop({ type: Types.ObjectId, ref: 'LessonPlan', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'LessonPlan', default: null })
   lessonPlanId?: Types.ObjectId | null;
 }
 

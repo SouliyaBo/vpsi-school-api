@@ -271,3 +271,187 @@ describe('buildTimeliness — honesty about what it cannot judge', () => {
     expect(coverage.summary.onTime).toBe(0);
   });
 });
+
+/**
+ * Cover: the report that was blaming the teacher who was off sick.
+ *
+ * This is the one the office noticed. A teacher away on Monday cannot write
+ * Monday's roll call up by noon on Tuesday, so the punctuality report named them
+ * every time — and naming the wrong person is worse than naming nobody, because
+ * the report then has to be argued with rather than acted on.
+ *
+ * The deadline itself does not move: it belongs to the day. What moves is whose
+ * row the day lands on.
+ */
+describe('buildTimeliness — a covered lesson', () => {
+  const stand = { teacherId: 't9', teacherCode: 'T-2627-009', teacherName: 'ຄຳຫລ້າ ວົງສາ' };
+
+  /** Mon 7 and Mon 14 Sep, with cover claimed on the 7th. */
+  const covered = new Map([['ta1|2026-09-07', stand]]);
+
+  it('does not report the absent teacher for a day they did not teach', () => {
+    const report = buildTimeliness(
+      window(),
+      [assignment()],
+      [{ teachingAssignmentId: 'ta1', date: '2026-09-14', recordedAt: at('2026-09-15', 11) }],
+      calendar,
+      {
+        rule: 'everyLessonDay',
+        now: new Date('2026-09-25T03:00:00.000Z'),
+        substitutions: covered,
+        semester: SEMESTER,
+      },
+    );
+
+    const owner = report.rows.find((row) => row.teacherId === 't1');
+    const cover = report.rows.find((row) => row.teacherId === 't9');
+
+    // One Monday each. The absent teacher's own Monday was written up on time, and
+    // the Monday they were away from is not on their row at all.
+    expect(owner).toMatchObject({ owed: 1, onTime: 1, late: 0, missing: 0, missingDates: [] });
+    // The gap is the stand-in's, under their own name and code.
+    expect(cover).toMatchObject({
+      owed: 1,
+      recorded: 0,
+      missing: 1,
+      missingDates: ['2026-09-07'],
+      teacherCode: 'T-2627-009',
+    });
+    expect(report.summary).toMatchObject({ owed: 2, missing: 1, onTime: 1 });
+  });
+
+  it('holds the stand-in to the same deadline, not to a softer one', () => {
+    const report = buildTimeliness(
+      window(),
+      [assignment()],
+      [
+        // Monday the 7th, written at 13:00 on the 8th — an hour past noon.
+        { teachingAssignmentId: 'ta1', date: '2026-09-07', recordedAt: at('2026-09-08', 13) },
+        { teachingAssignmentId: 'ta1', date: '2026-09-14', recordedAt: at('2026-09-15', 11) },
+      ],
+      calendar,
+      {
+        rule: 'everyLessonDay',
+        now: new Date('2026-09-25T03:00:00.000Z'),
+        substitutions: covered,
+        semester: SEMESTER,
+      },
+    );
+
+    expect(report.rows.find((row) => row.teacherId === 't9')).toMatchObject({
+      late: 1,
+      worstHoursLate: 1,
+      lateLessons: [expect.objectContaining({ date: '2026-09-07', hoursLate: 1 })],
+    });
+    // And the lateness stays off the row of the teacher who was away.
+    expect(report.rows.find((row) => row.teacherId === 't1')).toMatchObject({
+      late: 0,
+      onTime: 1,
+    });
+  });
+
+  it('splits one lesson across the week it was covered in, day by day', () => {
+    const report = buildTimeliness(
+      window(),
+      [assignment({ schedule: [{ dayOfWeek: MONDAY }, { dayOfWeek: WEDNESDAY }] })],
+      [],
+      calendar,
+      {
+        rule: 'everyLessonDay',
+        now: new Date('2026-09-25T03:00:00.000Z'),
+        // Away for the Monday only; back for the Wednesday of the same lesson.
+        substitutions: new Map([['ta1|2026-09-07', stand]]),
+        semester: SEMESTER,
+      },
+    );
+
+    // Two Mondays and one Wednesday are taught — Wed 16 Sep is ພັກວັນຄູແຫ່ງຊາດ — and
+    // one of the three was covered, so the lesson's days are 2 and 1 and not 3 and 3.
+    expect(report.rows.find((row) => row.teacherId === 't1')?.owed).toBe(2);
+    expect(report.rows.find((row) => row.teacherId === 't9')?.owed).toBe(1);
+  });
+
+  it('drops a colleague’s row when the report is about one teacher', () => {
+    const report = buildTimeliness(
+      window(),
+      [assignment()],
+      [{ teachingAssignmentId: 'ta1', date: '2026-09-14', recordedAt: at('2026-09-15', 11) }],
+      calendar,
+      {
+        rule: 'everyLessonDay',
+        now: new Date('2026-09-25T03:00:00.000Z'),
+        substitutions: covered,
+        onlyTeacherId: 't9',
+        semester: SEMESTER,
+      },
+    );
+
+    // Reading the stand-in's own report has to read the lesson they covered, which
+    // belongs to somebody else on the timetable — but the summary beside their row
+    // must count their day and not the owner's.
+    expect(report.rows.map((row) => row.teacherId)).toEqual(['t9']);
+    expect(report.summary).toMatchObject({ owed: 1, missing: 1, onTime: 0 });
+  });
+
+  it('leaves an uncovered fortnight exactly as it was', () => {
+    const written = [
+      { teachingAssignmentId: 'ta1', date: '2026-09-07', recordedAt: at('2026-09-08', 11) },
+    ];
+
+    expect(build([assignment()], written).rows).toEqual(
+      buildTimeliness(window(), [assignment()], written, calendar, {
+        rule: 'everyLessonDay',
+        now: new Date('2026-09-25T03:00:00.000Z'),
+        substitutions: new Map(),
+        semester: SEMESTER,
+      }).rows,
+    );
+  });
+});
+
+/**
+ * The punctuality report under a revised timetable.
+ *
+ * This is the one that mattered most: it defaults to the whole term to date, and
+ * it is the number the office judges teachers by. Before spells were recorded, one
+ * timetable revision rewrote it for every teacher at once.
+ */
+describe('buildTimeliness — a lesson that moved weekday', () => {
+  const moved = (): CoverageAssignment =>
+    assignment({
+      // Monday until 14 Sep, Wednesday from then on.
+      schedule: [{ dayOfWeek: WEDNESDAY }],
+      scheduleHistory: [
+        { from: '2026-01-01', to: '2026-09-14', schedule: [{ dayOfWeek: MONDAY }] },
+        { from: '2026-09-14', to: null, schedule: [{ dayOfWeek: WEDNESDAY }] },
+      ],
+    });
+
+  it('judges each day against the timetable in force on it', () => {
+    const report = build(
+      [moved()],
+      [
+        // Mon 7 Sep — owed under the old arrangement, written up on time.
+        { teachingAssignmentId: 'ta1', date: '2026-09-07', recordedAt: at('2026-09-08', 11) },
+        // Wed 16 Sep is ພັກວັນຄູແຫ່ງຊາດ, so the first Wednesday owed is the 9th —
+        // which falls before the move and is therefore not owed at all.
+      ],
+    );
+
+    // One lesson day in the fortnight, and it was marked punctually. Without the
+    // history this read as one missed Wednesday and one Monday that counted for
+    // nothing.
+    expect(report.rows[0]).toMatchObject({ owed: 1, onTime: 1, missing: 0, missingDates: [] });
+  });
+
+  it('is the bug it exists to stop, when the history is not there', () => {
+    const report = build(
+      [assignment({ schedule: [{ dayOfWeek: WEDNESDAY }] })],
+      [{ teachingAssignmentId: 'ta1', date: '2026-09-07', recordedAt: at('2026-09-08', 11) }],
+    );
+
+    // The same teacher, the same fortnight, the same roll call: now a gap on a
+    // Wednesday they were never timetabled for, and no credit for the Monday.
+    expect(report.rows[0]).toMatchObject({ onTime: 0, missing: 1, missingDates: ['2026-09-09'] });
+  });
+});

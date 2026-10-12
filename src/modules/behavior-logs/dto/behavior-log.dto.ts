@@ -134,6 +134,32 @@ export class QueryBehaviorLogsDto extends PaginationQueryDto {
   to?: string;
 }
 
+/**
+ * How much of the term a tally covers.
+ *
+ * Everything is optional, and omitting all three is the whole semester — which
+ * is what the screen asks for until the reader narrows it. The same trio the
+ * attendance summary takes, and for the same reason: "this term" and "since the
+ * parents' meeting in October" are different questions, and only one of them
+ * could be asked before.
+ */
+export class BehaviorTallyQueryDto {
+  @ApiPropertyOptional({ description: 'Inclusive lower bound, yyyy-MM-dd' })
+  @IsDateString()
+  @IsOptional()
+  from?: string;
+
+  @ApiPropertyOptional({ description: 'Inclusive upper bound, yyyy-MM-dd' })
+  @IsDateString()
+  @IsOptional()
+  to?: string;
+
+  @ApiPropertyOptional({ description: 'Only entries written in this subject’s lessons' })
+  @IsMongoId()
+  @IsOptional()
+  subjectId?: string;
+}
+
 /** The month the printable sheet covers. */
 export class MonthlySheetQueryDto {
   @ApiProperty()

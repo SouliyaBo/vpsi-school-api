@@ -54,6 +54,36 @@ export type DayState =
   /** Outside the school year altogether. */
   | 'out_of_year';
 
+/**
+ * Who a calendar event applies to.
+ *
+ * Both lists empty — or the whole object absent — means the whole school, which
+ * is what almost every event is. The school also closes a single year or a
+ * single room on its own (`ມ.7` sitting a national exam, a room whose teacher is
+ * away), and a day like that is not a school holiday: the rest of the school
+ * teaches, and only the named classes owe nothing.
+ *
+ * Grade levels and classrooms are both offered because the office writes both —
+ * "ມ.1 ຫຍຸດ" closes six rooms, and naming them one by one is how one gets
+ * missed. A classroom matches by its own id; a grade level matches every room in
+ * it.
+ */
+export interface SchoolDayScope {
+  gradeLevelIds?: readonly string[] | null;
+  classroomIds?: readonly string[] | null;
+}
+
+/**
+ * The class a day is being asked about.
+ *
+ * Asking without one is asking about the school, which is why a class-scoped
+ * closure never answers it — see `appliesToClass`.
+ */
+export interface ClassDayRef {
+  classroomId?: string | null;
+  gradeLevelId?: string | null;
+}
+
 /** The part of a calendar event a day classification depends on. */
 export interface SchoolDayEvent {
   id?: string;
@@ -66,6 +96,27 @@ export interface SchoolDayEvent {
   /** Inclusive. */
   endDate: Date | string;
   isHalfDay?: boolean;
+  /** Absent or empty means school-wide. */
+  appliesTo?: SchoolDayScope | null;
+}
+
+/** Whether a scoped event reaches the class being asked about. */
+export function appliesToClass(event: SchoolDayEvent, forClass?: ClassDayRef | null): boolean {
+  const classrooms = event.appliesTo?.classroomIds ?? [];
+  const grades = event.appliesTo?.gradeLevelIds ?? [];
+  if (classrooms.length === 0 && grades.length === 0) return true;
+
+  // A closure that names classes says nothing about the school as a whole, so a
+  // question with no class in it — "was the school open on Tuesday?" — is
+  // answered by the school-wide events alone. Anything else would let one room's
+  // day off empty every other room's register.
+  if (!forClass) return false;
+
+  const { classroomId, gradeLevelId } = forClass;
+  return (
+    (classroomId != null && classrooms.some((id) => String(id) === String(classroomId))) ||
+    (gradeLevelId != null && grades.some((id) => String(id) === String(gradeLevelId)))
+  );
 }
 
 /** One day of the year, and what the calendar says about it. */
@@ -156,11 +207,20 @@ export class SchoolDayCalendar {
     }
   }
 
-  /** What the calendar says about one day. */
-  classify(input: Date | string): SchoolDay {
+  /**
+   * What the calendar says about one day, for one class or for the school.
+   *
+   * `forClass` is what a class-scoped closure is matched against. Omitting it
+   * asks about the school, and only school-wide events answer — see
+   * `appliesToClass`.
+   */
+  classify(input: Date | string, forClass?: ClassDayRef | null): SchoolDay {
     const date = toUtcMidnight(input);
     const key = dayKey(date);
-    const events = this.byDay.get(key) ?? [];
+    // Filtered here rather than at construction so one calendar can answer for
+    // every class in a report — the events are read once, and each row asks it
+    // about its own room.
+    const events = (this.byDay.get(key) ?? []).filter((event) => appliesToClass(event, forClass));
     const isHalfDay = events.some((event) => event.isHalfDay === true);
 
     const outOfYear =
@@ -189,29 +249,39 @@ export class SchoolDayCalendar {
     };
   }
 
-  isTeachingDay(input: Date | string): boolean {
-    return this.classify(input).isTeachingDay;
+  isTeachingDay(input: Date | string, forClass?: ClassDayRef | null): boolean {
+    return this.classify(input, forClass).isTeachingDay;
   }
 
-  isWorkingDay(input: Date | string): boolean {
-    return this.classify(input).isWorkingDay;
+  isWorkingDay(input: Date | string, forClass?: ClassDayRef | null): boolean {
+    return this.classify(input, forClass).isWorkingDay;
   }
 
   /** Every day of an inclusive range, classified. */
-  range(from: Date | string, to: Date | string): SchoolDay[] {
+  range(from: Date | string, to: Date | string, forClass?: ClassDayRef | null): SchoolDay[] {
     const start = toUtcMidnight(from);
     const end = toUtcMidnight(to);
     const days: SchoolDay[] = [];
     for (let cursor = start; cursor <= end; cursor = new Date(cursor.getTime() + MS_PER_DAY)) {
-      days.push(this.classify(cursor));
+      days.push(this.classify(cursor, forClass));
     }
     return days;
   }
 
-  /** The `yyyy-MM-dd` of every day in the range the timetable did not run on. */
-  nonTeachingDays(from: Date | string, to: Date | string): Set<string> {
+  /**
+   * The `yyyy-MM-dd` of every day in the range the timetable did not run on.
+   *
+   * Per class once `forClass` is given: a day ມ.1 has off is a non-teaching day
+   * for ມ.1 and an ordinary Tuesday for everybody else, so a report that shares
+   * one set across its rows would excuse the whole school.
+   */
+  nonTeachingDays(
+    from: Date | string,
+    to: Date | string,
+    forClass?: ClassDayRef | null,
+  ): Set<string> {
     const keys = new Set<string>();
-    for (const day of this.range(from, to)) {
+    for (const day of this.range(from, to, forClass)) {
       if (!day.isTeachingDay) keys.add(day.date);
     }
     return keys;
@@ -226,10 +296,10 @@ export class SchoolDayCalendar {
    * the honest answer — the alternative is a deadline invented out of an empty
    * calendar and a teacher marked late against it.
    */
-  nextWorkingDay(input: Date | string, limitDays = 60): Date | null {
+  nextWorkingDay(input: Date | string, limitDays = 60, forClass?: ClassDayRef | null): Date | null {
     let cursor = new Date(toUtcMidnight(input).getTime() + MS_PER_DAY);
     for (let step = 0; step < limitDays; step += 1) {
-      const day = this.classify(cursor);
+      const day = this.classify(cursor, forClass);
       if (day.isWorkingDay) return cursor;
       cursor = new Date(cursor.getTime() + MS_PER_DAY);
     }
@@ -237,18 +307,22 @@ export class SchoolDayCalendar {
   }
 
   /** As `nextWorkingDay`, but the next day the timetable actually runs. */
-  nextTeachingDay(input: Date | string, limitDays = 60): Date | null {
+  nextTeachingDay(
+    input: Date | string,
+    limitDays = 60,
+    forClass?: ClassDayRef | null,
+  ): Date | null {
     let cursor = new Date(toUtcMidnight(input).getTime() + MS_PER_DAY);
     for (let step = 0; step < limitDays; step += 1) {
-      if (this.isTeachingDay(cursor)) return cursor;
+      if (this.isTeachingDay(cursor, forClass)) return cursor;
       cursor = new Date(cursor.getTime() + MS_PER_DAY);
     }
     return null;
   }
 
   /** How many days of an inclusive range the timetable ran on. */
-  countTeachingDays(from: Date | string, to: Date | string): number {
-    return this.range(from, to).filter((day) => day.isTeachingDay).length;
+  countTeachingDays(from: Date | string, to: Date | string, forClass?: ClassDayRef | null): number {
+    return this.range(from, to, forClass).filter((day) => day.isTeachingDay).length;
   }
 }
 
@@ -271,12 +345,21 @@ export class SchoolDayCalendar {
 export function recordingDeadline(
   lessonDate: Date | string,
   calendar: SchoolDayCalendar,
-  options: { hour?: number; offsetMinutes?: number; limitDays?: number } = {},
+  options: {
+    hour?: number;
+    offsetMinutes?: number;
+    limitDays?: number;
+    /**
+     * The class the lesson belonged to, so a closure that only shuts that class
+     * moves its deadline and nobody else's.
+     */
+    forClass?: ClassDayRef | null;
+  } = {},
 ): Date | null {
   const hour = options.hour ?? 12;
   const offsetMinutes = options.offsetMinutes ?? LAO_UTC_OFFSET_MINUTES;
 
-  const due = calendar.nextWorkingDay(lessonDate, options.limitDays);
+  const due = calendar.nextWorkingDay(lessonDate, options.limitDays, options.forClass);
   if (!due) return null;
 
   // `due` is UTC midnight standing for a local calendar day, so local noon is

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   CONSENT_STATUSES,
   ConsentStatus,
@@ -49,7 +49,7 @@ export class CampaignEligibility {
   gender?: Gender | null;
 
   /** Empty covers every grade. */
-  @Prop({ type: [Types.ObjectId], ref: 'GradeLevel', default: [] })
+  @Prop({ type: [SchemaTypes.ObjectId], ref: 'GradeLevel', default: [] })
   gradeLevelIds: Types.ObjectId[];
 
   /**
@@ -91,7 +91,7 @@ export class VaccinationCampaign extends SoftDeletableDocument {
   @Prop({ type: Date, required: true })
   scheduledDate: Date;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true, index: true })
   schoolYearId: Types.ObjectId;
 
   /** Narrows the student picker. See `CampaignEligibility`. */
@@ -110,7 +110,7 @@ export class VaccinationCampaign extends SoftDeletableDocument {
    * The cost of that control is that it is a list someone has to maintain: a
    * newcomer is not on the round until the office puts them there.
    */
-  @Prop({ type: [Types.ObjectId], ref: 'Student', default: [] })
+  @Prop({ type: [SchemaTypes.ObjectId], ref: 'Student', default: [] })
   studentIds: Types.ObjectId[];
 
   /** `ໂຮງໝໍ` or `ສູນສາທາລະນະສຸກ` sending the team. */
@@ -149,7 +149,7 @@ export class VaccinationConsent {
   @Prop({ type: String, required: true, enum: CONSENT_STATUSES, default: 'pending' })
   status: ConsentStatus;
 
-  @Prop({ type: Types.ObjectId, ref: 'Guardian', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Guardian', default: null })
   guardianId?: Types.ObjectId | null;
 
   @Prop({ type: Date, default: null })
@@ -174,7 +174,7 @@ export type VaccinationDocument = HydratedDocument<Vaccination>;
  */
 @Schema({ collection: 'vaccinations', ...baseSchemaOptions })
 export class Vaccination extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   /**
@@ -183,7 +183,7 @@ export class Vaccination extends SoftDeletableDocument {
    * Nullable because the school records doses a family had at a clinic, and
    * those count towards the course without belonging to any round held here.
    */
-  @Prop({ type: Types.ObjectId, ref: 'VaccinationCampaign', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'VaccinationCampaign', default: null, index: true })
   campaignId?: Types.ObjectId | null;
 
   /**
@@ -222,7 +222,7 @@ export class Vaccination extends SoftDeletableDocument {
   @Prop({ type: String, default: null })
   notes?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 }
 

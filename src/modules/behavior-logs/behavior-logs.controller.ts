@@ -17,6 +17,7 @@ import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BehaviorLogsService } from './behavior-logs.service';
 import {
+  BehaviorTallyQueryDto,
   CreateBehaviorLogDto,
   MonthlySheetQueryDto,
   QueryBehaviorLogsDto,
@@ -125,12 +126,17 @@ export class BehaviorLogsController {
   @RequirePermissions({ resource: 'behavior-logs', action: 'read' })
   @ApiOperation({
     summary: 'Entry counts per student for one class over a semester, most-flagged first',
+    description:
+      'The whole term unless `from`, `to` or `subjectId` narrow it. Only students who appear ' +
+      'in the register are returned — unlike the attendance summary, a student missing from ' +
+      'this list is the good outcome.',
   })
   classroomTally(
     @Param('classroomId') classroomId: string,
     @Param('semesterId') semesterId: string,
+    @Query() query: BehaviorTallyQueryDto,
   ) {
-    return this.service.getClassroomTally(classroomId, semesterId);
+    return this.service.getClassroomTally(classroomId, semesterId, query);
   }
 
   @Post()

@@ -9,12 +9,15 @@ import type { RecordTimeliness } from 'src/common/record-timeliness/record-timel
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import { LessonAccessService } from 'src/common/lesson-access/lesson-access.service';
+import { periodsOnDate, substitutionKey } from 'src/common/lesson-access/lesson-write-access';
 import { loadCoverageAssignments } from 'src/common/lesson-coverage/coverage-assignments';
 import {
   buildCoverage,
   dayWindow,
   resolveCoverageSemester,
   weekWindow,
+  withRows,
   type CoverageWindow,
   type CoverageWritten,
   type LessonCoverage,
@@ -24,7 +27,6 @@ import {
   AttendanceDocument,
   Enrollment,
   EnrollmentDocument,
-  SchedulePeriod,
   TeachingAssignment,
   TeachingAssignmentDocument,
 } from 'src/database/schemas';
@@ -32,18 +34,26 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { isOnCurrentRoll, ROSTER_STUDENT_SELECT } from 'src/common/utils/current-roll';
-import { nicknameOf, populatedStudent, STUDENT_NAME_SELECT } from 'src/common/utils/student-name';
-import { SemestersService } from '../semesters/semesters.service';
-import { round2 } from '../term-results/grading';
 import {
+  nicknameOf,
+  populatedStudent,
+  registerName,
+  STUDENT_NAME_PROJECTION,
+  STUDENT_NAME_SELECT,
+  type NamedStudent,
+} from 'src/common/utils/student-name';
+import { SemestersService } from '../semesters/semesters.service';
+import { SettingsService } from '../settings/settings.service';
+import { absenceDays, LATES_PER_ABSENCE_SETTING, normalizeLatesPerAbsence } from './absence-days';
+import {
+  AttendanceAbsenceRowDto,
   AttendanceSubjectSummaryDto,
   AttendanceSummaryDto,
+  ClassAttendanceSummaryQueryDto,
   QueryAttendancesDto,
   RecordAttendanceDto,
+  SemesterAbsencesQueryDto,
 } from './dto/attendance.dto';
-
-/** Statuses that count as "accounted for" when computing an attendance rate. */
-const NON_ABSENT: AttendanceStatus[] = ['present', 'late', 'excused', 'sick'];
 
 /**
  * A classroom, carrying its grade code.
@@ -73,14 +83,30 @@ export function toUtcMidnight(input: string | Date): Date {
 }
 
 /**
- * The periods of an assignment that fall on the same weekday as `date`.
+ * What narrows a summary below the term: a window, and optionally one subject.
  *
- * `getUTCDay()` rather than `getDay()`: the date has already been collapsed to
- * UTC midnight, so the local-time accessor would read the previous day for any
- * server west of UTC.
+ * `month` is matched on the month of the date rather than on a date range: the
+ * term is already the outer filter, and a calendar month falls inside exactly
+ * one term, so there is no year arithmetic to get wrong at the ທັນວາ/ມັງກອນ
+ * boundary. Dates are stored at UTC midnight, which is the timezone `$month`
+ * reads them in. `from`/`to` are inclusive calendar dates; both may be given
+ * with `month`, in which case they simply intersect.
  */
-export function periodsOnDate(schedule: SchedulePeriod[], date: Date): SchedulePeriod[] {
-  return schedule.filter((period) => period.dayOfWeek === date.getUTCDay());
+export function summaryMatch(
+  scope: Pick<ClassAttendanceSummaryQueryDto, 'month' | 'from' | 'to' | 'subjectId'> = {},
+): Record<string, unknown> {
+  return {
+    ...(scope.month ? { $expr: { $eq: [{ $month: '$date' }, scope.month] } } : {}),
+    ...(scope.from || scope.to
+      ? {
+          date: {
+            ...(scope.from ? { $gte: toUtcMidnight(scope.from) } : {}),
+            ...(scope.to ? { $lte: toUtcMidnight(scope.to) } : {}),
+          },
+        }
+      : {}),
+    ...(scope.subjectId ? { subjectId: new Types.ObjectId(scope.subjectId) } : {}),
+  };
 }
 
 @Injectable()
@@ -94,6 +120,8 @@ export class AttendancesService {
     private readonly audit: AuditLogsService,
     private readonly scope: RecordScopeService,
     private readonly calendar: CalendarService,
+    private readonly settings: SettingsService,
+    private readonly lessons: LessonAccessService,
   ) {}
 
   async findAll(
@@ -109,7 +137,11 @@ export class AttendancesService {
     if (query.teachingAssignmentId) {
       filter.teachingAssignmentId = new Types.ObjectId(query.teachingAssignmentId);
     }
+    // The summary's counts, opened up: a reader asking "which lessons did this
+    // student miss" wants absent, late, excused and sick together, and the
+    // `present` rows — the bulk of the collection — left out.
     if (query.status) filter.status = query.status;
+    else if (query.notPresent) filter.status = { $ne: 'present' };
     if (query.from || query.to) {
       filter.date = {
         ...(query.from ? { $gte: toUtcMidnight(query.from) } : {}),
@@ -131,6 +163,10 @@ export class AttendancesService {
         // account that actually submitted it. They differ whenever the office
         // records on a teacher's behalf, which is exactly when it matters.
         .populate('teacherId', TEACHER_NAME)
+        // ຄູສອນແທນ, when the lesson was covered. Named rather than left as an id,
+        // because this is the answer to "why is this row not in their handwriting"
+        // and the log is read precisely when a row looks odd.
+        .populate('substituteTeacherId', TEACHER_NAME)
         // `personId` so the client can tell a teacher filing their own roll call
         // from someone filing it for them, without a second lookup per row.
         .populate('recordedBy', 'username personType personId')
@@ -187,17 +223,28 @@ export class AttendancesService {
     // day the office closed. Read off the window's own bounds, so a report about
     // a past week reads the calendar that week was taught under.
     const bounds = windowFor(semester);
-    const schoolDays = await this.calendar.calendarFor(bounds.start, bounds.end);
+    // Per classroom as well as school-wide: a year or a room the office stood
+    // down on its own owes nothing that day, while the rest of the school does.
+    const schoolDays = await this.calendar.nonTeachingDaysFor(bounds.start, bounds.end);
     const window: CoverageWindow = {
       ...bounds,
-      nonTeachingDays: schoolDays.nonTeachingDays(bounds.start, bounds.end),
+      nonTeachingDays: schoolDays.schoolWide,
+      nonTeachingDaysFor: schoolDays.forClassroom,
     };
+
+    // A teacher's own week has to include the lessons they stood in on, which the
+    // timetable files under the teacher who was away — see `alsoAssignmentIds`.
+    const covered =
+      teacherId && !options.noLessons
+        ? await this.lessons.coveredAssignmentIds(teacherId, window.start, window.end)
+        : [];
 
     const assignments =
       semester && !options.noLessons
         ? await loadCoverageAssignments(this.assignmentModel, semester._id, {
             teacherId,
             classroomId: query.classroomId,
+            alsoAssignmentIds: covered,
           })
         : [];
     const marked = await this.loadMarkedDays(
@@ -206,15 +253,42 @@ export class AttendancesService {
       window.end,
     );
 
+    // Cover claimed in this window, so a day somebody stood in on is owed by them
+    // and not by the teacher who was away. Read for the window rather than per
+    // row: on an ordinary week it comes back empty and costs one indexed query.
+    const substitutions = await this.lessons.substitutionIndex({
+      semesterId: semester?._id ?? null,
+      from: window.start,
+      to: window.end,
+      classroomId: query.classroomId,
+    });
+
     const coverage = buildCoverage(window, assignments, marked, {
       covered: 'everyLessonDay',
+      substitutions,
       semester: semester
         ? { id: semester._id.toString(), nameLo: semester.nameLo, nameEn: semester.nameEn ?? null }
         : null,
     });
 
-    if (!query.outstandingOnly) return coverage;
-    return { ...coverage, rows: coverage.rows.filter((row) => row.status === 'missing') };
+    // Widening the timetable above also brought in the absent teacher's share of
+    // the lessons that were covered, which belongs on their row and not here.
+    // Narrowed before the summary, so the headline numbers describe the same
+    // teacher the rows do.
+    const scoped =
+      teacherId && covered.length > 0
+        ? withRows(
+            coverage,
+            coverage.rows.filter((row) => row.teacherId === teacherId),
+          )
+        : coverage;
+
+    if (!query.outstandingOnly) return scoped;
+    return withRows(
+      scoped,
+      scoped.rows.filter((row) => row.status === 'missing'),
+      scoped.summary,
+    );
   }
 
   /**
@@ -237,6 +311,9 @@ export class AttendancesService {
         assignments: this.assignmentModel,
         log: this.model,
         calendar: this.calendar,
+        // Cover claimed in the window, so a day somebody stood in on is judged
+        // against them and the teacher who was away is not reported late for it.
+        substitutions: this.lessons,
       },
       query,
       // The roll call is owed every lesson day, so a day with nothing on file is
@@ -260,7 +337,10 @@ export class AttendancesService {
     if (teachingAssignmentIds.length === 0) return [];
 
     const rows = await this.model
-      .aggregate<{ _id: Types.ObjectId; dates: Date[]; studentsNoted: number }>([
+      .aggregate<{
+        _id: { assignment: Types.ObjectId; date: Date };
+        studentsNoted: number;
+      }>([
         {
           $match: {
             teachingAssignmentId: {
@@ -271,23 +351,39 @@ export class AttendancesService {
           },
         },
         {
+          // Grouped per day rather than per lesson, and folded up below. The
+          // per-lesson totals are still what the ordinary row reads, but a lesson
+          // that was covered has to be divided between two teachers, and a total
+          // cannot be divided after the fact — see `CoverageWritten.perDay`.
           $group: {
-            _id: '$teachingAssignmentId',
-            dates: { $addToSet: '$date' },
+            _id: { assignment: '$teachingAssignmentId', date: '$date' },
             studentsNoted: { $sum: 1 },
           },
         },
       ])
       .exec();
 
-    return rows.map((row) => ({
-      teachingAssignmentId: row._id.toString(),
+    const byAssignment = new Map<string, CoverageWritten>();
+    for (const row of rows) {
+      const id = row._id.assignment.toString();
+      const date = row._id.date.toISOString().slice(0, 10);
+      const found = byAssignment.get(id) ?? {
+        teachingAssignmentId: id,
+        entries: 0,
+        studentsNoted: 0,
+        dates: [],
+        perDay: [],
+      };
       // One roll call, however many students it named — which is what makes this
       // comparable with the register's rows.
-      entries: row.dates.length,
-      studentsNoted: row.studentsNoted,
-      dates: row.dates.map((date) => date.toISOString().slice(0, 10)),
-    }));
+      found.entries += 1;
+      found.studentsNoted += row.studentsNoted;
+      found.dates.push(date);
+      found.perDay!.push({ date, entries: 1, studentsNoted: row.studentsNoted });
+      byAssignment.set(id, found);
+    }
+
+    return [...byAssignment.values()];
   }
 
   /**
@@ -308,7 +404,11 @@ export class AttendancesService {
     ip: string | null,
   ): Promise<{ recorded: number }> {
     const date = toUtcMidnight(dto.date);
-    const assignment = await this.getLessonOrFail(dto.teachingAssignmentId, date, actor);
+    const { assignment, substitution } = await this.lessons.resolveWritableLesson(
+      dto.teachingAssignmentId,
+      date,
+      actor,
+    );
     const semester = await this.semesters.getWritableOrFail(assignment.semesterId.toString());
 
     // Attendance is an observation, so it cannot be about the future.
@@ -357,6 +457,12 @@ export class AttendancesService {
             schoolYearId: assignment.schoolYearId,
             subjectId: assignment.subjectId,
             teacherId: assignment.teacherId,
+            // Who was actually in the room, when it was not the timetabled
+            // teacher. Set from the live claim rather than from the caller, so an
+            // office user keying a covered lesson in produces the same row the
+            // stand-in would have, and re-submitting a corrected sheet after the
+            // claim was withdrawn clears it.
+            substituteTeacherId: substitution?.substituteTeacherId ?? null,
             period,
             status: entry.status,
             // Only carry `minutesLate` for a late arrival; otherwise it is noise.
@@ -392,6 +498,7 @@ export class AttendancesService {
         // Recorded explicitly so the trail shows a stand-in submission for what
         // it is, without having to re-read the timetable as it was that day.
         teacherId: assignment.teacherId.toString(),
+        substituteTeacherId: substitution?.substituteTeacherId.toString() ?? null,
         date: dto.date,
         period,
         entryCount: dto.entries.length,
@@ -401,44 +508,6 @@ export class AttendancesService {
     });
 
     return { recorded };
-  }
-
-  /**
-   * Loads the lesson being registered and refuses it unless the actor may.
-   *
-   * Three separate refusals, deliberately not collapsed: an inactive assignment,
-   * a date the lesson is not taught on, and an actor who does not teach it. A
-   * teacher is bound to their own lessons; office roles holding
-   * `attendances:create` may record for anyone, which is what makes recording on
-   * a teacher's behalf possible at all.
-   */
-  private async getLessonOrFail(
-    teachingAssignmentId: string,
-    date: Date,
-    actor: AuthenticatedUser,
-  ): Promise<TeachingAssignmentDocument> {
-    const assignment = await this.assignmentModel
-      .findOne({ _id: new Types.ObjectId(teachingAssignmentId), deletedAt: null })
-      .exec();
-    if (!assignment) throw AppException.notFound();
-
-    if (!assignment.isActive) {
-      throw AppException.badRequest('attendance.assignmentInactive', { teachingAssignmentId });
-    }
-
-    if (periodsOnDate(assignment.schedule, date).length === 0) {
-      throw AppException.badRequest('attendance.lessonNotScheduled', {
-        teachingAssignmentId,
-        dayOfWeek: date.getUTCDay(),
-        scheduledDays: [...new Set(assignment.schedule.map((p) => p.dayOfWeek))].sort(),
-      });
-    }
-
-    if (actor.personType === 'teacher' && actor.personId !== assignment.teacherId.toString()) {
-      throw AppException.forbidden('attendance.notAssignedTeacher');
-    }
-
-    return assignment;
   }
 
   /**
@@ -459,8 +528,8 @@ export class AttendancesService {
     studentId: string,
     semesterId: string,
     session?: ClientSession,
-    /** One calendar month of the term, as `getClassroomSummary` takes it; the whole term without. */
-    month?: number,
+    /** A window and/or subject, as `getClassroomSummary` takes them; the whole term without. */
+    scope?: ClassAttendanceSummaryQueryDto,
   ): Promise<AttendanceSummaryDto> {
     const rows = await this.model
       .aggregate<{ _id: AttendanceStatus; count: number }>([
@@ -469,7 +538,7 @@ export class AttendancesService {
             studentId: new Types.ObjectId(studentId),
             semesterId: new Types.ObjectId(semesterId),
             deletedAt: null,
-            ...(month ? { $expr: { $eq: [{ $month: '$date' }, month] } } : {}),
+            ...summaryMatch(scope),
           },
         },
         { $group: { _id: '$status', count: { $sum: 1 } } },
@@ -477,7 +546,7 @@ export class AttendancesService {
       .session(session ?? null)
       .exec();
 
-    return this.buildSummary(studentId, rows);
+    return this.buildSummary(studentId, rows, await this.latesPerAbsence());
   }
 
   /**
@@ -518,6 +587,7 @@ export class AttendancesService {
       ])
       .exec();
 
+    const latesPerAbsence = await this.latesPerAbsence();
     const bySubject = new Map<
       string,
       {
@@ -536,7 +606,7 @@ export class AttendancesService {
     return (
       [...bySubject.entries()]
         .map(([subjectId, { subject, statuses }]) => ({
-          ...this.buildSummary(studentId, statuses),
+          ...this.buildSummary(studentId, statuses, latesPerAbsence),
           subjectId,
           subjectCode: subject?.code ?? null,
           subjectNameLo: subject?.nameLo ?? null,
@@ -552,8 +622,10 @@ export class AttendancesService {
    * The same summary for every student in a classroom, in one aggregation.
    *
    * `month` narrows it to one calendar month of the term, which is what the
-   * monthly mark sheet's ວັນຂາດ column is counted over; without it the whole
-   * term is counted, as exam eligibility and the guardian meeting read it.
+   * monthly mark sheet's ວັນຂາດ column is counted over; `from`/`to` to any
+   * stretch of it and `subjectId` to one subject's lessons — see `summaryMatch`.
+   * Without any of them the whole term is counted, as exam eligibility and the
+   * guardian meeting read it.
    *
    * Only students the roll has something recorded against come back — the
    * callers hold the roster and read a missing student as a clean one.
@@ -561,7 +633,7 @@ export class AttendancesService {
   async getClassroomSummary(
     classroomId: string,
     semesterId: string,
-    month?: number,
+    scope?: ClassAttendanceSummaryQueryDto,
   ): Promise<AttendanceSummaryDto[]> {
     const rows = await this.model
       .aggregate<{ _id: { studentId: Types.ObjectId; status: AttendanceStatus }; count: number }>([
@@ -570,18 +642,14 @@ export class AttendancesService {
             classroomId: new Types.ObjectId(classroomId),
             semesterId: new Types.ObjectId(semesterId),
             deletedAt: null,
-            // Matched on the month of the date rather than on a date range: the
-            // term is already the outer filter, and a calendar month falls
-            // inside exactly one term, so there is no year arithmetic to get
-            // wrong at the ທັນວາ/ມັງກອນ boundary. Dates are stored at UTC
-            // midnight, which is the timezone `$month` reads them in.
-            ...(month ? { $expr: { $eq: [{ $month: '$date' }, month] } } : {}),
+            ...summaryMatch(scope),
           },
         },
         { $group: { _id: { studentId: '$studentId', status: '$status' }, count: { $sum: 1 } } },
       ])
       .exec();
 
+    const latesPerAbsence = await this.latesPerAbsence();
     const byStudent = new Map<string, { _id: AttendanceStatus; count: number }[]>();
     for (const row of rows) {
       const key = row._id.studentId.toString();
@@ -591,8 +659,137 @@ export class AttendancesService {
     }
 
     return [...byStudent.entries()].map(([studentId, statuses]) =>
-      this.buildSummary(studentId, statuses),
+      this.buildSummary(studentId, statuses, latesPerAbsence),
     );
+  }
+
+  /**
+   * Who has been absent `minAbsentDays` days or more, anywhere in the school.
+   *
+   * The class summary is read one room at a time, which is the wrong shape for
+   * the office's question — "who is at 15 days, and 30" is asked of the term,
+   * and answered with a name and a room. So this aggregates the whole term (or
+   * the window asked for) at once, applies the same absence rule as every other
+   * summary, and keeps only the students over the line, worst first.
+   *
+   * The room is the one the student was most recently marked in, read off the
+   * records rather than the enrollment: a transferred child's absences belong
+   * to the term, and the office wants to know where to find them now.
+   */
+  async getSemesterAbsences(
+    semesterId: string,
+    query: SemesterAbsencesQueryDto,
+    actor: AuthenticatedUser,
+  ): Promise<AttendanceAbsenceRowDto[]> {
+    const match: Record<string, unknown> = {
+      semesterId: new Types.ObjectId(semesterId),
+      deletedAt: null,
+      ...summaryMatch(query),
+      ...(query.classroomId ? { classroomId: new Types.ObjectId(query.classroomId) } : {}),
+    };
+    // A student or guardian holding `attendances:read` sees their own child on
+    // the list or nobody — never the school.
+    await this.scope.applyStudentScope(match, actor);
+
+    const rows = await this.model
+      .aggregate<{
+        _id: Types.ObjectId;
+        statuses: { status: AttendanceStatus; count: number }[];
+        rooms: { classroomId: Types.ObjectId; lastDate: Date }[];
+        student: NamedStudent[];
+        classrooms: { _id: Types.ObjectId; name: string; gradeLevel: { code: string }[] }[];
+      }>([
+        { $match: match },
+        // Per student and room first, so the room they were last marked in can
+        // be told apart from one they left mid-term.
+        {
+          $group: {
+            _id: { studentId: '$studentId', classroomId: '$classroomId', status: '$status' },
+            count: { $sum: 1 },
+            lastDate: { $max: '$date' },
+          },
+        },
+        {
+          $group: {
+            _id: '$_id.studentId',
+            statuses: { $push: { status: '$_id.status', count: '$count' } },
+            rooms: { $push: { classroomId: '$_id.classroomId', lastDate: '$lastDate' } },
+          },
+        },
+        {
+          $lookup: {
+            from: 'students',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'student',
+            pipeline: [{ $project: STUDENT_NAME_PROJECTION }],
+          },
+        },
+        {
+          $lookup: {
+            from: 'classrooms',
+            let: { roomIds: '$rooms.classroomId' },
+            as: 'classrooms',
+            pipeline: [
+              { $match: { $expr: { $in: ['$_id', '$$roomIds'] } } },
+              {
+                $lookup: {
+                  from: 'gradeLevels',
+                  localField: 'gradeLevelId',
+                  foreignField: '_id',
+                  as: 'gradeLevel',
+                  pipeline: [{ $project: { code: 1 } }],
+                },
+              },
+              { $project: { name: 1, gradeLevel: 1 } },
+            ],
+          },
+        },
+      ])
+      .exec();
+
+    const latesPerAbsence = await this.latesPerAbsence();
+
+    return rows
+      .map((row) => {
+        // The same student may appear under two rooms; the statuses are summed
+        // and the room is whichever they were marked in last.
+        const byStatus = new Map<AttendanceStatus, number>();
+        for (const entry of row.statuses) {
+          byStatus.set(entry.status, (byStatus.get(entry.status) ?? 0) + entry.count);
+        }
+        const summary = this.buildSummary(
+          row._id.toString(),
+          [...byStatus.entries()].map(([status, count]) => ({ _id: status, count })),
+          latesPerAbsence,
+        );
+
+        const latest = row.rooms.reduce<{ classroomId: Types.ObjectId; lastDate: Date } | null>(
+          (best, room) => (!best || room.lastDate > best.lastDate ? room : best),
+          null,
+        );
+        const classroom = latest
+          ? row.classrooms.find((candidate) => candidate._id.equals(latest.classroomId))
+          : undefined;
+        const student = row.student[0];
+
+        return {
+          ...summary,
+          studentCode: student?.studentCode ?? null,
+          studentNameLo: registerName(student),
+          studentNickname: nicknameOf(student),
+          classroomId: latest ? latest.classroomId.toString() : null,
+          classroomName: classroom?.name ?? null,
+          gradeLevelCode: classroom?.gradeLevel[0]?.code ?? null,
+        };
+      })
+      .filter((row) => row.absentTotal >= query.minAbsentDays)
+      .sort(
+        (a, b) =>
+          b.absentTotal - a.absentTotal ||
+          b.absentUnexcused - a.absentUnexcused ||
+          (a.studentNameLo ?? '').localeCompare(b.studentNameLo ?? ''),
+      );
   }
 
   /**
@@ -641,6 +838,15 @@ export class AttendancesService {
         .exec(),
     ]);
 
+    // Cover claimed for this class on this day, so the sheet can say who is meant
+    // to be calling each roll — and so the screen knows which of its two buttons
+    // to offer, save or ຮັບສອນແທນ. One indexed query, empty on an ordinary day.
+    const substitutions = await this.lessons.substitutionIndex({
+      from: normalized,
+      to: normalized,
+      classroomId,
+    });
+
     // The sheet is a roll to call, not a list of enrollments: a student the
     // office has marked as gone still holds an `active` enrollment until someone
     // closes it, and their name should not be read out.
@@ -668,6 +874,11 @@ export class AttendancesService {
           room: slot.room ?? null,
           subject: assignment.subjectId,
           teacher: assignment.teacherId,
+          // ຄູສອນແທນ — who is answerable for this lesson today, when it is not the
+          // teacher beside it. Named on screen and on the printed sheet, because a
+          // register signed off by somebody who was not in the building is the
+          // first thing the office asks about.
+          substituteTeacher: substitutions.get(substitutionKey(assignmentId, normalized)) ?? null,
           entries: onRoll.map((enrollment) => {
             const student = populatedStudent(enrollment.studentId);
             const studentId = student?._id.toString() ?? String(enrollment.studentId);
@@ -690,33 +901,33 @@ export class AttendancesService {
     return { date: normalized.toISOString().slice(0, 10), lessons };
   }
 
+  /**
+   * How many late arrivals the office counts as a day absent — policy, so it
+   * lives in settings; three without one, or with one that would not divide.
+   */
+  private async latesPerAbsence(): Promise<number> {
+    return normalizeLatesPerAbsence(await this.settings.getValue(LATES_PER_ABSENCE_SETTING));
+  }
+
+  /** The raw counts, and the office's reading of them — see `absenceDays`. */
   private buildSummary(
     studentId: string,
     statuses: { _id: AttendanceStatus; count: number }[],
+    latesPerAbsence: number,
   ): AttendanceSummaryDto {
     const countOf = (status: AttendanceStatus) =>
       statuses.find((s) => s._id === status)?.count ?? 0;
 
-    const present = countOf('present');
-    const absent = countOf('absent');
-    const late = countOf('late');
-    const excused = countOf('excused');
-    const sick = countOf('sick');
-    const totalRecorded = present + absent + late + excused + sick;
-
-    const accountedFor = statuses
-      .filter((s) => NON_ABSENT.includes(s._id))
-      .reduce((sum, s) => sum + s.count, 0);
-
-    return {
-      studentId,
-      present,
-      absent,
-      late,
-      excused,
-      sick,
-      totalRecorded,
-      attendanceRate: totalRecorded > 0 ? round2((accountedFor / totalRecorded) * 100) : 0,
+    const counts = {
+      present: countOf('present'),
+      absent: countOf('absent'),
+      late: countOf('late'),
+      excused: countOf('excused'),
+      sick: countOf('sick'),
     };
+    const totalRecorded =
+      counts.present + counts.absent + counts.late + counts.excused + counts.sick;
+
+    return { studentId, ...counts, totalRecorded, ...absenceDays(counts, latesPerAbsence) };
   }
 }

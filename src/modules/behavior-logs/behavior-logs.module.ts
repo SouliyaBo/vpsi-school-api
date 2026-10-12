@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { LessonAccessModule } from 'src/common/lesson-access/lesson-access.service';
 import { BehaviorLog, BehaviorLogSchema } from 'src/database/schemas';
 import { ClassroomsModule } from '../classrooms/classrooms.module';
 import { CalendarModule } from '../calendar/calendar.module';
@@ -22,6 +23,9 @@ import { BehaviorLogsService } from './behavior-logs.service';
     TeachingAssignmentsModule,
     // The monthly sheet's header is `ມ.1/ກ` plus the homeroom teacher.
     ClassroomsModule,
+    // Who may write a lesson up, and who stood in for whom — shared with the roll
+    // call, which asks the identical question.
+    LessonAccessModule,
   ],
   controllers: [BehaviorLogsController],
   providers: [BehaviorLogsService],

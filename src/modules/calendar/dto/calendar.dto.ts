@@ -97,6 +97,35 @@ export class CreateCalendarEventDto {
   @IsOptional()
   targets?: AnnouncementTargetDto[];
 
+  /**
+   * Which classes the day is off for. Both empty means the whole school.
+   *
+   * Separate from `targets`, which is who is *shown* the event and may name a
+   * role — telling every teacher about a holiday is not closing every class.
+   */
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Grade levels this event closes. Empty, with `appliesToClassroomIds` also empty, ' +
+      'means school-wide. A grade level closes every classroom in it, including rooms ' +
+      'added to it later.',
+  })
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsMongoId({ each: true })
+  @IsOptional()
+  appliesToGradeLevelIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Individual classrooms this event closes. Empty means school-wide.',
+  })
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsMongoId({ each: true })
+  @IsOptional()
+  appliesToClassroomIds?: string[];
+
   @ApiPropertyOptional({ example: '#1565c0' })
   @IsHexColor()
   @IsOptional()
@@ -132,6 +161,35 @@ export class UpdateCalendarEventDto {
   @Type(() => AnnouncementTargetDto)
   @IsOptional()
   targets?: AnnouncementTargetDto[];
+
+  /**
+   * Which classes the day is off for. Both empty means the whole school.
+   *
+   * Separate from `targets`, which is who is *shown* the event and may name a
+   * role — telling every teacher about a holiday is not closing every class.
+   */
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Grade levels this event closes. Empty, with `appliesToClassroomIds` also empty, ' +
+      'means school-wide. A grade level closes every classroom in it, including rooms ' +
+      'added to it later.',
+  })
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsMongoId({ each: true })
+  @IsOptional()
+  appliesToGradeLevelIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Individual classrooms this event closes. Empty means school-wide.',
+  })
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsMongoId({ each: true })
+  @IsOptional()
+  appliesToClassroomIds?: string[];
 
   @ApiPropertyOptional()
   @IsHexColor()
@@ -171,4 +229,14 @@ export class QuerySchoolDaysDto {
   @ApiProperty({ example: '2026-09-30', description: 'Inclusive.' })
   @IsDateString()
   to: string;
+
+  @ApiPropertyOptional({
+    description:
+      "One classroom's view of the year: the school's days off plus the days this class " +
+      'alone was stood down, whether the office named the room or its grade level. ' +
+      'Omitted answers for the school, and a class-scoped closure is not part of that.',
+  })
+  @IsMongoId()
+  @IsOptional()
+  classroomId?: string;
 }

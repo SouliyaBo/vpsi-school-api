@@ -122,11 +122,12 @@ export class ReportDataService {
         subjectsFailed: termResult.subjectsFailed,
         isProvisional: termResult.isProvisional,
       },
+      // ວັນຂາດ as the office counts it — see `absence-days.ts`.
       attendance: {
         present: attendance.present,
-        absent: attendance.absent,
-        late: attendance.late,
-        excused: attendance.excused + attendance.sick,
+        absent: attendance.absentUnexcused,
+        late: attendance.lateRemainder,
+        excused: attendance.absentExcused,
       },
       conductGradeLo: termResult.conductGrade
         ? (CONDUCT_LABELS[termResult.conductGrade] ?? termResult.conductGrade)

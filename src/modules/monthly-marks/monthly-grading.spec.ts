@@ -3,10 +3,14 @@ import {
   annualScore,
   classifyMonth,
   COLUMN_MAX,
+  columnMaxFor,
   DEFAULT_MONTHLY_BANDS,
+  isColumnMaxUsable,
   isPassing,
   isWithinMax,
+  markedColumns,
   meanOf,
+  MONTHLY_COLUMNS,
   monthlyBandsFrom,
   monthScore,
   monthsForSemester,
@@ -63,6 +67,45 @@ describe('isWithinMax', () => {
     expect(isWithinMax('attendance', 0.8)).toBe(true);
     expect(isWithinMax('notebook', 0.5)).toBe(true);
     expect(isWithinMax('test', -1)).toBe(false);
+  });
+
+  it('holds a subject to its own maxima where it has them', () => {
+    // ພູມສາດ at ມ.1: no ປື້ມ, and its point moved to ກິດຈະກຳ.
+    const social = columnMaxFor({ attendance: 1, notebook: 0, activity: 3, test: 6 });
+    expect(isWithinMax('activity', 3, social)).toBe(true);
+    expect(isWithinMax('activity', 3, COLUMN_MAX)).toBe(false);
+    expect(isWithinMax('notebook', 0.5, social)).toBe(false);
+  });
+});
+
+describe('columnMaxFor', () => {
+  it("marks ພູມສາດ on the school's own 1 / 0 / 3 / 6", () => {
+    const social = { attendance: 1, notebook: 0, activity: 3, test: 6 };
+    expect(columnMaxFor(social)).toEqual(social);
+    expect(markedColumns(columnMaxFor(social))).toEqual(['attendance', 'activity', 'test']);
+  });
+
+  it('falls back to the standard columns when a subject declares none', () => {
+    expect(columnMaxFor(null)).toEqual(COLUMN_MAX);
+    expect(columnMaxFor(undefined)).toEqual(COLUMN_MAX);
+    expect(markedColumns(COLUMN_MAX)).toEqual(MONTHLY_COLUMNS);
+  });
+
+  it('refuses a scheme that does not total 10 rather than marking out of 9', () => {
+    // The mark would still print beside subjects marked out of 10, so a class
+    // that lost nothing would read as a class that had.
+    expect(isColumnMaxUsable({ attendance: 1, notebook: 0, activity: 2, test: 6 })).toBe(false);
+    expect(columnMaxFor({ attendance: 1, notebook: 0, activity: 2, test: 6 })).toEqual(COLUMN_MAX);
+  });
+
+  it('refuses a half-typed or negative scheme', () => {
+    expect(isColumnMaxUsable({ attendance: 1, activity: 3, test: 6 })).toBe(false);
+    expect(isColumnMaxUsable({ attendance: -1, notebook: 2, activity: 3, test: 6 })).toBe(false);
+    expect(isColumnMaxUsable({})).toBe(false);
+  });
+
+  it('accepts the fractions a scheme could be split into, so long as they come to 10', () => {
+    expect(isColumnMaxUsable({ attendance: 0.5, notebook: 0.5, activity: 3, test: 6 })).toBe(true);
   });
 });
 

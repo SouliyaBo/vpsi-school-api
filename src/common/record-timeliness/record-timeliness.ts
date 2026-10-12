@@ -1,5 +1,15 @@
-import type { CoverageAssignment } from '../lesson-coverage/lesson-coverage';
-import { hoursLate, recordingDeadline, SchoolDayCalendar } from '../school-days/school-days';
+import {
+  responsibleTeacher,
+  type LessonSubstitute,
+  type SubstitutionIndex,
+} from '../lesson-access/lesson-write-access';
+import { slotsOn, type CoverageAssignment } from '../lesson-coverage/lesson-coverage';
+import {
+  type ClassDayRef,
+  hoursLate,
+  recordingDeadline,
+  SchoolDayCalendar,
+} from '../school-days/school-days';
 
 /**
  * ຄວາມຕົງເວລາໃນການບັນທຶກ — was the paperwork done on time.
@@ -147,7 +157,11 @@ export interface RecordTimeliness {
 const dayKey = (date: Date) => date.toISOString().slice(0, 10);
 
 /** Every day of the window the school taught on, up to `asOf` and inside the term. */
-function teachingDays(window: TimelinessWindow, calendar: SchoolDayCalendar): Date[] {
+function teachingDays(
+  window: TimelinessWindow,
+  calendar: SchoolDayCalendar,
+  forClass?: ClassDayRef | null,
+): Date[] {
   const days: Date[] = [];
   const last = window.asOf < window.end ? window.asOf : window.end;
   for (
@@ -158,7 +172,7 @@ function teachingDays(window: TimelinessWindow, calendar: SchoolDayCalendar): Da
     const inTerm =
       (!window.semesterStart || cursor >= window.semesterStart) &&
       (!window.semesterEnd || cursor <= window.semesterEnd);
-    if (inTerm && calendar.isTeachingDay(cursor)) days.push(cursor);
+    if (inTerm && calendar.isTeachingDay(cursor, forClass)) days.push(cursor);
   }
   return days;
 }
@@ -183,15 +197,69 @@ export function buildTimeliness(
     rule: TimelinessRule;
     now: Date;
     semester?: RecordTimeliness['semester'];
+    /**
+     * Each classroom placed in its grade level, so a day off written against a
+     * year reaches the rooms inside it.
+     *
+     * Omitted means nothing in the window is class-scoped, and every row is
+     * judged against the school's calendar — which is what almost every window
+     * looks like.
+     */
+    classRefs?: ReadonlyMap<string, ClassDayRef>;
+    /**
+     * The lesson-days somebody stood in on — see `LessonSubstitution`.
+     *
+     * Applied per (lesson, day) rather than per lesson, which is the only grain
+     * that can be right: a teacher off sick on the Tuesday is answerable for the
+     * Thursday of the same lesson, and holding the whole lesson to either of them
+     * would put one teacher's deadline on the other's row. The deadline itself does
+     * not move — it belongs to the day, not to the person.
+     */
+    substitutions?: SubstitutionIndex;
+    /**
+     * Keep only this teacher's row, before the summary is worked out.
+     *
+     * A report about one teacher has to be read against the lessons they covered as
+     * well as the ones the timetable gives them, and reading those pulls in the
+     * owner's share of the same lessons. Dropping the surplus here rather than in
+     * the caller is what keeps the summary describing the teacher on screen: a
+     * summary computed over every row and then shown beside one row is the way this
+     * report would lie about a colleague's punctuality.
+     */
+    onlyTeacherId?: string | null;
   },
 ): RecordTimeliness {
   const { rule, now } = options;
-  const days = teachingDays(window, calendar);
 
-  // Deadlines are per lesson day, and a day is shared by every class taught on
-  // it — so they are worked out once here rather than per assignment.
-  const deadlines = new Map<string, Date | null>();
-  for (const day of days) deadlines.set(dayKey(day), recordingDeadline(day, calendar));
+  /**
+   * The lesson days and their deadlines, per classroom.
+   *
+   * Both were once worked out once for the whole report, on the reasoning that a
+   * day is shared by every class taught on it. That stopped being true when the
+   * office gained the ability to stand one year down: `ມ.7` on exam leave owes
+   * nothing on a Tuesday the rest of the school teaches, and a shared list would
+   * mark its teachers missing for it.
+   *
+   * Cached per room, and under one key when nothing in the window is scoped, so
+   * the ordinary case still walks the window once.
+   */
+  const perClass = new Map<string, { days: Date[]; deadlines: Map<string, Date | null> }>();
+  const daysFor = (classroomId: string) => {
+    const key = options.classRefs ? classroomId : '*';
+    const cached = perClass.get(key);
+    if (cached) return cached;
+
+    const forClass = options.classRefs?.get(classroomId) ?? null;
+    const days = teachingDays(window, calendar, forClass);
+    const deadlines = new Map<string, Date | null>();
+    for (const day of days) {
+      deadlines.set(dayKey(day), recordingDeadline(day, calendar, { forClass }));
+    }
+
+    const fresh = { days, deadlines };
+    perClass.set(key, fresh);
+    return fresh;
+  };
 
   const writtenBy = new Map(
     written.map((entry) => [`${entry.teachingAssignmentId}|${entry.date}`, entry]),
@@ -203,13 +271,13 @@ export function buildTimeliness(
   };
   const byTeacher = new Map<string, Bucket>();
 
-  const bucketFor = (assignment: CoverageAssignment): Bucket => {
-    const existing = byTeacher.get(assignment.teacherId);
+  const bucketFor = (who: LessonSubstitute): Bucket => {
+    const existing = byTeacher.get(who.teacherId);
     if (existing) return existing;
     const fresh: Bucket = {
-      teacherId: assignment.teacherId,
-      teacherCode: assignment.teacherCode,
-      teacherName: assignment.teacherName,
+      teacherId: who.teacherId,
+      teacherCode: who.teacherCode,
+      teacherName: who.teacherName,
       owed: rule === 'everyLessonDay' ? 0 : null,
       recorded: 0,
       onTime: 0,
@@ -222,7 +290,7 @@ export function buildTimeliness(
       lateHours: [],
       lastRecordedTime: 0,
     };
-    byTeacher.set(assignment.teacherId, fresh);
+    byTeacher.set(who.teacherId, fresh);
     return fresh;
   };
 
@@ -233,15 +301,29 @@ export function buildTimeliness(
     // both arrangements of the swap are on the timetable, so it cannot say which
     // of the two teachers took the class, and holding either of them to a
     // deadline would put one teacher's lateness on the other's row.
-    const counted = assignment.schedule.filter((slot) => slot.isRotating !== true);
-    if (counted.length === 0) continue;
+    // Asked per day rather than once per lesson — see `slotsOn`. A lesson that
+    // moved weekday mid-term was owed on the old day before the move and on the
+    // new one after it, and judging the whole window by today's arrangement would
+    // chase every teacher for days nobody ever taught.
+    const everTaught = [
+      assignment.schedule,
+      ...(assignment.scheduleHistory ?? []).map((s) => s.schedule),
+    ];
+    if (everTaught.every((schedule) => schedule.every((slot) => slot.isRotating === true)))
+      continue;
 
-    const bucket = bucketFor(assignment);
+    const { days, deadlines } = daysFor(assignment.classroomId);
 
     for (const day of days) {
+      const key = dayKey(day);
+      const counted = slotsOn(assignment, key).filter((slot) => slot.isRotating !== true);
       if (!counted.some((slot) => slot.dayOfWeek === day.getUTCDay())) continue;
 
-      const key = dayKey(day);
+      // Per day, because that is the grain cover is claimed at. This is the whole
+      // of the accountability transfer in this report: a day somebody stood in on
+      // lands on the stand-in's row, and the teacher who was away is neither
+      // credited nor chased for it.
+      const bucket = bucketFor(responsibleTeacher(assignment, key, options.substitutions));
       const deadline = deadlines.get(key) ?? null;
       const entry = writtenBy.get(`${assignment.teachingAssignmentId}|${key}`);
 
@@ -293,6 +375,7 @@ export function buildTimeliness(
 
   const rows: TimelinessRow[] = [];
   for (const bucket of byTeacher.values()) {
+    if (options.onlyTeacherId && bucket.teacherId !== options.onlyTeacherId) continue;
     const { lateHours, lastRecordedTime, ...rest } = bucket;
     const judged = rest.onTime + rest.late;
     rows.push({
@@ -332,8 +415,13 @@ export function buildTimeliness(
   // The last lesson day the report can actually judge — anything after it has a
   // deadline still in the future, and saying so is what stops the final days of
   // a window reading as a school that stopped filing.
+  //
+  // Across every class the report covers, not one of them: a day ມ.7 was off is
+  // not a day ມ.7 can be judged on, but it is still judged for the rest of the
+  // school, and the label belongs to the report as a whole.
   const judgedThrough =
-    [...deadlines.entries()]
+    [...perClass.values()]
+      .flatMap((entry) => [...entry.deadlines.entries()])
       .filter(([, deadline]) => deadline !== null && deadline <= now)
       .map(([key]) => key)
       .sort()

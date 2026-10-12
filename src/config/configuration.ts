@@ -40,6 +40,42 @@ export class EnvironmentVariables {
   @IsNotEmpty()
   MONGODB_URI: string;
 
+  /**
+   * The bot token from BotFather, or empty to run without Telegram.
+   *
+   * Optional on purpose: every environment that is not the school's server has
+   * no bot, and a missing token must leave the rest of the system working rather
+   * than refusing to boot. What it turns off is delivery — the notification is
+   * still written, and still shows in the app.
+   */
+  /**
+   * Whether the scheduled reminders run at all. Off unless switched on.
+   *
+   * Default off rather than on, because this is the one feature in the system
+   * that reaches staff without anybody asking it to: deploying the API for an
+   * unrelated change would otherwise start messaging seventeen teachers at half
+   * past five, which is not a thing a deploy should be able to do by accident.
+   *
+   * It gates the schedule, not the code. `POST /reminders/run/:kind` still works
+   * with this off, so the office can see what a reminder looks like before
+   * letting it loose on a clock.
+   */
+  @IsBoolean()
+  REMINDERS_ENABLED: boolean = false;
+
+  @IsString()
+  TELEGRAM_BOT_TOKEN: string = '';
+
+  /**
+   * The bot's @name, so the profile screen can offer a link that fills the code
+   * in rather than asking somebody to type six digits into a chat window.
+   *
+   * Not read from `getMe` at boot: that would make starting the API depend on
+   * Telegram being reachable, for a string that changes roughly never.
+   */
+  @IsString()
+  TELEGRAM_BOT_USERNAME: string = '';
+
   @IsString()
   REDIS_HOST: string = 'localhost';
 
@@ -137,6 +173,7 @@ export function validateEnv(raw: Record<string, unknown>): EnvironmentVariables 
     THROTTLE_TTL_SECONDS: asInt(raw.THROTTLE_TTL_SECONDS, 60),
     THROTTLE_LIMIT: asInt(raw.THROTTLE_LIMIT, 120),
     S3_FORCE_PATH_STYLE: asBoolean(raw.S3_FORCE_PATH_STYLE, true),
+    REMINDERS_ENABLED: asBoolean(raw.REMINDERS_ENABLED, false),
   });
 
   const errors = validateSync(config, { skipMissingProperties: false });

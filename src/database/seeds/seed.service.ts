@@ -1,3 +1,4 @@
+import { DEFAULT_REVIEW_THRESHOLDS } from 'src/common/homeroom-review/review-anomalies';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -383,6 +384,15 @@ export class SeedService {
         isPublic: false,
         description: 'Absences in a semester before a guardian notification is raised',
       },
+      {
+        key: 'attendance.latesPerAbsence',
+        value: 3,
+        category: 'attendance',
+        isPublic: false,
+        description:
+          'How many late arrivals count as one day absent without a reason. Every summary, ' +
+          'the monthly sheet and the report card read ວັນຂາດ through this rule.',
+      },
       // The school day. Teaching assignments are rejected outside this window,
       // which is what keeps a mistyped period off the timetable — and therefore
       // out of attendance, which takes its period from the timetable.
@@ -418,6 +428,33 @@ export class SeedService {
         description:
           'How far before the taught week a plan is due, and at what time. Applied when the ' +
           'plan is created; an existing plan keeps the deadline it was given.',
+      },
+      // The homeroom review's shortlist. Two scopes, because a child absent once a
+      // fortnight never trips a weekly rule and is failing the year by February —
+      // see `review-anomalies.ts`. These are a starting point and not yet the
+      // school's policy: the office has still to say how much is worth a phone
+      // call, and retuning them here needs no deploy.
+      // The day the school got the screen. Without it the report counts every
+      // ວັນພຸດ/ວັນສຸກ back to the start of term as missing, and the reminder names
+      // days nobody could have filed.
+      {
+        key: 'homeroomReview.startDate',
+        value: '2026-09-25',
+        category: 'homeroomReview',
+        isPublic: false,
+        description:
+          'The first day a homeroom review was owed — the go-live date. Review days before ' +
+          'it are not owed and not reported. Empty counts the whole term.',
+      },
+      {
+        key: 'homeroomReview.thresholds',
+        value: DEFAULT_REVIEW_THRESHOLDS,
+        category: 'homeroomReview',
+        isPublic: false,
+        description:
+          'When the ວັນພຸດ/ວັນສຸກ review sheet puts a child in front of the homeroom teacher. ' +
+          '`window` is applied to the days since the last review, `term` to the term to date; ' +
+          'a threshold of 0 switches that rule off.',
       },
       {
         key: 'exams.passingPercentage',

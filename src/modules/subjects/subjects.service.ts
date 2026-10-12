@@ -5,6 +5,7 @@ import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import { Subject, SubjectDocument } from 'src/database/schemas';
+import { isColumnMaxUsable, MARK_MAX } from '../monthly-marks/monthly-grading';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { GradeLevelsService } from '../grade-levels/grade-levels.service';
 import { SubjectGroupsService } from '../subject-groups/subject-groups.service';
@@ -196,7 +197,26 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
     return parent._id;
   }
 
+  /**
+   * A subject's own monthly maxima have to be a whole, usable scheme.
+   *
+   * The four columns must still total 10, because ສະເລ່ຍ, 3 ເດືອນ, ພາກຮຽນ, the
+   * class summary's average and every band and letter above them read a month on
+   * that scale — ພູມສາດ out of 9 would sit on the report card beside ຄະນິດສາດ as
+   * a subject its whole class had done worse at. Refused rather than corrected:
+   * a scheme the office half-typed is not one it meant.
+   */
+  private assertColumnMaxUsable(columnMax: CreateSubjectDto['monthlyColumnMax']): void {
+    if (columnMax && !isColumnMaxUsable(columnMax)) {
+      throw AppException.badRequest('score.columnMaxInvalid', {
+        field: 'monthlyColumnMax',
+        total: MARK_MAX,
+      });
+    }
+  }
+
   async create(dto: CreateSubjectDto, context: CrudContext) {
+    this.assertColumnMaxUsable(dto.monthlyColumnMax);
     await this.gradeLevels.assertExists(dto.gradeLevelId);
     if (dto.subjectGroupId) await this.subjectGroups.assertExists(dto.subjectGroupId);
     const parentSubjectId = dto.parentSubjectId
@@ -209,6 +229,7 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
         gradeLevelId: new Types.ObjectId(dto.gradeLevelId),
         subjectGroupId: dto.subjectGroupId ? new Types.ObjectId(dto.subjectGroupId) : null,
         parentSubjectId,
+        monthlyColumnMax: dto.monthlyColumnMax ?? null,
       } as Partial<SubjectDocument>,
       context,
     );
@@ -220,6 +241,7 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
     // *is* updatable — a school reorganises its groups without the subject
     // itself changing, and nothing is filed against `subjectGroupId`.
     if (dto.subjectGroupId) await this.subjectGroups.assertExists(dto.subjectGroupId);
+    this.assertColumnMaxUsable(dto.monthlyColumnMax);
 
     const patch: Record<string, unknown> = { ...dto };
     if (dto.subjectGroupId !== undefined) {

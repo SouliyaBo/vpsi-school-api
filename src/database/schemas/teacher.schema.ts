@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   GENDERS,
   Gender,
@@ -126,7 +126,7 @@ export class Teacher extends SoftDeletableDocument {
   @Prop({ type: String, default: null, trim: true, lowercase: true })
   email?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'Location', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location', default: null })
   villageId?: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })
@@ -208,7 +208,7 @@ export class Teacher extends SoftDeletableDocument {
    * the lesson-plan compliance matrix groups rows by for a teacher who has no
    * timetable yet.
    */
-  @Prop({ type: Types.ObjectId, ref: 'SubjectGroup', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SubjectGroup', default: null, index: true })
   subjectGroupId?: Types.ObjectId | null;
 
   get fullNameLo(): string {

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { GENDERS, Gender } from 'src/common/constants/enums';
 import { baseSchemaOptions, LAO_COLLATION, SoftDeletableDocument } from './base.schema';
 
@@ -42,7 +42,7 @@ export class Guardian extends SoftDeletableDocument {
   @Prop({ type: String, default: null, trim: true })
   workplace?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'Location', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location', default: null })
   villageId?: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })

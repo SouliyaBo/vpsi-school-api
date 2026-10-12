@@ -40,6 +40,8 @@ describe('RBAC (e2e)', () => {
   let studentId: string;
   let guardianId: string;
   let componentId: string;
+  /** The Monday maths lesson the assigned teacher owns — what cover is claimed on. */
+  let mathLessonId: string;
 
   /** Creates an account for a role and logs in, returning the access token. */
   async function createAccount(
@@ -146,7 +148,7 @@ describe('RBAC (e2e)', () => {
       .expect(201);
 
     // ── Assign the first teacher to maths in this classroom only ───────────
-    await http()
+    const mathLesson = await http()
       .post('/api/teaching-assignments')
       .set(auth(adminToken))
       .send({
@@ -159,6 +161,7 @@ describe('RBAC (e2e)', () => {
         schedule: [{ dayOfWeek: 1, startTime: '15:10', endTime: '16:00' }],
       })
       .expect(201);
+    mathLessonId = mathLesson.body.id;
 
     const component = await http()
       .post('/api/score-components')
@@ -251,6 +254,155 @@ describe('RBAC (e2e)', () => {
       // A teacher can enter and lock grades but not reopen them.
       expect(scores.actions).toEqual(expect.arrayContaining(['create', 'read', 'update']));
       expect(scores.actions).not.toContain('manage');
+    });
+  });
+
+  /**
+   * ການມອບໝາຍສອນແທນ — cover for a colleague's lesson.
+   *
+   * The gap this closes: the teacher standing in front of the class was not the
+   * teacher on the timetable, so they could not mark the roll or write the
+   * behaviour register, and the office was keying both in from a paper note. A
+   * claim admits them to those two and to nothing else.
+   *
+   * MONDAY is 2025-09-15, inside the seeded term and comfortably past — which is
+   * also why the office files the first claim: a teacher's own claim window shuts
+   * at the lesson's paperwork deadline, and that is the rule being tested here.
+   */
+  describe('lesson cover', () => {
+    const MONDAY = '2025-09-15';
+    const TUESDAY = '2025-09-16';
+    let claimId: string;
+
+    const rollCall = (token: string, date = MONDAY) =>
+      http()
+        .post('/api/attendances')
+        .set(auth(token))
+        .send({
+          teachingAssignmentId: mathLessonId,
+          date,
+          entries: [{ studentId, status: 'present' }],
+        });
+
+    it('refuses the roll call to a teacher who does not hold the lesson', async () => {
+      const response = await rollCall(tokens.unassignedTeacher).expect(403);
+
+      expect(response.body.messageKey).toBe('attendance.notAssignedTeacher');
+    });
+
+    it('shuts a teacher’s own claim window at the lesson’s paperwork deadline', async () => {
+      // Self-service does not mean open-ended: a claim on a lesson whose register
+      // was due weeks ago would move a gap off one teacher's row and onto
+      // another's long after either of them could have filled it.
+      const response = await http()
+        .post('/api/lesson-substitutions')
+        .set(auth(tokens.unassignedTeacher))
+        .send({ teachingAssignmentId: mathLessonId, date: MONDAY, reason: 'ລາປ່ວຍ' })
+        .expect(400);
+
+      expect(response.body.messageKey).toBe('substitution.claimWindowClosed');
+    });
+
+    it('lets the office file that cover, which the deadline does not bind', async () => {
+      const response = await http()
+        .post('/api/lesson-substitutions')
+        .set(auth(tokens.academicHead))
+        .send({
+          teachingAssignmentId: mathLessonId,
+          date: MONDAY,
+          substituteTeacherId: unassignedTeacherId,
+          reason: 'ລາປ່ວຍ',
+        })
+        .expect(201);
+
+      claimId = response.body.id;
+      expect(response.body.ownerTeacherId).toBe(assignedTeacherId);
+    });
+
+    it('now lets the stand-in mark that day’s roll, stamped as cover', async () => {
+      await rollCall(tokens.unassignedTeacher).expect(200);
+
+      const records = await http()
+        .get(`/api/attendances?studentId=${studentId}&from=${MONDAY}&to=${MONDAY}`)
+        .set(auth(adminToken))
+        .expect(200);
+
+      // `teacherId` stays the timetabled teacher — every per-subject figure is
+      // built on it — and the stand-in is named beside them. Both come back
+      // populated, because the log is read as "who, on what day".
+      expect(records.body.data[0].teacherId.id).toBe(assignedTeacherId);
+      expect(records.body.data[0].substituteTeacherId.id).toBe(unassignedTeacherId);
+    });
+
+    it('still refuses the stand-in the marks for that subject', async () => {
+      // The guard that matters most. A day's cover is not a term's grades, and
+      // scores are checked against the assignment rather than the day.
+      const response = await http()
+        .post('/api/scores/batch')
+        .set(auth(tokens.unassignedTeacher))
+        .send({ componentId, classroomId, entries: [{ studentId, score: 99 }] })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('score.notAssignedTeacher');
+    });
+
+    it('refuses a second claim on the same lesson-day', async () => {
+      // Two teachers who each believe they covered the period are told about each
+      // other rather than one quietly replacing the other.
+      const response = await http()
+        .post('/api/lesson-substitutions')
+        .set(auth(tokens.academicHead))
+        .send({
+          teachingAssignmentId: mathLessonId,
+          date: MONDAY,
+          substituteTeacherId: unassignedTeacherId,
+        })
+        .expect(409);
+
+      expect(response.body.messageKey).toBe('substitution.alreadyClaimed');
+    });
+
+    it('refuses cover for a day the lesson is not taught on', async () => {
+      const response = await http()
+        .post('/api/lesson-substitutions')
+        .set(auth(tokens.academicHead))
+        .send({
+          teachingAssignmentId: mathLessonId,
+          date: TUESDAY,
+          substituteTeacherId: unassignedTeacherId,
+        })
+        .expect(400);
+
+      expect(response.body.messageKey).toBe('attendance.lessonNotScheduled');
+    });
+
+    it('shows the claim to both teachers and to nobody else', async () => {
+      for (const token of [tokens.assignedTeacher, tokens.unassignedTeacher]) {
+        const response = await http().get('/api/lesson-substitutions').set(auth(token)).expect(200);
+        expect(response.body.meta.total).toBe(1);
+      }
+
+      // A student holds no grant on it at all.
+      await http().get('/api/lesson-substitutions').set(auth(tokens.student)).expect(403);
+    });
+
+    it('refuses the timetabled teacher the withdrawal of somebody else’s claim', async () => {
+      const response = await http()
+        .delete(`/api/lesson-substitutions/${claimId}`)
+        .set(auth(tokens.assignedTeacher))
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('substitution.notYours');
+    });
+
+    it('lets the stand-in withdraw their own, which closes the lesson to them again', async () => {
+      await http()
+        .delete(`/api/lesson-substitutions/${claimId}`)
+        .set(auth(tokens.unassignedTeacher))
+        .expect(204);
+
+      const response = await rollCall(tokens.unassignedTeacher).expect(403);
+      expect(response.body.messageKey).toBe('attendance.notAssignedTeacher');
     });
   });
 
@@ -588,6 +740,93 @@ describe('RBAC (e2e)', () => {
     });
   });
 
+  /**
+   * ການຕິດຕາມນັກຮຽນຂອງຄູປະຈຳຫ້ອງ — the two-sided gate.
+   *
+   * The review is the one place where a teacher writes a record *about their own
+   * oversight*, so both halves have to hold: a teacher may confirm their own room
+   * and nobody else's, and the report that names who has not reviewed is the
+   * office's rather than a colleague's.
+   */
+  describe('homeroom review scoping', () => {
+    it('denies a teacher the compliance report, which needs `manage`', async () => {
+      const response = await http()
+        .get('/api/homeroom-reviews/compliance')
+        .set(auth(tokens.assignedTeacher))
+        .expect(403);
+
+      expect(response.body.details.required).toEqual(['homeroom-reviews:manage']);
+    });
+
+    it('lets the academic head read it', async () => {
+      const response = await http()
+        .get('/api/homeroom-reviews/compliance')
+        .set(auth(tokens.academicHead))
+        .expect(200);
+
+      // Starts from the rooms, so the fixture's classrooms are rows whether or not
+      // anything has been filed against them.
+      expect(Array.isArray(response.body.rows)).toBe(true);
+      expect(response.body.summary.classrooms).toBeGreaterThan(0);
+    });
+
+    it('gives a homeroom teacher their own room, and the office none', async () => {
+      const mine = await http()
+        .get('/api/homeroom-reviews/mine')
+        .set(auth(tokens.assignedTeacher))
+        .expect(200);
+
+      expect(mine.body.map((row: { classroom: { id: string } }) => row.classroom.id)).toEqual([
+        classroomId,
+      ]);
+
+      // An office account is nobody's homeroom teacher: an empty list rather than
+      // the school's.
+      const office = await http()
+        .get('/api/homeroom-reviews/mine')
+        .set(auth(adminToken))
+        .expect(200);
+
+      expect(office.body).toEqual([]);
+    });
+
+    it('refuses a teacher the sheet for a room that is not theirs', async () => {
+      const response = await http()
+        .get(`/api/homeroom-reviews/sheet?classroomId=${otherClassroomId}`)
+        .set(auth(tokens.assignedTeacher))
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('homeroomReview.notHomeroomTeacher');
+    });
+
+    it('refuses a confirmation for a room that is not theirs', async () => {
+      const response = await http()
+        .post('/api/homeroom-reviews')
+        .set(auth(tokens.assignedTeacher))
+        .send({ classroomId: otherClassroomId, students: [] })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('homeroomReview.notHomeroomTeacher');
+    });
+
+    it('denies a student the review entirely', async () => {
+      await http()
+        .get(`/api/homeroom-reviews/sheet?classroomId=${classroomId}`)
+        .set(auth(tokens.student))
+        .expect(403);
+    });
+
+    it('refuses a date that is not a review day', async () => {
+      // A Sunday, whichever week the fixture's term falls in.
+      const response = await http()
+        .get(`/api/homeroom-reviews/sheet?classroomId=${classroomId}&dueDate=2026-09-27`)
+        .set(auth(tokens.assignedTeacher))
+        .expect(400);
+
+      expect(response.body.messageKey).toBe('homeroomReview.notReviewDay');
+    });
+  });
+
   describe('student and guardian self-access', () => {
     it('lets a student read their own record', async () => {
       const response = await http()
@@ -816,8 +1055,14 @@ describe('RBAC (e2e)', () => {
         .set(auth(tokens.student))
         .expect(200);
 
+      // `studentId` comes back populated, and until the cover tests above filed a
+      // roll call this suite held no attendance at all — so an `every` over an
+      // empty list passed without asserting anything. Both are fixed here.
+      expect(response.body.data.length).toBeGreaterThan(0);
       expect(
-        response.body.data.every((a: { studentId: string }) => a.studentId === studentId),
+        response.body.data.every(
+          (a: { studentId: { id: string } }) => a.studentId.id === studentId,
+        ),
       ).toBe(true);
     });
 

@@ -6,11 +6,14 @@ import {
   IsBoolean,
   IsDateString,
   IsIn,
+  IsInt,
   IsMongoId,
   IsNotEmpty,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -356,6 +359,29 @@ export class QueryStudentsDto extends PaginationQueryDto {
 
   @ApiPropertyOptional({
     description:
+      'Students whose active placement sits in this `ຫ້ອງພາກອັງກິດ`. Matched exactly — the ' +
+      'labels are free text, so `EP-A` and `ep a` are two rooms. Scoped to `schoolYearId`, ' +
+      'or to the active school year when that is omitted.',
+    example: 'EP-A',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(50)
+  englishClass?: string;
+
+  @ApiPropertyOptional({
+    description:
+      '`false` returns only placed students with no `ຫ້ອງພາກອັງກິດ` on file — who the ' +
+      'office still has to assign. `true` returns those who have one, whichever it is. ' +
+      'Ignored when `englishClass` names a room.',
+  })
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  @IsOptional()
+  englishClassSet?: boolean;
+
+  @ApiPropertyOptional({
+    description:
       'Placement filter. `false` returns only students with no active enrollment — the ' +
       'queue to place at the start of a term. `true` returns only placed students. ' +
       'Scoped to `schoolYearId`, or to the active school year when that is omitted.',
@@ -364,6 +390,19 @@ export class QueryStudentsDto extends PaginationQueryDto {
   @IsBoolean()
   @IsOptional()
   enrolled?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Age in whole years as of today — the same figure the list prints beside the name. ' +
+      'Matched on date of birth, so a child turns the next age on their birthday.',
+    example: 12,
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(99)
+  @IsOptional()
+  age?: number;
 
   @ApiPropertyOptional({
     description: 'School year the placement filters apply to. Defaults to the active year.',

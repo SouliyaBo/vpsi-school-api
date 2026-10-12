@@ -27,13 +27,69 @@ import { round2 } from '../term-results/grading';
 export const MONTHLY_COLUMNS = ['attendance', 'notebook', 'activity', 'test'] as const;
 export type MonthlyColumn = (typeof MONTHLY_COLUMNS)[number];
 
-/** ຂື້ນຫ້ອງ 1 · ປື້ມ 1 · ກິດຈະກຳ 2 · ກວດກາ 6 — the same for every subject. */
+/** ຂື້ນຫ້ອງ 1 · ປື້ມ 1 · ກິດຈະກຳ 2 · ກວດກາ 6 — what a subject is marked on unless it says otherwise. */
 export const COLUMN_MAX: Readonly<Record<MonthlyColumn, number>> = {
   attendance: 1,
   notebook: 1,
   activity: 2,
   test: 6,
 };
+
+/**
+ * One subject's own column maxima, where the school marks it differently.
+ *
+ * ສັງຄົມ takes no ປື້ມ mark: the notebook column is not kept at all and its point
+ * goes to ກິດຈະກຳ — ຂື້ນຫ້ອງ 1 · ກິດຈະກຳ 3 · ກວດກາ 6. That is the ສາຍວິຊາ itself
+ * at ມ.1–ມ.3, where it is marked as one subject, and ພູມສາດ, ສຶກສາພົນລະເມືອງ and
+ * ປະຫວັດສາດ each on their own at ມ.5 and ມ.6; at ມ.4 and ມ.7 the school marks the
+ * three like everything else, on 1 / 1 / 2 / 6.
+ *
+ * Held per subject rather than as a rule about names and grades, because the
+ * subject rows already exist one per grade — which is the only reason the same
+ * subject can be marked two ways at two grades — and the office can then change
+ * which columns it keeps without a release.
+ *
+ * A column at 0 is **not marked**, which is not the same as marked and scored
+ * zero: the form drops it rather than showing a cell nobody may fill, and a
+ * value sent for it is refused.
+ */
+export type ColumnMaxOverride = Partial<Record<MonthlyColumn, number>>;
+
+/**
+ * Whether an override may be stored against a subject.
+ *
+ * The four columns must still total 10. Everything above a month — ສະເລ່ຍ,
+ * 3 ເດືອນ, ພາກຮຽນ, ໝົດປີ, the class summary's average, every band and letter —
+ * reads a month on that scale, and a subject marked out of 9 would sit beside
+ * the others as one its whole class had done worse at. Refused whole rather than
+ * partly applied, for the reason the band cuts are.
+ */
+export function isColumnMaxUsable(override: ColumnMaxOverride | null | undefined): boolean {
+  if (!override) return false;
+
+  const values: number[] = [];
+  for (const column of MONTHLY_COLUMNS) {
+    const value = override[column];
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return false;
+    values.push(value);
+  }
+  return round2(values.reduce((sum, value) => sum + value, 0)) === MARK_MAX;
+}
+
+/** The maxima to mark a subject on: its own where it has usable ones, else the school's. */
+export function columnMaxFor(
+  override?: ColumnMaxOverride | null,
+): Readonly<Record<MonthlyColumn, number>> {
+  if (!isColumnMaxUsable(override)) return COLUMN_MAX;
+  return Object.fromEntries(
+    MONTHLY_COLUMNS.map((column) => [column, override?.[column] ?? 0]),
+  ) as Record<MonthlyColumn, number>;
+}
+
+/** The columns a subject is actually marked on — the ones worth more than nothing. */
+export function markedColumns(max: Readonly<Record<MonthlyColumn, number>>): MonthlyColumn[] {
+  return MONTHLY_COLUMNS.filter((column) => max[column] > 0);
+}
 
 /** Every part of the sheet is out of 10 — a month, an exam, a term, a year. */
 export const MARK_MAX = 10;
@@ -143,9 +199,18 @@ export function monthTotal(cells: MonthCells): number | null {
   return round2(written.reduce((sum, column) => sum + (cells[column] ?? 0), 0));
 }
 
-/** Whether a cell is within the mark its column is out of. */
-export function isWithinMax(column: MonthlyColumn, value: number): boolean {
-  return value >= 0 && value <= COLUMN_MAX[column];
+/**
+ * Whether a cell is within the mark its column is out of.
+ *
+ * `max` is the subject's own where it keeps one, so a ປື້ມ mark on a subject
+ * that has no notebook column fails here rather than being stored out of 0.
+ */
+export function isWithinMax(
+  column: MonthlyColumn,
+  value: number,
+  max: Readonly<Record<MonthlyColumn, number>> = COLUMN_MAX,
+): boolean {
+  return value >= 0 && value <= max[column];
 }
 
 /**

@@ -8,7 +8,14 @@ import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { ROSTER_STUDENT_SELECT } from 'src/common/utils/current-roll';
-import { Enrollment, EnrollmentDocument, Student, StudentDocument } from 'src/database/schemas';
+import {
+  Enrollment,
+  EnrollmentDocument,
+  SchoolYear,
+  SchoolYearDocument,
+  Student,
+  StudentDocument,
+} from 'src/database/schemas';
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ClassroomsService } from '../classrooms/classrooms.service';
@@ -18,6 +25,7 @@ import {
   ChangeEnrollmentStatusDto,
   CreateEnrollmentDto,
   QueryEnrollmentsDto,
+  UpdateEnrollmentDto,
 } from './dto/enrollment.dto';
 
 /**
@@ -56,6 +64,7 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
   constructor(
     @InjectModel(Enrollment.name) model: Model<EnrollmentDocument>,
     @InjectModel(Student.name) private readonly studentModel: Model<StudentDocument>,
+    @InjectModel(SchoolYear.name) private readonly schoolYearModel: Model<SchoolYearDocument>,
     audit: AuditLogsService,
     private readonly classrooms: ClassroomsService,
     private readonly tx: TransactionHelper,
@@ -71,6 +80,7 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
     if (query.schoolYearId) filter.schoolYearId = new Types.ObjectId(query.schoolYearId);
     if (query.gradeLevelId) filter.gradeLevelId = new Types.ObjectId(query.gradeLevelId);
     if (query.status) filter.status = query.status;
+    if (query.englishClass) filter.englishClass = query.englishClass;
 
     const sort = query.toSort(this.sortableFields, this.defaultSort);
     const [data, total] = await Promise.all([
@@ -100,6 +110,31 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
       .populate('gradeLevelId', 'code nameLo level')
       .sort({ enrolledAt: -1 })
       .exec();
+  }
+
+  /**
+   * The `ຫ້ອງພາກອັງກິດ` labels actually in use, for a filter to offer.
+   *
+   * Distinct over the placements themselves rather than a lookup table: the
+   * rooms have no register, so the only truth about which exist is which ones
+   * the office has written on a child. Sorted so the list reads the same twice
+   * running; blanks are dropped, since "no room" is its own filter.
+   */
+  async listEnglishClasses(schoolYearId?: string): Promise<string[]> {
+    const year = schoolYearId ? new Types.ObjectId(schoolYearId) : await this.activeSchoolYearId();
+
+    const labels = await this.model
+      .distinct('englishClass', {
+        status: 'active',
+        deletedAt: null,
+        englishClass: { $nin: [null, ''] },
+        ...(year ? { schoolYearId: year } : {}),
+      })
+      .exec();
+
+    return (labels as (string | null)[])
+      .filter((label): label is string => Boolean(label))
+      .sort((a, b) => a.localeCompare(b));
   }
 
   /** The class roster, in roll-number order. */
@@ -161,7 +196,11 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
 
         await this.tx.run((session) =>
           this.enrollWithinTransaction(
-            { studentId: student._id.toString(), classroomId: item.classroomId },
+            {
+              studentId: student._id.toString(),
+              classroomId: item.classroomId,
+              englishClass: item.englishClass,
+            },
             session,
             context,
           ),
@@ -183,6 +222,29 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
 
     this.logger.log(`Bulk enroll: ${result.enrolled} enrolled, ${result.failed} failed`);
     return result;
+  }
+
+  /**
+   * Edits the English-programme room on an existing placement.
+   *
+   * Not transactional: unlike a move this touches nothing but the one row — no
+   * headcount, no roll number, no second enrollment.
+   */
+  async update(
+    id: string,
+    dto: UpdateEnrollmentDto,
+    context: CrudContext,
+  ): Promise<EnrollmentDocument> {
+    await this.findOneOrFail(id);
+
+    const changes: Partial<EnrollmentDocument> = {};
+    // `undefined` means "not sent" and an empty string means "clear it" — the
+    // office removing a child from the English programme has to be expressible.
+    if (dto.englishClass !== undefined) {
+      changes.englishClass = dto.englishClass.trim() || null;
+    }
+
+    return this.updateDocument(id, changes, context);
   }
 
   /**
@@ -256,6 +318,11 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
               enrolledAt: new Date(),
               status: 'active',
               rollNumber: await this.classrooms.nextRollNumber(destination._id, session),
+              // The English rooms are not the homerooms, so moving between
+              // homerooms says nothing about them. Carried over rather than
+              // dropped: a wrong label the office can see and fix beats a blank
+              // one nobody notices until the English teacher asks.
+              englishClass: enrollment.englishClass ?? null,
             },
           ],
           { session },
@@ -279,6 +346,16 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /** The active school year, or `null` when the school has not opened one. */
+  private async activeSchoolYearId(): Promise<Types.ObjectId | null> {
+    const active = await this.schoolYearModel
+      .findOne({ isActive: true, deletedAt: null })
+      .select('_id')
+      .lean()
+      .exec();
+    return active?._id ?? null;
+  }
 
   /**
    * A homeroom teacher may place a student in their own room and nowhere else.
@@ -350,6 +427,7 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
         enrolledAt: dto.enrolledAt ? new Date(dto.enrolledAt) : new Date(),
         status: 'active',
         rollNumber: await this.classrooms.nextRollNumber(classroom._id, session),
+        englishClass: dto.englishClass?.trim() || null,
       } as Partial<EnrollmentDocument>,
       { ...context, session },
     );

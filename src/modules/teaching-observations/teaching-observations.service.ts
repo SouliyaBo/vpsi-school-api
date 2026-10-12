@@ -17,6 +17,7 @@ import {
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import {
   CreateTeachingObservationDto,
+  NextVisitQueryDto,
   ObservationSummaryQueryDto,
   QueryTeachingObservationsDto,
   UpdateTeachingObservationDto,
@@ -67,6 +68,27 @@ export interface TeacherObservationSummary {
   /** Mean mark per criterion, keyed by rubric key; `null` where never marked. */
   averageByCriterion: Record<string, number | null>;
   lastObservedAt: string | null;
+}
+
+/**
+ * The four fields a ຄັ້ງທີ is counted within.
+ *
+ * One observer's run of visits to one teacher's subject, inside a term. Anything
+ * outside this tuple starts its own count at 1, which is what lets two observers
+ * each file their own ຄັ້ງທີ 1 about the same teacher. The classroom is not part
+ * of it: the same lesson taught to a second room is the run's next visit.
+ */
+interface VisitScope {
+  teacherId: Types.ObjectId;
+  observerId: Types.ObjectId;
+  subjectId: Types.ObjectId;
+  semesterId: Types.ObjectId;
+}
+
+/** What the form shows in ປະເມີນຄັ້ງທີ before anything has been typed. */
+export interface NextVisitNumber {
+  visitNumber: number;
+  semesterId: string;
 }
 
 export interface ObservationSummary {
@@ -273,6 +295,35 @@ export class TeachingObservationsService {
     };
   }
 
+  /**
+   * ປະເມີນຄັ້ງທີ the form should show before anything is typed.
+   *
+   * The number is derived on create anyway; this endpoint exists so the observer
+   * can *see* it while filling the head of the sheet, because the field is also
+   * typeable — somebody copying a paper sheet headed ຄັ້ງທີ 2 must be able to
+   * say so. Left to guess, they type the number on their own paper and collide
+   * with a colleague's sheet, which is the whole reason this changed.
+   *
+   * The classroom is not asked for: it is not part of the count, so the number
+   * is answerable as soon as the teacher and the subject are named.
+   *
+   * `resolveObserver` rather than a raw id: who a teacher may count for is the
+   * same rule as who they may file as, and it is not restated here.
+   */
+  async nextVisit(query: NextVisitQueryDto, actor: AuthenticatedUser): Promise<NextVisitNumber> {
+    const semester = await this.resolveSemester(query.semesterId);
+    const observerId = await this.resolveObserver(query.observerId, actor);
+
+    const visitNumber = await this.nextVisitNumber({
+      teacherId: new Types.ObjectId(query.teacherId),
+      observerId,
+      subjectId: new Types.ObjectId(query.subjectId),
+      semesterId: semester._id as Types.ObjectId,
+    });
+
+    return { visitNumber, semesterId: String(semester._id) };
+  }
+
   // ── Writes ────────────────────────────────────────────────────────────────
 
   async create(
@@ -305,18 +356,20 @@ export class TeachingObservationsService {
 
     const scores = normalizeScores(dto.scores ?? []);
     const totals = computeTotals(scores);
-    const visitNumber =
-      dto.visitNumber ?? (await this.nextVisitNumber(teacher._id, semester._id as Types.ObjectId));
+    const scope: VisitScope = {
+      teacherId: teacher._id,
+      observerId,
+      subjectId: new Types.ObjectId(dto.subjectId),
+      semesterId: semester._id as Types.ObjectId,
+    };
+    const visitNumber = dto.visitNumber ?? (await this.nextVisitNumber(scope));
 
     const created = await this.model
       .create({
-        teacherId: teacher._id,
-        observerId,
+        ...scope,
         recordedById: new Types.ObjectId(actor.sub),
-        subjectId: new Types.ObjectId(dto.subjectId),
         subjectGroupId: subject.subjectGroupId ?? null,
         classroomId: new Types.ObjectId(dto.classroomId),
-        semesterId: semester._id,
         observedAt: toUtcMidnight(dto.observedAt),
         visitNumber,
         scores,
@@ -367,7 +420,11 @@ export class TeachingObservationsService {
     const before = {
       totalScore: sheet.totalScore,
       observerId: String(sheet.observerId),
+      visitNumber: sheet.visitNumber,
     };
+
+    /** The scope the sheet is in now, to compare against where the edit puts it. */
+    const wasIn = visitScopeKey(sheet);
 
     if (dto.observerId) {
       sheet.observerId = await this.resolveObserver(dto.observerId, actor);
@@ -398,7 +455,30 @@ export class TeachingObservationsService {
       sheet.maxScore = totals.maxScore;
     }
 
-    await sheet.save();
+    /**
+     * A draft moved to another observer or subject is renumbered.
+     *
+     * ຄັ້ງທີ counts within one observer's visits to one subject, so carrying the
+     * old number across would either collide with a sheet already filed in the
+     * new scope or claim a visit that never happened there. The sheet itself is
+     * excluded from the count — it is arriving, not already present. Correcting
+     * the room changes nothing, since the room is not part of the count.
+     */
+    if (visitScopeKey(sheet) !== wasIn) {
+      sheet.visitNumber = await this.nextVisitNumber(
+        {
+          teacherId: sheet.teacherId,
+          observerId: sheet.observerId,
+          subjectId: sheet.subjectId,
+          semesterId: sheet.semesterId,
+        },
+        sheet._id,
+      );
+    }
+
+    await sheet.save().catch((error: unknown) => {
+      throw this.asDuplicateVisit(error, sheet.visitNumber);
+    });
 
     await this.audit.record({
       userId: actor.sub,
@@ -407,7 +487,11 @@ export class TeachingObservationsService {
       entityType: 'TeachingObservation',
       entityId: sheet._id,
       oldValue: before,
-      newValue: { totalScore: sheet.totalScore, observerId: String(sheet.observerId) },
+      newValue: {
+        totalScore: sheet.totalScore,
+        observerId: String(sheet.observerId),
+        visitNumber: sheet.visitNumber,
+      },
       ip,
     });
 
@@ -645,13 +729,18 @@ export class TeachingObservationsService {
     return semester;
   }
 
-  /** ປະເມີນຄັ້ງທີ — one past the highest this teacher has had this term. */
-  private async nextVisitNumber(
-    teacherId: Types.ObjectId,
-    semesterId: Types.ObjectId,
-  ): Promise<number> {
+  /**
+   * ປະເມີນຄັ້ງທີ — one past the highest already in this scope.
+   *
+   * `exclude` is the sheet being renumbered, when a draft is moved: it must not
+   * count itself into the run it is joining.
+   */
+  private async nextVisitNumber(scope: VisitScope, exclude?: Types.ObjectId): Promise<number> {
+    const filter: FilterQuery<TeachingObservationDocument> = { ...scope, deletedAt: null };
+    if (exclude) filter._id = { $ne: exclude };
+
     const latest = await this.model
-      .findOne({ teacherId, semesterId, deletedAt: null })
+      .findOne(filter)
       .select('visitNumber')
       .sort({ visitNumber: -1 })
       .lean()
@@ -673,6 +762,19 @@ export class TeachingObservationsService {
     }
     return error;
   }
+}
+
+/**
+ * A scope as one comparable string.
+ *
+ * `String(...)` per field rather than `===` on the ids: these are ObjectIds on a
+ * hydrated document and plain values elsewhere, and comparing them by identity
+ * is the mistake this codebase keeps having to unmake.
+ */
+function visitScopeKey(sheet: TeachingObservationDocument): string {
+  return [sheet.teacherId, sheet.observerId, sheet.subjectId, sheet.semesterId]
+    .map((id) => String(id))
+    .join('|');
 }
 
 /** The mean, to one decimal; `null` for an empty set rather than a misleading 0. */

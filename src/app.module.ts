@@ -18,6 +18,8 @@ import { AttendancesModule } from './modules/attendances/attendances.module';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BehaviorLogsModule } from './modules/behavior-logs/behavior-logs.module';
+import { LessonSubstitutionsModule } from './modules/lesson-substitutions/lesson-substitutions.module';
+import { HomeroomReviewsModule } from './modules/homeroom-reviews/homeroom-reviews.module';
 import { MonthlyMarksModule } from './modules/monthly-marks/monthly-marks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
@@ -36,6 +38,8 @@ import { TeachingObservationsModule } from './modules/teaching-observations/teac
 import { ExamPapersModule } from './modules/exam-papers/exam-papers.module';
 import { LocationsModule } from './modules/locations/locations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { RemindersModule } from './modules/reminders/reminders.module';
+import { TelegramModule } from './modules/telegram/telegram.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { SchoolYearsModule } from './modules/school-years/school-years.module';
@@ -48,6 +52,7 @@ import { StudentsModule } from './modules/students/students.module';
 import { SubjectGroupsModule } from './modules/subject-groups/subject-groups.module';
 import { SubjectsModule } from './modules/subjects/subjects.module';
 import { TeachersModule } from './modules/teachers/teachers.module';
+import { TeacherHandoverModule } from './modules/teacher-handover/teacher-handover.module';
 import { TeachingAssignmentsModule } from './modules/teaching-assignments/teaching-assignments.module';
 import { TermResultsModule } from './modules/term-results/term-results.module';
 import { VaccinationsModule } from './modules/vaccinations/vaccinations.module';
@@ -131,7 +136,9 @@ import { UsersModule } from './modules/users/users.module';
     RecordScopeModule,
     StorageModule,
     AuditLogsModule,
+    TelegramModule,
     NotificationsModule,
+    RemindersModule,
     SettingsModule,
     HealthModule,
 
@@ -154,6 +161,11 @@ import { UsersModule } from './modules/users/users.module';
 
     // Phase 2 — academic operations
     TeachingAssignmentsModule,
+    // ການສົ່ງມອບການສອນ — behind the timetable and the rooms it moves.
+    TeacherHandoverModule,
+    // ການມອບໝາຍສອນແທນ — beside the timetable it is a claim against, and ahead of
+    // the two logs it opens, which is the order the day runs in.
+    LessonSubstitutionsModule,
     EnrollmentsModule,
     ScoreComponentsModule,
     ScoresModule,
@@ -161,6 +173,7 @@ import { UsersModule } from './modules/users/users.module';
     ConductDeductionsModule,
     AttendancesModule,
     BehaviorLogsModule,
+    HomeroomReviewsModule,
     MonthlyMarksModule,
     TermResultsModule,
     VaccinationsModule,

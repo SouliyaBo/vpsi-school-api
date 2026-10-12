@@ -4,6 +4,7 @@ import { ClientIp, CurrentUser, Public, RequirePermissions } from 'src/common/de
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import {
   CreateTeachingObservationDto,
+  NextVisitQueryDto,
   ObservationSummaryQueryDto,
   QueryTeachingObservationsDto,
   UpdateTeachingObservationDto,
@@ -66,6 +67,18 @@ export class TeachingObservationsController {
     return this.service.summary(query, actor);
   }
 
+  @Get('next-visit')
+  @RequirePermissions({ resource: 'teaching-observations', action: 'read' })
+  @ApiOperation({
+    summary: 'ປະເມີນຄັ້ງທີ the form should offer',
+    description:
+      'The next number in this observer’s run of visits to this teacher’s lesson in this ' +
+      'subject this term. Declared above `:id` so the path is not read as an id.',
+  })
+  nextVisit(@Query() query: NextVisitQueryDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.service.nextVisit(query, actor);
+  }
+
   @Get(':id')
   @RequirePermissions({ resource: 'teaching-observations', action: 'read' })
   @ApiOperation({ summary: 'One sheet' })
@@ -79,7 +92,8 @@ export class TeachingObservationsController {
     summary: 'Start a sheet',
     description:
       'Created as a draft, so it can be part-filled at the back of the room. `visitNumber` is ' +
-      'derived as the teacher’s next visit of the term unless one is given.',
+      'derived unless one is given — this observer’s next visit to this teacher’s lesson in ' +
+      'this subject this term, so two observers may each file their own ຄັ້ງທີ 1.',
   })
   create(
     @Body() dto: CreateTeachingObservationDto,

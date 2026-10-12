@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   TEACHING_OBSERVATION_STATUSES,
   TeachingObservationStatus,
@@ -52,7 +52,7 @@ export type TeachingObservationDocument = HydratedDocument<TeachingObservation>;
 @Schema({ collection: 'teachingObservations', ...baseSchemaOptions })
 export class TeachingObservation extends SoftDeletableDocument {
   /** ຊື່ຜູ້ຖືກປະເມີນ (ຄູສອນ) — the teacher whose lesson was watched. */
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
   teacherId: Types.ObjectId;
 
   /**
@@ -64,15 +64,15 @@ export class TeachingObservation extends SoftDeletableDocument {
    * office routinely keys in a deputy's handwritten sheet. Who typed it is
    * `recordedById`, and it is only ever an audit answer.
    */
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
   observerId: Types.ObjectId;
 
   /** The account that entered the sheet — not necessarily the observer's. */
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   recordedById?: Types.ObjectId | null;
 
   /** ວິຊາທີ່ສອນ — the lesson that was watched. */
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
   /**
@@ -82,14 +82,14 @@ export class TeachingObservation extends SoftDeletableDocument {
    * by department, and a subject that is refiled under a different ສາຍວິຊາ next
    * year must not retroactively move a sheet that was written under the old one.
    */
-  @Prop({ type: Types.ObjectId, ref: 'SubjectGroup', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SubjectGroup', default: null, index: true })
   subjectGroupId?: Types.ObjectId | null;
 
   /** ຫ້ອງ */
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
   /** ວັນທີ — the day of the visit, at UTC midnight. */
@@ -97,11 +97,20 @@ export class TeachingObservation extends SoftDeletableDocument {
   observedAt: Date;
 
   /**
-   * ປະເມີນຄັ້ງທີ — which visit of the term this is for this teacher.
+   * ປະເມີນຄັ້ງທີ — which visit this is, for this observer and this subject.
    *
-   * Counted per teacher per semester, and derived when the client leaves it out,
-   * so the number on the screen means the same thing as the number on the paper
-   * form: "the third time we have sat in on ນາງ ຄຳ this term".
+   * Counted per observer per observed teacher per subject within the semester,
+   * and derived when the client leaves it out. The scope is what the number
+   * means on the paper form: the observer writes ຄັ້ງທີ 1 on the first sheet
+   * *they* fill in about that teacher's subject, and a second observer sitting
+   * in writes ຄັ້ງທີ 1 on theirs. Counting per teacher alone made the deputy's
+   * first visit ຄັ້ງທີ 3 because two colleagues had been in that term — a
+   * number nobody could reconcile with the sheet in their hand.
+   *
+   * The classroom is deliberately *not* in the scope: watching the same teacher
+   * teach the same subject to ມ.3/ກ and then to ມ.3/ຂ is the second visit of
+   * that run, not a fresh first one. The office counts visits to a teacher's
+   * teaching, not to a room.
    */
   @Prop({ type: Number, required: true, min: 1 })
   visitNumber: number;
@@ -152,15 +161,22 @@ export class TeachingObservation extends SoftDeletableDocument {
 export const TeachingObservationSchema = SchemaFactory.createForClass(TeachingObservation);
 
 /**
- * One sheet per visit number per teacher per term.
+ * One sheet per visit number, within one observer's run of visits to one subject.
  *
- * Two sheets both headed ຄັ້ງທີ 2 would leave the office with two answers to
- * "how did that visit go" and no rule for which is the real one. The number is
- * derived on create precisely so this never has to be explained to a user, and
- * the index is what holds when two observers file at the same moment.
+ * Two sheets by the same observer both headed ຄັ້ງທີ 2 about the same teacher
+ * and subject would leave the office with two answers to "how did that visit go"
+ * and no rule for which is the real one. Two *different* observers each headed
+ * ຄັ້ງທີ 1 are not that: they are two people who each sat in once, which is the
+ * ordinary case and the reason the observer is in the key.
+ *
+ * `classroomId` is not in the key: a second room is a second visit in the same
+ * run, so it takes the next number rather than starting again at 1.
+ *
+ * The number is derived on create precisely so this never has to be explained to
+ * a user, and the index is what holds when two observers file at the same moment.
  */
 TeachingObservationSchema.index(
-  { teacherId: 1, semesterId: 1, visitNumber: 1 },
+  { teacherId: 1, observerId: 1, subjectId: 1, semesterId: 1, visitNumber: 1 },
   { unique: true, partialFilterExpression: { deletedAt: null } },
 );
 /** The list, and the per-teacher summary behind it. */

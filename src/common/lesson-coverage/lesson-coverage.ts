@@ -1,4 +1,9 @@
 import {
+  responsibleTeacher,
+  type LessonSubstitute,
+  type SubstitutionIndex,
+} from '../lesson-access/lesson-write-access';
+import {
   endOfWeek,
   startOfWeek,
   toUtcMidnight,
@@ -70,6 +75,17 @@ export interface CoverageSlot {
   isRotating?: boolean;
 }
 
+/**
+ * One arrangement of a lesson's periods and the days it was in force.
+ *
+ * `from` inclusive, `to` exclusive, both `yyyy-MM-dd` — see `ScheduleSpell`.
+ */
+export interface CoverageScheduleSpell {
+  from: string;
+  to: string | null;
+  schedule: CoverageSlot[];
+}
+
 /** One (teacher, subject, class) the timetable says is taught. */
 export interface CoverageAssignment {
   teachingAssignmentId: string;
@@ -89,6 +105,24 @@ export interface CoverageAssignment {
    * counts twice.
    */
   schedule: CoverageSlot[];
+  /**
+   * Earlier arrangements of those periods, oldest first.
+   *
+   * What stops a timetable revision rewriting the weeks behind it: a report walks
+   * days, so it has to ask what the timetable said *on that day* rather than what
+   * it says now. Omitted or empty means the lesson has never moved, and `schedule`
+   * is the answer for every day — which is every lesson in a school that revises
+   * nothing.
+   */
+  scheduleHistory?: CoverageScheduleSpell[];
+}
+
+/** One day's worth of what the log holds, for a window that has to be split. */
+export interface CoverageWrittenDay {
+  /** `yyyy-MM-dd`. */
+  date: string;
+  entries: number;
+  studentsNoted: number;
 }
 
 /** What the log actually holds for one assignment inside the window. */
@@ -105,6 +139,16 @@ export interface CoverageWritten {
    * day went unwritten rather than only how many did.
    */
   dates: string[];
+  /**
+   * The same counts, per day.
+   *
+   * Needed only when a window has to be split between a teacher and a stand-in who
+   * covered part of it: `entries` and `studentsNoted` are totals over the whole
+   * window, and a total cannot be divided between two people after the fact.
+   * Optional, so a caller with nothing to split keeps handing over the totals and
+   * the ordinary row is computed exactly as it always was.
+   */
+  perDay?: CoverageWrittenDay[];
 }
 
 export interface CoverageRow extends Omit<CoverageAssignment, 'schedule'> {
@@ -128,6 +172,17 @@ export interface CoverageRow extends Omit<CoverageAssignment, 'schedule'> {
   /** `yyyy-MM-dd` of the last entry in the window. */
   lastDate: string | null;
   status: CoverageStatus;
+  /**
+   * This row is a stand-in's share of somebody else's lesson.
+   *
+   * A substituted lesson comes back as two rows rather than one relabelled row:
+   * the days each of them was responsible for, under their own name. That is what
+   * makes the report add up — the reminder built on it messages whoever the row
+   * names, and a single row could only ever name one of the two.
+   */
+  isSubstitute?: boolean;
+  /** The timetabled teacher this row is covering for; `null` on an ordinary row. */
+  coveringForTeacherName?: string | null;
 }
 
 export interface CoverageSummary {
@@ -187,6 +242,20 @@ export interface CoverageWindow {
    * that omits it gets the old behaviour and should be treated as not yet wired.
    */
   nonTeachingDays?: ReadonlySet<string>;
+  /**
+   * The same, for one classroom — the school's days off plus that class's own.
+   *
+   * The school stands a single year or a single room down without closing:
+   * `ມ.7` sitting a national exam, a room whose teacher is away. Those days are
+   * non-teaching for that class and ordinary teaching days for every other, so
+   * one shared set cannot express them — it would either owe `ມ.7` a lesson it
+   * was excused or excuse the whole school along with it.
+   *
+   * Given as a lookup rather than a map so the caller decides how a room
+   * resolves to its closures; `nonTeachingDays` stays the answer for a room it
+   * has nothing special to say about.
+   */
+  nonTeachingDaysFor?: (classroomId: string) => ReadonlySet<string> | undefined;
 }
 
 /** The term's dates, however they are carried. */
@@ -304,13 +373,16 @@ export async function resolveCoverageSemester<T extends SemesterDates>(
  * bounds say whether the school was in session at all, and the calendar says
  * whether this particular day inside it was taught.
  */
-function teachingDays(window: CoverageWindow): Date[] {
+function teachingDays(window: CoverageWindow, classroomId?: string): Date[] {
+  const off =
+    (classroomId ? window.nonTeachingDaysFor?.(classroomId) : undefined) ?? window.nonTeachingDays;
+
   const days: Date[] = [];
   for (let cursor = window.start; cursor <= window.end;) {
     const inTerm =
       (!window.semesterStart || cursor >= window.semesterStart) &&
       (!window.semesterEnd || cursor <= window.semesterEnd);
-    const taught = !window.nonTeachingDays?.has(cursor.toISOString().slice(0, 10));
+    const taught = !off?.has(cursor.toISOString().slice(0, 10));
     if (inTerm && taught) days.push(cursor);
     cursor = new Date(cursor.getTime() + MS_PER_DAY);
   }
@@ -336,41 +408,86 @@ export function buildCoverage(
   window: CoverageWindow,
   assignments: CoverageAssignment[],
   written: CoverageWritten[],
-  options: { covered: CoverageRule; semester?: LessonCoverage['semester'] },
+  options: {
+    covered: CoverageRule;
+    semester?: LessonCoverage['semester'];
+    /**
+     * The lesson-days somebody stood in on — see `LessonSubstitution`.
+     *
+     * This is the whole of how a covered day stops being owed by the teacher who
+     * was away. Nothing is stored against them to be corrected: the report never
+     * held whose day it was, it derives it, so a claim filed at eight in the
+     * morning is accounted for the first time the report is read afterwards.
+     *
+     * Optional, and an absent index simply means nobody covered anything — which
+     * is what every window looked like before the school could say otherwise.
+     */
+    substitutions?: SubstitutionIndex;
+  },
 ): LessonCoverage {
-  const days = teachingDays(window);
+  // Per classroom, because a class can be off on a day the school teaches. Cached
+  // by room: a week is a handful of rooms and thirty-odd assignments, so walking
+  // the window once per assignment would be the same answer computed six times.
+  const daysByClassroom = new Map<string, Date[]>();
+  const daysFor = (classroomId: string) => {
+    const cached = daysByClassroom.get(classroomId);
+    if (cached) return cached;
+    const computed = teachingDays(window, classroomId);
+    daysByClassroom.set(classroomId, computed);
+    return computed;
+  };
+
   const byAssignment = new Map(written.map((entry) => [entry.teachingAssignmentId, entry]));
 
   const rows: CoverageRow[] = [];
   for (const assignment of assignments) {
-    const { schedule, ...meta } = assignment;
-    const counted = schedule.filter((slot) => slot.isRotating !== true);
+    // Split off the row's own fields: the timetable is read per day below rather
+    // than copied onto the row.
+    const { schedule, scheduleHistory, ...meta } = assignment;
+    const timetable = { schedule, scheduleHistory };
+    const days = daysFor(assignment.classroomId);
+    /**
+     * Asked per day, not once per lesson: a lesson that moved from Monday to
+     * Wednesday was taught on Mondays before the move and Wednesdays after, and a
+     * report that reads only today's arrangement reports the one it never had.
+     */
     const periodsOn = (day: Date) =>
-      counted.filter((slot) => slot.dayOfWeek === day.getUTCDay()).length;
+      slotsOn(timetable, weekKey(day)).filter(
+        (slot) => slot.isRotating !== true && slot.dayOfWeek === day.getUTCDay(),
+      ).length;
 
-    const lessonsTimetabled = days.reduce((total, day) => total + periodsOn(day), 0);
-    if (lessonsTimetabled === 0) continue;
-
-    const elapsed = days.filter((day) => day <= window.asOf && periodsOn(day) > 0);
-    const lessonsElapsed = elapsed.reduce((total, day) => total + periodsOn(day), 0);
-    const lessonDates = elapsed.map(weekKey);
+    const taught = days.filter((day) => periodsOn(day) > 0);
+    if (taught.length === 0) continue;
 
     const entry = byAssignment.get(assignment.teachingAssignmentId);
-    const entries = entry?.entries ?? 0;
-    const writtenOn = new Set(entry?.dates ?? []);
-    const missingDates = lessonDates.filter((date) => !writtenOn.has(date));
 
-    rows.push({
-      ...meta,
-      lessonsTimetabled,
-      lessonsElapsed,
-      lessonDates,
-      missingDates,
-      entries,
-      studentsNoted: entry?.studentsNoted ?? 0,
-      lastDate: lastOf(entry?.dates),
-      status: statusOf(options.covered, lessonsElapsed, entries, missingDates.length),
-    });
+    /**
+     * The window's lesson days, split between whoever was responsible for each.
+     *
+     * Insertion order puts the timetabled teacher first whenever any day is still
+     * theirs, which keeps the ordinary report reading as it always did; a lesson
+     * covered from end to end leaves only the stand-in's row.
+     */
+    const byTeacher = new Map<string, { who: LessonSubstitute; days: Date[] }>();
+    for (const day of taught) {
+      const who = responsibleTeacher(assignment, weekKey(day), options.substitutions);
+      const bucket = byTeacher.get(who.teacherId);
+      if (bucket) bucket.days.push(day);
+      else byTeacher.set(who.teacherId, { who, days: [day] });
+    }
+
+    for (const [teacherId, bucket] of byTeacher) {
+      const isSubstitute = teacherId !== assignment.teacherId;
+      rows.push(
+        buildRow(meta, bucket.who, bucket.days, periodsOn, window.asOf, entry, options.covered, {
+          isSubstitute,
+          // Only when the row is not the whole of the lesson, so an untouched
+          // report carries no new fields at all.
+          split: byTeacher.size > 1 || isSubstitute,
+          ownerName: assignment.teacherName,
+        }),
+      );
+    }
   }
 
   rows.sort(
@@ -390,6 +507,101 @@ export function buildCoverage(
     semester: options.semester ?? null,
     rows,
     summary: summarize(rows),
+  };
+}
+
+/**
+ * The periods a lesson was taught in on one day.
+ *
+ * The whole of effective-dating, in one lookup. A lesson with no recorded moves
+ * answers with its current arrangement for every day, which is both the common
+ * case and the correct one.
+ *
+ * A day earlier than the oldest spell answers with that spell: it is the oldest
+ * arrangement anybody wrote down, so it is the best available account of what the
+ * timetable said before — and it is what the report said for that day before the
+ * first revision was recorded.
+ */
+export function slotsOn(
+  assignment: Pick<CoverageAssignment, 'schedule' | 'scheduleHistory'>,
+  day: string,
+): CoverageSlot[] {
+  const spells = assignment.scheduleHistory;
+  if (!spells || spells.length === 0) return assignment.schedule;
+
+  const inForce = spells.find(
+    (spell) => spell.from <= day && (spell.to === null || day < spell.to),
+  );
+  if (inForce) return inForce.schedule;
+
+  if (day < spells[0].from) return spells[0].schedule;
+  return assignment.schedule;
+}
+
+/**
+ * One report row: a lesson, one teacher, and the days of it that were theirs.
+ *
+ * Extracted because it is now called once per responsible teacher rather than once
+ * per lesson, and the two callers must not drift — the counts on a stand-in's row
+ * and on the row of the teacher they covered for come out of the same arithmetic
+ * or the report stops adding up.
+ *
+ * `entries` and `studentsNoted` come off `perDay` when the row is a share of the
+ * lesson rather than the whole of it. Without `perDay` a shared row falls back to
+ * counting the days written on, which is exactly what the roll call's own totals
+ * already are, and leaves `studentsNoted` at zero rather than inventing a split of
+ * a number that cannot be divided.
+ */
+function buildRow(
+  meta: Omit<CoverageAssignment, 'schedule'>,
+  who: LessonSubstitute,
+  days: Date[],
+  periodsOn: (day: Date) => number,
+  asOf: Date,
+  entry: CoverageWritten | undefined,
+  rule: CoverageRule,
+  attribution: { isSubstitute: boolean; split: boolean; ownerName: string },
+): CoverageRow {
+  const lessonsTimetabled = days.reduce((total, day) => total + periodsOn(day), 0);
+  const elapsed = days.filter((day) => day <= asOf);
+  const lessonsElapsed = elapsed.reduce((total, day) => total + periodsOn(day), 0);
+  const lessonDates = elapsed.map(weekKey);
+
+  const writtenOn = new Set(entry?.dates ?? []);
+  const missingDates = lessonDates.filter((date) => !writtenOn.has(date));
+
+  // Whose entries these are. Unsplit, they are the lesson's own totals — the
+  // report as it stood. Split, only the days this teacher held count, including
+  // days still ahead of `asOf`: under `anyEntry` a register filed early is filed.
+  const mine = new Set(days.map(weekKey));
+  const perDay = entry?.perDay?.filter((day) => mine.has(day.date));
+  const entries = !attribution.split
+    ? (entry?.entries ?? 0)
+    : perDay
+      ? perDay.reduce((total, day) => total + day.entries, 0)
+      : [...writtenOn].filter((date) => mine.has(date)).length;
+  const studentsNoted = !attribution.split
+    ? (entry?.studentsNoted ?? 0)
+    : (perDay?.reduce((total, day) => total + day.studentsNoted, 0) ?? 0);
+
+  return {
+    ...meta,
+    teacherId: who.teacherId,
+    teacherCode: who.teacherCode,
+    teacherName: who.teacherName,
+    lessonsTimetabled,
+    lessonsElapsed,
+    lessonDates,
+    missingDates,
+    entries,
+    studentsNoted,
+    lastDate: lastOf(
+      attribution.split ? (entry?.dates ?? []).filter((date) => mine.has(date)) : entry?.dates,
+    ),
+    status: statusOf(rule, lessonsElapsed, entries, missingDates.length),
+    ...(attribution.isSubstitute
+      ? { isSubstitute: true, coveringForTeacherName: attribution.ownerName }
+      : {}),
   };
 }
 
@@ -422,6 +634,24 @@ function lastOf(dates: string[] | undefined): string | null {
 /** Gaps first — the report is read for what is wrong with it. */
 function rank(status: CoverageStatus): number {
   return status === 'missing' ? 0 : status === 'recorded' ? 1 : 2;
+}
+
+/**
+ * The same report with a different set of rows.
+ *
+ * Two narrowings want this and they want opposite things of the summary. Dropping
+ * a colleague's share of a covered lesson has to take the summary with it, or the
+ * headline describes rows the reader cannot see. Narrowing to the gaps
+ * (`outstandingOnly`) deliberately keeps the window's own summary, because "3 of
+ * 30 lessons unmarked" is the number being asked for and recomputing it would
+ * always print "3 of 3". So the caller says which by passing a summary or not.
+ */
+export function withRows(
+  report: LessonCoverage,
+  rows: CoverageRow[],
+  summary?: CoverageSummary,
+): LessonCoverage {
+  return { ...report, rows, summary: summary ?? summarize(rows) };
 }
 
 export function summarize(rows: CoverageRow[]): CoverageSummary {

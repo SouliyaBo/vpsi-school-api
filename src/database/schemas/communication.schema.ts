@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   ANNOUNCEMENT_PRIORITIES,
   ANNOUNCEMENT_TARGET_TYPES,
@@ -29,7 +29,7 @@ export class AnnouncementTarget {
   targetType: AnnouncementTargetType;
 
   /** Role / grade level / classroom id. Null when `targetType` needs no id. */
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   targetId?: Types.ObjectId | null;
 }
 
@@ -60,7 +60,7 @@ export class Announcement extends SoftDeletableDocument {
   @Prop({ type: [AttachmentSchema], default: [] })
   attachments: Attachment[];
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   authorId: Types.ObjectId;
 
   @Prop({ type: Boolean, default: false })
@@ -94,7 +94,7 @@ export const NOTIFICATION_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 @Schema({ collection: 'notifications', ...baseSchemaOptions })
 export class Notification {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true, index: true })
   userId: Types.ObjectId;
 
   @Prop({ type: String, required: true, enum: NOTIFICATION_TYPES })
@@ -184,17 +184,42 @@ export class CalendarEvent extends SoftDeletableDocument {
   @Prop({ type: String, default: null, trim: true })
   location?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', default: null, index: true })
   schoolYearId?: Types.ObjectId | null;
 
-  /** Empty means school-wide. */
+  /** Empty means school-wide. Who is *told*, which is not who is closed. */
   @Prop({ type: [AnnouncementTargetSchema], default: [] })
   targets: AnnouncementTarget[];
+
+  /**
+   * The classes this event closes, when it does not close the whole school.
+   *
+   * Both empty — the usual case — means school-wide. The school also stands one
+   * year or one room down on its own: ມ.7 sitting a national exam, a room whose
+   * teacher is away. On such a day the rest of the school teaches and owes its
+   * registers; only the named classes do not, and counting the day against them
+   * is what this exists to stop.
+   *
+   * Deliberately *not* `targets`. That list says who is shown the event and can
+   * name a role — a holiday announced to every teacher is not a holiday for
+   * every teacher's class. Conflating the two would make "tell the parents"
+   * close a classroom.
+   *
+   * A grade level closes every room in it; a classroom closes only itself. The
+   * office writes both, so both are stored rather than the rooms being expanded
+   * at write time — a room added to ມ.1 next month must be closed by last
+   * month's "ມ.1 ຫຍຸດ" too.
+   */
+  @Prop({ type: [SchemaTypes.ObjectId], ref: 'GradeLevel', default: [] })
+  appliesToGradeLevelIds: Types.ObjectId[];
+
+  @Prop({ type: [SchemaTypes.ObjectId], ref: 'Classroom', default: [] })
+  appliesToClassroomIds: Types.ObjectId[];
 
   @Prop({ type: String, default: null })
   colorHex?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   createdBy: Types.ObjectId;
 }
 
@@ -221,7 +246,7 @@ export class Feedback extends SoftDeletableDocument {
    * Null for anonymous submissions. When anonymous, no identifying field is
    * recorded at all — not even an IP — so the submission cannot be traced back.
    */
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null, index: true })
   submittedBy?: Types.ObjectId | null;
 
   @Prop({ type: Boolean, default: false })
@@ -236,7 +261,7 @@ export class Feedback extends SoftDeletableDocument {
   @Prop({ type: String, default: null })
   response?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   respondedBy?: Types.ObjectId | null;
 
   @Prop({ type: Date, default: null })

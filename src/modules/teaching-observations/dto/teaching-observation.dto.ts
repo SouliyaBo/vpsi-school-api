@@ -75,7 +75,9 @@ export class CreateTeachingObservationDto {
 
   @ApiPropertyOptional({
     minimum: 1,
-    description: 'ປະເມີນຄັ້ງທີ. Derived as the teacher’s next visit of the term when omitted.',
+    description:
+      'ປະເມີນຄັ້ງທີ. Derived when omitted, as this observer’s next visit to this teacher’s ' +
+      'lesson in this subject this term.',
   })
   @Type(() => Number)
   @IsInt()
@@ -145,6 +147,32 @@ export class UpdateTeachingObservationDto {
   @MaxLength(2000)
   @IsOptional()
   note?: string;
+}
+
+/**
+ * Which run of visits a sheet belongs to, and so what ປະເມີນຄັ້ງທີ the form
+ * should offer.
+ *
+ * The classroom is absent because it is not counted within — see the schema.
+ */
+export class NextVisitQueryDto {
+  @ApiProperty({ description: 'ຊື່ຜູ້ຖືກປະເມີນ (ຄູສອນ)' })
+  @IsMongoId()
+  teacherId: string;
+
+  @ApiPropertyOptional({ description: 'ຜູ້ຕິດຕາມ — defaults to the signed-in teacher' })
+  @IsMongoId()
+  @IsOptional()
+  observerId?: string;
+
+  @ApiProperty({ description: 'ວິຊາທີ່ສອນ' })
+  @IsMongoId()
+  subjectId: string;
+
+  @ApiPropertyOptional({ description: 'Defaults to the active semester' })
+  @IsMongoId()
+  @IsOptional()
+  semesterId?: string;
 }
 
 export class QueryTeachingObservationsDto extends PaginationQueryDto {

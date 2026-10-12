@@ -13,7 +13,22 @@ import {
   User,
   UserDocument,
 } from 'src/database/schemas';
+import { TelegramLinkService } from '../telegram/telegram-link.service';
+import { TelegramService } from '../telegram/telegram.service';
 import { QueryNotificationsDto } from './dto/notification.dto';
+
+/**
+ * One notification as a chat message.
+ *
+ * Lao only, and both lines always present. The catalogue requires a Lao title
+ * and body and leaves English optional, so Lao is the one that is always there
+ * — and a staff room that reads Lao does not want the same thing twice.
+ */
+function telegramText(input: Omit<NotificationInput, 'userId'>): string {
+  const escape = (text: string) =>
+    text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<b>${escape(input.titleLo)}</b>\n${escape(input.bodyLo)}`;
+}
 
 export interface NotificationInput {
   userId: Types.ObjectId | string;
@@ -34,6 +49,8 @@ export class NotificationsService {
     @InjectModel(Notification.name) private readonly model: Model<NotificationDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Student.name) private readonly studentModel: Model<StudentDocument>,
+    private readonly telegram: TelegramService,
+    private readonly links: TelegramLinkService,
   ) {}
 
   /**
@@ -56,6 +73,10 @@ export class NotificationsService {
     };
 
     if (session) {
+      // Inside a transaction the push is deliberately not sent: the write can
+      // still be rolled back, and a message that has arrived on somebody's phone
+      // cannot be. The in-app row is the record; the caller that wants it pushed
+      // sends it after the transaction commits.
       await this.model.create([document], { session });
       return;
     }
@@ -68,6 +89,8 @@ export class NotificationsService {
         error instanceof Error ? error.stack : String(error),
       );
     }
+
+    await this.push([input.userId], input);
   }
 
   /**
@@ -95,6 +118,7 @@ export class NotificationsService {
 
     try {
       const inserted = await this.model.insertMany(documents, { ordered: false });
+      await this.push(userIds, input);
       return inserted.length;
     } catch (error) {
       // `insertMany` unordered throws after inserting what it could; report the
@@ -104,7 +128,43 @@ export class NotificationsService {
         `Fan-out partially failed: ${partial}/${documents.length} delivered`,
         error instanceof Error ? error.stack : String(error),
       );
+      await this.push(userIds, input);
       return partial;
+    }
+  }
+
+  /**
+   * Sends the same notification out over Telegram, to whoever has linked.
+   *
+   * Everything here is best-effort and after the fact. The row in the database
+   * is what the system considers delivered — the app's bell shows it whether or
+   * not a phone was reachable — so a bot that is down, a person who never
+   * linked, or a chat that has gone stale costs a log line and nothing else.
+   *
+   * Accounts with no link are simply absent from the map, which is also how the
+   * feature stays opt-in: nobody is messaged until they have pressed Start.
+   */
+  private async push(
+    userIds: (Types.ObjectId | string)[],
+    input: Omit<NotificationInput, 'userId'>,
+  ): Promise<void> {
+    if (!this.telegram.enabled) return;
+
+    try {
+      const chats = await this.links.chatIdsFor(userIds);
+      if (chats.size === 0) return;
+
+      const text = telegramText(input);
+      // Sequential on purpose: Telegram's own guidance is about thirty messages
+      // a second, and the largest fan-out here is one per teacher.
+      for (const chatId of chats.values()) {
+        await this.telegram.sendMessage(chatId, text);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Telegram fan-out for ${input.type} failed`,
+        error instanceof Error ? error.stack : String(error),
+      );
     }
   }
 

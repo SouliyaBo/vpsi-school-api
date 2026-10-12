@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { AUDIT_ACTIONS, AuditAction } from 'src/common/constants/enums';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
@@ -17,7 +17,7 @@ export const AUDIT_LOG_TTL_SECONDS = 730 * 24 * 60 * 60;
 @Schema({ collection: 'auditLogs', ...baseSchemaOptions })
 export class AuditLog {
   /** Null for anonymous actions such as a failed login on an unknown username. */
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null, index: true })
   userId?: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })
@@ -30,7 +30,7 @@ export class AuditLog {
   @Prop({ type: String, required: true, index: true })
   entityType: string;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   entityId?: Types.ObjectId | null;
 
   /**
@@ -90,7 +90,7 @@ export class Setting extends SoftDeletableDocument {
   @Prop({ type: Boolean, default: false })
   isSystem: boolean;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   updatedBy?: Types.ObjectId | null;
 }
 

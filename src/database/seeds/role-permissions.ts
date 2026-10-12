@@ -64,6 +64,15 @@ export const ROLE_SEEDS: RoleSeed[] = [
       { resource: 'conduct-scores', actions: ['manage'] },
       { resource: 'behavior-logs', actions: ['manage'] },
       { resource: 'attendances', actions: ['manage'] },
+      // `manage` on cover is three powers the office needs and a teacher must not
+      // have: reading who covered for whom across the school, filing a claim under
+      // another teacher's name for cover that was arranged by phone, and filing or
+      // withdrawing one after the lesson's own paperwork deadline has passed.
+      { resource: 'lesson-substitutions', actions: ['manage'] },
+      // `manage` is what makes the ວັນພຸດ/ວັນສຸກ compliance report readable at all:
+      // it names which homeroom teachers have stopped looking at their room, and
+      // withdraws a review filed against the wrong day.
+      { resource: 'homeroom-reviews', actions: ['manage'] },
       { resource: 'term-results', actions: ['manage'] },
       { resource: 'reports', actions: ['create', 'read', 'export'] },
       { resource: 'lesson-plans', actions: ['read', 'approve'] },
@@ -80,7 +89,13 @@ export const ROLE_SEEDS: RoleSeed[] = [
       { resource: 'calendar', actions: ['manage'] },
       { resource: 'documents', actions: ['manage'] },
       { resource: 'audit-logs', actions: ['read'] },
-      ...readOnly('locations', 'notifications', 'feedback'),
+      // `manage` on notifications is what lets the academic office fire a
+      // reminder by hand — the evening before an inspection, or to see what one
+      // looks like before trusting it to a schedule nobody is watching. It is
+      // this office that chases the teachers the reminders are about, so the
+      // read-only grant it used to have left the button with nobody to press it.
+      { resource: 'notifications', actions: ['manage'] },
+      ...readOnly('locations', 'feedback'),
     ],
   },
 
@@ -126,6 +141,22 @@ export const ROLE_SEEDS: RoleSeed[] = [
       // restricted to the teacher's own lessons — see BehaviorLogsService.
       { resource: 'behavior-logs', actions: ['create', 'read', 'update', 'delete'] },
       { resource: 'attendances', actions: ['create', 'read', 'update'] },
+      // ຮັບສອນແທນ — claiming cover for a colleague's lesson, which is what makes
+      // the two grants above usable on the day a teacher stands in for somebody
+      // who is away. `create` is self-service by design: the situation is a
+      // colleague off sick at seven and a class at eight, and a claim the office
+      // had to approve would still be unapproved when the register fell due.
+      // `delete` withdraws their own claim, never anyone else's, and there is no
+      // `update` — cover is claimed or it is withdrawn, and an editable claim is
+      // one that could be quietly moved onto a different day. The service narrows
+      // `read` to the claims they are a party to.
+      { resource: 'lesson-substitutions', actions: ['create', 'read', 'delete'] },
+      // ຢືນຢັນການຕິດຕາມ, for the room they are ຄູປະຈຳຫ້ອງ of — narrowed to it by
+      // HomeroomReviewsService, which is what the permission cannot say. No
+      // `delete` and no `manage`: a teacher who could withdraw their own review
+      // could un-say what they told a guardian, and the report that names who has
+      // not reviewed is the office's to read, not a colleague's.
+      { resource: 'homeroom-reviews', actions: ['create', 'read', 'update'] },
       { resource: 'term-results', actions: ['read'] },
       { resource: 'lesson-plans', actions: ['create', 'read', 'update', 'delete'] },
       // Observing a colleague is ordinary staff work here — a head of department

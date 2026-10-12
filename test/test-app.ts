@@ -16,6 +16,7 @@ import { TransactionModule } from 'src/database/transaction.module';
 import { SeedModule } from 'src/database/seeds/seed.module';
 import { SeedService } from 'src/database/seeds/seed.service';
 import { AttendancesModule } from 'src/modules/attendances/attendances.module';
+import { HomeroomReviewsModule } from 'src/modules/homeroom-reviews/homeroom-reviews.module';
 import { AuditLogsModule } from 'src/modules/audit-logs/audit-logs.module';
 import { AuthModule } from 'src/modules/auth/auth.module';
 import { ClassroomsModule } from 'src/modules/classrooms/classrooms.module';
@@ -36,6 +37,8 @@ import { StorageModule } from 'src/modules/storage/storage.module';
 import { StudentsModule } from 'src/modules/students/students.module';
 import { SubjectsModule } from 'src/modules/subjects/subjects.module';
 import { TeachersModule } from 'src/modules/teachers/teachers.module';
+import { TeacherHandoverModule } from 'src/modules/teacher-handover/teacher-handover.module';
+import { LessonSubstitutionsModule } from 'src/modules/lesson-substitutions/lesson-substitutions.module';
 import { TeachingAssignmentsModule } from 'src/modules/teaching-assignments/teaching-assignments.module';
 import { MonthlyMarksModule } from 'src/modules/monthly-marks/monthly-marks.module';
 import { TermResultsService } from 'src/modules/term-results/term-results.service';
@@ -71,6 +74,7 @@ import { FeedbackModule } from 'src/modules/feedback/feedback.module';
 import { ExamPapersModule } from 'src/modules/exam-papers/exam-papers.module';
 import { LessonPlansModule } from 'src/modules/lesson-plans/lesson-plans.module';
 import { NotificationsModule } from 'src/modules/notifications/notifications.module';
+import { TelegramModule } from 'src/modules/telegram/telegram.module';
 import { PdfRendererService } from 'src/modules/reports/pdf/pdf-renderer.service';
 import { ReportDataService } from 'src/modules/reports/report-data.service';
 import { ReportTemplatesService } from 'src/modules/reports/report-templates.service';
@@ -221,6 +225,10 @@ export async function createTestApp(): Promise<TestContext> {
       RecordScopeModule,
       StorageModule,
       AuditLogsModule,
+      // Ahead of notifications, which deliver through it. No bot token is set
+      // in the test environment, so the channel resolves and sends nothing —
+      // which is also the production behaviour before the school configures one.
+      TelegramModule,
       NotificationsModule,
       SettingsModule,
       HealthModule,
@@ -237,12 +245,19 @@ export async function createTestApp(): Promise<TestContext> {
       GuardiansModule,
       StudentsModule,
       TeachingAssignmentsModule,
+      // ການສົ່ງມອບການສອນ — moves a departing teacher's timetable and rooms.
+      TeacherHandoverModule,
+      // ການມອບໝາຍສອນແທນ — what admits a stand-in to the two per-lesson logs.
+      LessonSubstitutionsModule,
       EnrollmentsModule,
       ScoreComponentsModule,
       ScoresModule,
       ConductScoresModule,
       ConductDeductionsModule,
       AttendancesModule,
+      // Pulls BehaviorLogsModule and ConductDeductionsModule in with it: the review
+      // sheet is assembled from the roll call, the register and the ledger.
+      HomeroomReviewsModule,
 
       // The real modules are imported and then overridden below, so that a
       // transitive importer (CertificatesModule → ReportsModule) picks up the

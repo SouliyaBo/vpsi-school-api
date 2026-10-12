@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
 /**
@@ -56,27 +56,86 @@ export class SchedulePeriod {
 
 export const SchedulePeriodSchema = SchemaFactory.createForClass(SchedulePeriod);
 
+/**
+ * One arrangement of a lesson's weekly periods, and the days it was in force.
+ *
+ * The timetable is not a fact about now — it is a fact about each day. Without
+ * this it was only about now: `schedule` was replaced in place, and every report
+ * derives which days a lesson was owed on by reading the *current* weekday. So
+ * moving a lesson from Monday to Wednesday did not just change next week, it
+ * changed every week behind it — the Mondays a teacher had actually taught and
+ * marked stopped counting, and Wednesdays they had never taught appeared as gaps.
+ * The punctuality report defaults to the whole term to date, so one timetable
+ * revision rewrote the number the office judges every teacher by.
+ *
+ * Half-open `[from, to)` on UTC-midnight days, and the spells meet exactly —
+ * `spell.to === next.from` — so a question about any day lands in one spell and
+ * never between two.
+ */
+@Schema({ _id: false })
+export class ScheduleSpell {
+  @Prop({ type: [SchedulePeriodSchema], default: [] })
+  schedule: SchedulePeriod[];
+
+  /** Inclusive, at UTC midnight. */
+  @Prop({ type: Date, required: true })
+  from: Date;
+
+  /** Exclusive; `null` while this is the arrangement in force. */
+  @Prop({ type: Date, default: null })
+  to?: Date | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  changedBy?: Types.ObjectId | null;
+
+  /** ເຫດຜົນ — why the timetable moved, e.g. `ປ່ຽນຕາຕະລາງພາກຮຽນ 2`. */
+  @Prop({ type: String, default: null, trim: true })
+  note?: string | null;
+}
+
+export const ScheduleSpellSchema = SchemaFactory.createForClass(ScheduleSpell);
+
 export type TeachingAssignmentDocument = HydratedDocument<TeachingAssignment>;
 
 @Schema({ collection: 'teachingAssignments', ...baseSchemaOptions })
 export class TeachingAssignment extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
   teacherId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
+  /**
+   * The arrangement in force today.
+   *
+   * Everything that asks "when is this lesson" reads it — the roll-call sheet, the
+   * entry forms, the clash check — so it stays denormalized rather than being
+   * derived from `scheduleHistory` on every read. The two are kept in step in
+   * exactly one place, `TeachingAssignmentsService.update`; nothing else writes
+   * either.
+   */
   @Prop({ type: [SchedulePeriodSchema], default: [] })
   schedule: SchedulePeriod[];
+
+  /**
+   * Every arrangement this lesson has had, oldest first — see `ScheduleSpell`.
+   *
+   * Empty means it has never been moved, and that is the honest reading: the
+   * current schedule has applied for as long as anything asks about. So no
+   * migration is owed, and a school that never revises its timetable carries no
+   * extra rows.
+   */
+  @Prop({ type: [ScheduleSpellSchema], default: [] })
+  scheduleHistory: ScheduleSpell[];
 
   @Prop({ type: Boolean, default: true })
   isActive: boolean;

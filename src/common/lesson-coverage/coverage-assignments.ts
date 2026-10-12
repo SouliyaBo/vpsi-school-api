@@ -16,10 +16,36 @@ import type { CoverageAssignment } from './lesson-coverage';
 export async function loadCoverageAssignments(
   assignments: Model<TeachingAssignmentDocument>,
   semesterId: Types.ObjectId,
-  scope: { teacherId?: string | null; classroomId?: string | null } = {},
+  scope: {
+    teacherId?: string | null;
+    classroomId?: string | null;
+    /**
+     * Lessons to include even though they are somebody else's on the timetable.
+     *
+     * The teacher filter selects on the *timetabled* teacher, which is the wrong
+     * half of the question once a lesson can be covered: a stand-in's own report
+     * would be missing exactly the lessons they are now answerable for, and the
+     * reminder they get would name none of them. The caller passes the lessons
+     * they covered — see `LessonAccessService.coveredAssignmentIds` — and narrows
+     * the built rows back down to that teacher afterwards, because this widening
+     * also pulls in the owner's share of those same lessons.
+     *
+     * Ignored without a `teacherId`: there is nothing to widen when the report is
+     * already reading the whole school.
+     */
+    alsoAssignmentIds?: string[] | null;
+  } = {},
 ): Promise<CoverageAssignment[]> {
   const filter: Record<string, unknown> = { semesterId, isActive: true, deletedAt: null };
-  if (scope.teacherId) filter.teacherId = new Types.ObjectId(scope.teacherId);
+  if (scope.teacherId) {
+    const covered = (scope.alsoAssignmentIds ?? []).filter((id) => Types.ObjectId.isValid(id));
+    filter.$or = [
+      { teacherId: new Types.ObjectId(scope.teacherId) },
+      ...(covered.length > 0
+        ? [{ _id: { $in: covered.map((id) => new Types.ObjectId(id)) } }]
+        : []),
+    ];
+  }
   if (scope.classroomId) filter.classroomId = new Types.ObjectId(scope.classroomId);
 
   const found = await assignments
@@ -76,6 +102,16 @@ export async function loadCoverageAssignments(
       schedule: assignment.schedule.map((period) => ({
         dayOfWeek: period.dayOfWeek,
         isRotating: period.isRotating,
+      })),
+      // What the timetable said on each earlier day, so a revision does not
+      // rewrite the weeks behind it — see `CoverageAssignment.scheduleHistory`.
+      scheduleHistory: (assignment.scheduleHistory ?? []).map((spell) => ({
+        from: spell.from.toISOString().slice(0, 10),
+        to: spell.to ? spell.to.toISOString().slice(0, 10) : null,
+        schedule: spell.schedule.map((period) => ({
+          dayOfWeek: period.dayOfWeek,
+          isRotating: period.isRotating,
+        })),
       })),
     });
   }

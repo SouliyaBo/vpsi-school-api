@@ -10,13 +10,20 @@ import { BehaviorLogsModule } from './behavior-logs/behavior-logs.module';
 import { BehaviorLogsService } from './behavior-logs/behavior-logs.service';
 import { ConductDeductionsModule } from './conduct-deductions/conduct-deductions.module';
 import { ConductDeductionsService } from './conduct-deductions/conduct-deductions.service';
+import { HomeroomReviewsModule } from './homeroom-reviews/homeroom-reviews.module';
+import { HomeroomReviewsService } from './homeroom-reviews/homeroom-reviews.service';
 import { LessonPlansModule } from './lesson-plans/lesson-plans.module';
 import { LessonPlansService } from './lesson-plans/lesson-plans.service';
+import { LessonSubstitutionsModule } from './lesson-substitutions/lesson-substitutions.module';
+import { LessonSubstitutionsService } from './lesson-substitutions/lesson-substitutions.service';
 import { MonthlyMarksModule } from './monthly-marks/monthly-marks.module';
 import { MonthlyMarksService } from './monthly-marks/monthly-marks.service';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
+import { TelegramModule } from './telegram/telegram.module';
 import { StorageModule } from './storage/storage.module';
+import { TeacherHandoverModule } from './teacher-handover/teacher-handover.module';
+import { TeacherHandoverService } from './teacher-handover/teacher-handover.service';
 import { SubjectGroupsModule } from './subject-groups/subject-groups.module';
 import { SubjectGroupsService } from './subject-groups/subject-groups.service';
 import { SubjectsModule } from './subjects/subjects.module';
@@ -42,6 +49,8 @@ import { VaccinationsService } from './vaccinations/vaccinations.service';
 /** Every model token these modules inject, directly or through a dependency. */
 const MODELS = [
   'AuditLog',
+  // The homeroom review triages on the roll call, which puts it in this graph.
+  'Attendance',
   'BehaviorLog',
   'CalendarEvent',
   'Classroom',
@@ -54,8 +63,11 @@ const MODELS = [
   // roster.
   'ExamRegistration',
   'GradeLevel',
+  'HomeroomReview',
   'Guardian',
   'LessonPlan',
+  // Both per-lesson logs resolve cover before they authorize a write.
+  'LessonSubstitution',
   'LessonPlanMonth',
   'LessonPlanTask',
   'Location',
@@ -114,6 +126,8 @@ const GLOBALS = [
   ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
   StubInfrastructureModule,
   AuditLogsModule,
+  // Registered ahead of notifications, which now deliver through it.
+  TelegramModule,
   NotificationsModule,
   RecordScopeModule,
   SettingsModule,
@@ -147,9 +161,36 @@ describe('module wiring', () => {
     await app.close();
   });
 
+  // The widest import list of the three teacher-shaped modules: a handover writes
+  // the timetable and the rooms, both of whose modules import TeachersModule — so
+  // this is the one that would surface a cycle rather than a missing provider.
+  it('resolves the teacher handover, which writes the timetable and the rooms', async () => {
+    const app = await build([TeacherHandoverModule]);
+    expect(app.get(TeacherHandoverService)).toBeInstanceOf(TeacherHandoverService);
+    await app.close();
+  });
+
   it('resolves behavior logs, which reach for classrooms, semesters and the roster', async () => {
     const app = await build([BehaviorLogsModule]);
     expect(app.get(BehaviorLogsService)).toBeInstanceOf(BehaviorLogsService);
+    await app.close();
+  });
+
+  // Both per-lesson logs now take `LessonAccessService`, which declares the
+  // substitution and timetable models itself. A claim endpoint that resolved but
+  // a register that did not would be the wiring bug this file exists to catch.
+  it('resolves lesson substitutions, which read the timetable and the calendar', async () => {
+    const app = await build([LessonSubstitutionsModule]);
+    expect(app.get(LessonSubstitutionsService)).toBeInstanceOf(LessonSubstitutionsService);
+    await app.close();
+  });
+
+  // The widest graph of the lot: the homeroom review triages on the roll call,
+  // the register and the discipline ledger rather than aggregating any of them
+  // again, so all three services plus the calendar have to resolve for it.
+  it('resolves homeroom reviews, which read attendance, behaviour and conduct', async () => {
+    const app = await build([HomeroomReviewsModule]);
+    expect(app.get(HomeroomReviewsService)).toBeInstanceOf(HomeroomReviewsService);
     await app.close();
   });
 

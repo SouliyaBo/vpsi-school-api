@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   ATTENDANCE_STATUSES,
   AttendanceStatus,
@@ -28,17 +28,17 @@ export type ScoreComponentDocument = HydratedDocument<ScoreComponent>;
  */
 @Schema({ collection: 'scoreComponents', ...baseSchemaOptions })
 export class ScoreComponent extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
   /**
    * Scoping a component to one classroom lets two teachers of the same subject
    * run different assessments. `null` = applies to every class taking the subject.
    */
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', default: null })
   classroomId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true, trim: true })
@@ -70,7 +70,7 @@ export class ScoreComponent extends SoftDeletableDocument {
   @Prop({ type: Date, default: null })
   lockedAt?: Date | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   lockedBy?: Types.ObjectId | null;
 }
 
@@ -95,22 +95,22 @@ export type ScoreDocument = HydratedDocument<Score>;
  */
 @Schema({ collection: 'scores', ...baseSchemaOptions })
 export class Score extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'ScoreComponent', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ScoreComponent', required: true, index: true })
   componentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true })
   classroomId: Types.ObjectId;
 
   /** `null` means "not yet graded", which is distinct from a score of 0. */
@@ -135,10 +135,10 @@ export class Score extends SoftDeletableDocument {
   @Prop({ type: Date, default: null })
   lockedAt?: Date | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   lockedBy?: Types.ObjectId | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 
   /** Increments on every post-lock amendment; each one also writes an audit log. */
@@ -162,16 +162,16 @@ export type ConductScoreDocument = HydratedDocument<ConductScore>;
 
 @Schema({ collection: 'conductScores', ...baseSchemaOptions })
 export class ConductScore extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
   @Prop({ type: String, required: true, enum: CONDUCT_PERIOD_TYPES })
@@ -205,7 +205,7 @@ export class ConductScore extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: CONDUCT_SCORE_SOURCES, default: 'manual' })
   source: ConductScoreSource;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 }
 
@@ -233,20 +233,20 @@ export type AttendanceDocument = HydratedDocument<Attendance>;
  */
 @Schema({ collection: 'attendances', ...baseSchemaOptions })
 export class Attendance extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   /** The timetabled lesson this roll call belongs to. */
-  @Prop({ type: Types.ObjectId, ref: 'TeachingAssignment', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'TeachingAssignment', required: true, index: true })
   teachingAssignmentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
   /** Normalized to UTC midnight so a day is one exact value, never a range. */
@@ -261,7 +261,7 @@ export class Attendance extends SoftDeletableDocument {
   @Prop({ type: Number, required: true, min: 1 })
   period: number;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
   /**
@@ -271,8 +271,24 @@ export class Attendance extends SoftDeletableDocument {
    * user may record on a teacher's behalf, and "whose lesson was this" must
    * still answer the teacher, not the clerk.
    */
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
   teacherId: Types.ObjectId;
+
+  /**
+   * The stand-in who actually took the lesson, when one did — see
+   * `LessonSubstitution`.
+   *
+   * Stored alongside `teacherId` rather than in place of it, because the two
+   * answer different questions and the register is read for both. `teacherId`
+   * stays the timetabled teacher, so every per-subject and per-teacher figure
+   * built on it keeps meaning what it meant; this says who was in the room, which
+   * is what the printed sheet has to name and what a query about an odd-looking
+   * row needs in order to reach the right person.
+   *
+   * `null` on the ordinary lesson the timetabled teacher taught themselves.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', default: null, index: true })
+  substituteTeacherId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true, enum: ATTENDANCE_STATUSES })
   status: AttendanceStatus;
@@ -284,7 +300,7 @@ export class Attendance extends SoftDeletableDocument {
   @Prop({ type: String, default: null })
   reason?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 }
 
@@ -337,24 +353,24 @@ export class BehaviorLog extends SoftDeletableDocument {
    * back on one line. The group id is what survives normalization to say which
    * records were written together.
    */
-  @Prop({ type: Types.ObjectId, required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, index: true })
   groupId: Types.ObjectId;
 
   /** `null` for a row that only records the state of the class. */
-  @Prop({ type: Types.ObjectId, ref: 'Student', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', default: null, index: true })
   studentId?: Types.ObjectId | null;
 
   /** The timetabled lesson this observation was made in. */
-  @Prop({ type: Types.ObjectId, ref: 'TeachingAssignment', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'TeachingAssignment', required: true, index: true })
   teachingAssignmentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
   /** Normalized to UTC midnight so a day is one exact value, never a range. */
@@ -364,12 +380,28 @@ export class BehaviorLog extends SoftDeletableDocument {
   @Prop({ type: Number, required: true, min: 1 })
   period: number;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
   /** The teacher who owns the lesson per the timetable, not whoever filed it. */
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
   teacherId: Types.ObjectId;
+
+  /**
+   * The stand-in who actually took the lesson, when one did — see
+   * `LessonSubstitution`.
+   *
+   * Stored alongside `teacherId` rather than in place of it, because the two
+   * answer different questions and the register is read for both. `teacherId`
+   * stays the timetabled teacher, so every per-subject and per-teacher figure
+   * built on it keeps meaning what it meant; this says who was in the room, which
+   * is what the printed sheet has to name and what a query about an odd-looking
+   * row needs in order to reach the right person.
+   *
+   * `null` on the ordinary lesson the timetabled teacher taught themselves.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', default: null, index: true })
+  substituteTeacherId?: Types.ObjectId | null;
 
   /**
    * ສະພາບລວມພາຍໃນຫ້ອງ — the class as a whole.
@@ -401,7 +433,7 @@ export class BehaviorLog extends SoftDeletableDocument {
   @Prop({ type: String, default: null, trim: true })
   remark?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 }
 
@@ -427,7 +459,7 @@ export class TermResultComponent {
    * The component this line came from, or `null` for a line of the monthly mark
    * sheet — ກັນຍາ and ສອບເສັງພາກ are columns on a form, not records anyone keeps.
    */
-  @Prop({ type: Types.ObjectId, ref: 'ScoreComponent', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ScoreComponent', default: null })
   componentId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true })
@@ -452,7 +484,7 @@ export const TermResultComponentSchema = SchemaFactory.createForClass(TermResult
 /** One subject's outcome, embedded because it is only ever read with its term result. */
 @Schema({ _id: false })
 export class TermResultSubject {
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true })
   subjectId: Types.ObjectId;
 
   @Prop({ type: String, required: true }) // denormalized from Subject
@@ -488,7 +520,7 @@ export type TermResultDocument = HydratedDocument<TermResult>;
 
 @Schema({ collection: 'termResults', ...baseSchemaOptions })
 export class TermResult extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   @Prop({ type: String, required: true }) // denormalized from Student
@@ -497,13 +529,13 @@ export class TermResult extends SoftDeletableDocument {
   @Prop({ type: String, required: true }) // denormalized from Student
   studentNameLo: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
   @Prop({ type: [TermResultSubjectSchema], default: [] })
@@ -633,19 +665,19 @@ export type MonthlyMarkDocument = HydratedDocument<MonthlyMark>;
  */
 @Schema({ collection: 'monthlyMarks', ...baseSchemaOptions })
 export class MonthlyMark extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
   /** Calendar month, 1–12. Which ones a term collects is a school setting. */
@@ -679,7 +711,23 @@ export class MonthlyMark extends SoftDeletableDocument {
   @Prop({ type: Number, default: null, min: 0, max: 6 })
   test?: number | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  /**
+   * ເຫດຜົນ — why the month came out as it did, in the teacher's own words.
+   *
+   * Written beside the marks on the entry form and printed under the subject on
+   * ໃບລາຍງານຜູ້ປົກຄອງ, which is the whole point of keeping it: the letter home
+   * used to carry a remark typed at the moment of export and kept nowhere, so
+   * the same month exported twice could say two different things and the office
+   * had no record of what had been sent.
+   *
+   * Optional — most rows never have one, and nothing derived from the sheet
+   * reads it. A row holding only a remark is still a row: a teacher who explains
+   * an absence before the marks are in has written something worth keeping.
+   */
+  @Prop({ type: String, default: null, trim: true })
+  remark?: string | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 
   /** Submitted for the month; further edits need the lock lifted. */
@@ -689,7 +737,7 @@ export class MonthlyMark extends SoftDeletableDocument {
   @Prop({ type: Date, default: null })
   lockedAt?: Date | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   lockedBy?: Types.ObjectId | null;
 }
 
@@ -719,19 +767,19 @@ export type SubjectTermMarkDocument = HydratedDocument<SubjectTermMark>;
  */
 @Schema({ collection: 'subjectTermMarks', ...baseSchemaOptions })
 export class SubjectTermMark extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Subject', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', required: true, index: true })
   subjectId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Classroom', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
   classroomId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Semester', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
   semesterId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
   /** ສອບເສັງພາກ, out of 10. Zero is a mark; `null` is "has not sat it". */
@@ -742,7 +790,7 @@ export class SubjectTermMark extends SoftDeletableDocument {
   @Prop({ type: Number, default: null, min: 0, max: 10 })
   bonus?: number | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 
   @Prop({ type: Boolean, default: false })
@@ -751,7 +799,7 @@ export class SubjectTermMark extends SoftDeletableDocument {
   @Prop({ type: Date, default: null })
   lockedAt?: Date | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   lockedBy?: Types.ObjectId | null;
 }
 

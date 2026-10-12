@@ -744,6 +744,74 @@ describe('Communication, lesson plans, exams and certificates (e2e)', () => {
         .expect(400);
     });
 
+    /**
+     * ຫຍຸດສະເພາະຊັ້ນ — one year stood down while the school teaches.
+     *
+     * The rule worth an end-to-end test is the one every count depends on: the
+     * school's own day stays open, so no other year's register is excused, and
+     * only the named class reads the day as closed.
+     */
+    it('closes the named class and leaves the school day open', async () => {
+      await http()
+        .post('/api/calendar')
+        .set(auth(adminToken))
+        .send({
+          titleLo: 'ມ.4 ຫຍຸດ',
+          type: 'holiday',
+          dayEffect: 'closed',
+          startDate: '2026-05-12',
+          endDate: '2026-05-12',
+          appliesToGradeLevelIds: [gradeLevelId],
+        })
+        .expect(201);
+
+      const schoolWide = await http()
+        .get('/api/calendar/school-days?from=2026-05-12&to=2026-05-12')
+        .set(auth(adminToken))
+        .expect(200);
+
+      // Nothing about the school changed — this is what keeps every other
+      // year's roll call owed on the day.
+      expect(schoolWide.body[0].state).toBe('teaching');
+      expect(schoolWide.body[0].events).toHaveLength(0);
+
+      const forClass = await http()
+        .get(`/api/calendar/school-days?from=2026-05-12&to=2026-05-12&classroomId=${classroomId}`)
+        .set(auth(adminToken))
+        .expect(200);
+
+      // The room was never named — it is closed because its grade level was.
+      expect(forClass.body[0].state).toBe('closed');
+      expect(forClass.body[0].isTeachingDay).toBe(false);
+      expect(forClass.body[0].events[0].titleLo).toBe('ມ.4 ຫຍຸດ');
+    });
+
+    it('closes everybody when no class is named', async () => {
+      await http()
+        .post('/api/calendar')
+        .set(auth(adminToken))
+        .send({
+          titleLo: 'ພັກທົ່ວໂຮງຮຽນ',
+          type: 'holiday',
+          dayEffect: 'closed',
+          startDate: '2026-05-13',
+          endDate: '2026-05-13',
+        })
+        .expect(201);
+
+      const schoolWide = await http()
+        .get('/api/calendar/school-days?from=2026-05-13&to=2026-05-13')
+        .set(auth(adminToken))
+        .expect(200);
+      const forClass = await http()
+        .get(`/api/calendar/school-days?from=2026-05-13&to=2026-05-13&classroomId=${classroomId}`)
+        .set(auth(adminToken))
+        .expect(200);
+
+      expect(schoolWide.body[0].state).toBe('closed');
+      expect(forClass.body[0].state).toBe('closed');
+    });
+
     it('returns a month grid including adjacent days', async () => {
       const response = await http()
         .get('/api/calendar/month/2026/4')

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { baseSchemaOptions, SoftDeletableDocument } from './base.schema';
 
 export type ExamScanDocument = HydratedDocument<ExamScan>;
@@ -19,7 +19,7 @@ export type ExamScanStatus = (typeof EXAM_SCAN_STATUSES)[number];
  */
 @Schema({ collection: 'examScans', ...baseSchemaOptions })
 export class ExamScan extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'ExamPaper', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ExamPaper', required: true, index: true })
   paperId: Types.ObjectId;
 
   /** The photograph as analysed — upright, resized — in the bucket. */
@@ -41,7 +41,7 @@ export class ExamScan extends SoftDeletableDocument {
 
   // ── Who and which set — the reader's proposal, then the teacher's word ──
 
-  @Prop({ type: Types.ObjectId, ref: 'Student', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', default: null, index: true })
   studentId?: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })
@@ -93,10 +93,10 @@ export class ExamScan extends SoftDeletableDocument {
   @Prop({ type: Number, default: null })
   contrast?: number | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   uploadedById: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'ExamResponse', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ExamResponse', default: null })
   responseId?: Types.ObjectId | null;
 
   @Prop({ type: Date, default: null })

@@ -6,17 +6,25 @@ import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import {
+  Classroom,
+  ClassroomDocument,
   Location,
   LocationDocument,
   SchoolYear,
   SchoolYearDocument,
+  SubjectGroup,
+  SubjectGroupDocument,
   Teacher,
   TeacherDocument,
+  TeachingAssignment,
+  TeachingAssignmentDocument,
 } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { StorageService } from '../storage/storage.service';
 import { SubjectGroupsService } from '../subject-groups/subject-groups.service';
 import { escapeRegex } from '../users/users.service';
+import { TeacherCommitmentsDto } from './dto/teacher-commitments.dto';
 import { CreateTeacherDto, QueryTeachersDto, UpdateTeacherDto } from './dto/teacher.dto';
 import { nextTeacherCode, resolveCodeYear } from './teacher-code';
 
@@ -58,9 +66,21 @@ export class TeachersService extends BaseCrudService<TeacherDocument> {
     @InjectModel(Teacher.name) model: Model<TeacherDocument>,
     @InjectModel(Location.name) private readonly locationModel: Model<LocationDocument>,
     @InjectModel(SchoolYear.name) private readonly schoolYearModel: Model<SchoolYearDocument>,
+    /**
+     * The three collections that make a teacher's departure a problem.
+     *
+     * Declared as raw models rather than reached through their services, which
+     * both import this module: an import edge back would close a cycle. The same
+     * escape hatch `RecordScopeModule` and `NotificationsModule` use.
+     */
+    @InjectModel(TeachingAssignment.name)
+    private readonly assignmentModel: Model<TeachingAssignmentDocument>,
+    @InjectModel(Classroom.name) private readonly classroomModel: Model<ClassroomDocument>,
+    @InjectModel(SubjectGroup.name) private readonly subjectGroupModel: Model<SubjectGroupDocument>,
     audit: AuditLogsService,
     private readonly storage: StorageService,
     private readonly subjectGroups: SubjectGroupsService,
+    private readonly notifications: NotificationsService,
   ) {
     super(model, audit);
   }
@@ -250,7 +270,116 @@ export class TeachersService extends BaseCrudService<TeacherDocument> {
     return { ...updated.toJSON(), photoUrl: await this.storage.getSignedUrl(uploaded.key) };
   }
 
-  remove(id: string, context: CrudContext) {
+  /**
+   * Everything a teacher still holds that somebody else would have to take on.
+   *
+   * The read behind both halves of a departure: it is what the delete guard
+   * refuses on, and what the handover moves. One answer for both, because a guard
+   * that blocks on more than the handover can move would be a dead end — the
+   * office would be told the teacher is still responsible for something and given
+   * no way to stop that being true.
+   *
+   * Not every reference to a teacher is here, and that is the point. The marks,
+   * registers and reviews they wrote are *history*, which must keep their name on
+   * it; these three are *posts*, which a school cannot leave vacant.
+   */
+  async commitments(id: string): Promise<TeacherCommitmentsDto> {
+    const teacher = await this.findOneOrFail(id);
+    const teacherId = teacher._id;
+
+    const [assignments, homerooms, subjectGroups, accountId] = await Promise.all([
+      this.assignmentModel
+        .find({ teacherId, isActive: true, deletedAt: null })
+        .populate('subjectId', 'code nameLo nameEn')
+        .populate({
+          path: 'classroomId',
+          select: 'name gradeLevelId',
+          populate: { path: 'gradeLevelId', select: 'code' },
+        })
+        .populate('semesterId', 'nameLo nameEn number')
+        .lean()
+        .exec(),
+      this.classroomModel
+        .find({ homeroomTeacherId: teacherId, isActive: true, deletedAt: null })
+        .populate({ path: 'gradeLevelId', select: 'code' })
+        .select('name gradeLevelId currentCount')
+        .lean()
+        .exec(),
+      this.subjectGroupModel
+        .find({ headTeacherId: teacherId, deletedAt: null })
+        .select('code nameLo nameEn')
+        .lean()
+        .exec(),
+      this.notifications.findUserIdForPerson('teacher', teacherId),
+    ]);
+
+    const named = (value: unknown) => value as { nameLo?: string; nameEn?: string | null } | null;
+
+    return {
+      teacherId: teacher._id.toString(),
+      status: teacher.status,
+      /** `isAcademicHead` is a flag on the person, so it travels with the post. */
+      isAcademicHead: teacher.isAcademicHead,
+      hasActiveAccount: accountId !== null,
+      assignments: assignments.map((assignment) => {
+        const classroom = assignment.classroomId as unknown as {
+          _id: Types.ObjectId;
+          name: string;
+          gradeLevelId?: { code?: string | null } | null;
+        } | null;
+        return {
+          id: assignment._id.toString(),
+          subjectNameLo: named(assignment.subjectId)?.nameLo ?? '—',
+          classroomName: classroom?.name ?? '—',
+          gradeLevelCode: classroom?.gradeLevelId?.code ?? null,
+          semesterNameLo: named(assignment.semesterId)?.nameLo ?? '—',
+          periods: assignment.schedule.length,
+        };
+      }),
+      homerooms: homerooms.map((classroom) => ({
+        id: classroom._id.toString(),
+        name: classroom.name,
+        gradeLevelCode:
+          (classroom.gradeLevelId as unknown as { code?: string | null } | null)?.code ?? null,
+        studentCount: classroom.currentCount,
+      })),
+      subjectGroups: subjectGroups.map((group) => ({
+        id: group._id.toString(),
+        code: group.code,
+        nameLo: group.nameLo,
+      })),
+    };
+  }
+
+  /**
+   * Soft-deletes a teacher, unless they are still holding a post.
+   *
+   * There was no guard here at all, and the consequences were quiet rather than
+   * loud: a deleted teacher kept their timetable and their homeroom, so the
+   * coverage report went on naming them as the one who had not marked the roll —
+   * nothing filters a soft-deleted row out of a populate — while they vanished
+   * from every picker the office would have used to move it. Unfixable from the
+   * screens, and invisible until somebody read the report.
+   *
+   * Refused rather than cascaded, because there is no safe cascade: a timetable
+   * with nobody on it is not a timetable, and a room with no ຄູປະຈຳຫ້ອງ is a room
+   * whose children nobody is reviewing. The error says what to move, and
+   * `POST /teachers/:id/handover` moves all of it at once.
+   */
+  async remove(id: string, context: CrudContext) {
+    const held = await this.commitments(id);
+    const blocking = held.assignments.length + held.homerooms.length + held.subjectGroups.length;
+
+    if (blocking > 0) {
+      throw AppException.conflict('teacher.stillResponsible', {
+        assignments: held.assignments.length,
+        homerooms: held.homerooms.map((room) =>
+          [room.gradeLevelCode, room.name].filter(Boolean).join('/'),
+        ),
+        subjectGroups: held.subjectGroups.map((group) => group.code),
+      });
+    }
+
     return this.softDelete(id, context);
   }
 

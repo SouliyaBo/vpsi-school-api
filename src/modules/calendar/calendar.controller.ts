@@ -60,8 +60,11 @@ export class CalendarController {
       'timetable suspended — a PD day or an exam period), `closed`, or a `weekend`. Each day ' +
       'carries the events that made it so, so a report can say why a day was not counted.',
   })
-  schoolDays(@Query() query: QuerySchoolDaysDto) {
-    return this.service.schoolDays(new Date(query.from), new Date(query.to));
+  async schoolDays(@Query() query: QuerySchoolDaysDto) {
+    // The room is resolved to its grade level first: a day off written against
+    // `ມ.1` closes `ມ.1/ກ`, and the room id alone does not say which year it is.
+    const forClass = await this.service.classRefFor(query.classroomId);
+    return this.service.schoolDays(new Date(query.from), new Date(query.to), forClass);
   }
 
   @Get(':id')

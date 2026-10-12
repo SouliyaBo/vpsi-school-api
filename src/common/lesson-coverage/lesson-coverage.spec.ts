@@ -443,3 +443,234 @@ describe('buildCoverage — the roll call’s rule', () => {
     expect(coverage.rows[0].lastDate).toBe('2025-11-07');
   });
 });
+
+/**
+ * Cover: a lesson one teacher was away for and another took.
+ *
+ * The question the office asked for, and the reason the claim exists: a teacher
+ * off sick must not appear in this report as the one who never marked the roll,
+ * and the colleague who actually taught the class must appear as the one who owes
+ * it. Nothing is stored against either of them — the report derives whose day it
+ * was, which is why a claim filed on the morning is accounted for the first time
+ * anybody reads the report afterwards.
+ */
+describe('buildCoverage — a covered lesson', () => {
+  const WEDNESDAY = 3;
+  const FRIDAY = 5;
+
+  const stand = { teacherId: 't9', teacherCode: 'T-009', teacherName: 'ຄຳຫລ້າ ວົງສາ' };
+
+  /** Monday, Wednesday and Friday of a week already over, so all three are owed. */
+  const build3 = (substitutions?: Map<string, typeof stand>, rows: CoverageWritten[] = []) =>
+    buildCoverage(
+      weekWindow('2025-11-05', '2025-11-20', SEMESTER),
+      [assignment({ schedule: [on(MONDAY), on(WEDNESDAY), on(FRIDAY)] })],
+      rows,
+      { covered: 'everyLessonDay', substitutions },
+    );
+
+  it('moves the covered day off the absent teacher and onto the stand-in', () => {
+    const coverage = build3(new Map([['ta1|2025-11-05', stand]]), [
+      written({ dates: ['2025-11-03', '2025-11-07'] }),
+    ]);
+
+    const owner = coverage.rows.find((row) => row.teacherId === 't1');
+    const cover = coverage.rows.find((row) => row.teacherId === 't9');
+
+    // The Wednesday is no longer the timetabled teacher's to answer for, and the
+    // two days that were theirs are marked — so they are clear.
+    expect(owner).toMatchObject({
+      status: 'recorded',
+      lessonDates: ['2025-11-03', '2025-11-07'],
+      missingDates: [],
+    });
+    // Not flagged at all, rather than flagged false: an ordinary row carries no
+    // trace of a feature that did not touch it.
+    expect(owner).not.toHaveProperty('isSubstitute');
+    // And the day nobody marked lands on the teacher who took the class.
+    expect(cover).toMatchObject({
+      status: 'missing',
+      lessonDates: ['2025-11-05'],
+      missingDates: ['2025-11-05'],
+      isSubstitute: true,
+      coveringForTeacherName: 'ບຸນມີ ແກ້ວ',
+      // Named for the person on the row, not for the timetable.
+      teacherCode: 'T-009',
+    });
+    // One gap in the school, and it belongs to one teacher — not two rows of it.
+    expect(coverage.summary).toMatchObject({ missing: 1, recorded: 1, teachersMissing: 1 });
+  });
+
+  it('credits the stand-in for the day they did mark', () => {
+    const coverage = build3(new Map([['ta1|2025-11-05', stand]]), [
+      written({ dates: ['2025-11-03', '2025-11-05', '2025-11-07'] }),
+    ]);
+
+    expect(coverage.rows.find((row) => row.teacherId === 't9')).toMatchObject({
+      status: 'recorded',
+      missingDates: [],
+      lastDate: '2025-11-05',
+    });
+    expect(coverage.summary).toMatchObject({ missing: 0, recorded: 2, coverageRate: 100 });
+  });
+
+  it('leaves a fully covered lesson owing nothing to the teacher who was away', () => {
+    const coverage = build3(
+      new Map([
+        ['ta1|2025-11-03', stand],
+        ['ta1|2025-11-05', stand],
+        ['ta1|2025-11-07', stand],
+      ]),
+    );
+
+    // A week away is a week of lessons that were never theirs to write up, so the
+    // timetabled teacher has no row at all rather than a row of three gaps.
+    expect(coverage.rows.map((row) => row.teacherId)).toEqual(['t9']);
+    expect(coverage.rows[0]).toMatchObject({
+      lessonsTimetabled: 3,
+      missingDates: ['2025-11-03', '2025-11-05', '2025-11-07'],
+    });
+  });
+
+  it('gives an ordinary lesson exactly the row it had before cover existed', () => {
+    const marked = [written({ dates: ['2025-11-03', '2025-11-05', '2025-11-07'] })];
+
+    expect(build3(new Map(), marked).rows).toEqual(build3(undefined, marked).rows);
+  });
+
+  it('splits the entries between them by day, not by the window’s total', () => {
+    const coverage = buildCoverage(
+      weekWindow('2025-11-05', '2025-11-20', SEMESTER),
+      [assignment({ schedule: [on(MONDAY), on(WEDNESDAY)] })],
+      [
+        written({
+          entries: 3,
+          studentsNoted: 7,
+          dates: ['2025-11-03', '2025-11-05'],
+          perDay: [
+            { date: '2025-11-03', entries: 1, studentsNoted: 2 },
+            { date: '2025-11-05', entries: 2, studentsNoted: 5 },
+          ],
+        }),
+      ],
+      { covered: 'anyEntry', substitutions: new Map([['ta1|2025-11-05', stand]]) },
+    );
+
+    // The window's own totals — 3 rows, 7 students — belong to neither of them
+    // whole, and a report that showed each of them all of it would be reporting
+    // the school twice.
+    expect(coverage.rows.find((row) => row.teacherId === 't1')).toMatchObject({
+      entries: 1,
+      studentsNoted: 2,
+    });
+    expect(coverage.rows.find((row) => row.teacherId === 't9')).toMatchObject({
+      entries: 2,
+      studentsNoted: 5,
+    });
+  });
+
+  it('ignores cover claimed on a rotating slot, which it cannot attribute anyway', () => {
+    const coverage = buildCoverage(
+      weekWindow('2025-11-05', '2025-11-20', SEMESTER),
+      [assignment({ schedule: [rotating(MONDAY), on(WEDNESDAY)] })],
+      [],
+      {
+        covered: 'everyLessonDay',
+        substitutions: new Map([['ta1|2025-11-03', stand]]),
+      },
+    );
+
+    // The Monday swap is not counted for either teacher — the timetable cannot say
+    // who took it — so cover on it changes nothing, and the Wednesday stays with
+    // the teacher the timetable gives it to.
+    expect(coverage.rows).toHaveLength(1);
+    expect(coverage.rows[0]).toMatchObject({
+      teacherId: 't1',
+      lessonsTimetabled: 1,
+      missingDates: ['2025-11-05'],
+    });
+  });
+});
+
+/**
+ * A timetable that was revised: which day was this lesson owed on *then*?
+ *
+ * The hole these close was the widest of the three. Every report derives the days
+ * a lesson was owed on by reading its weekday, and the schedule was replaced in
+ * place — so moving a lesson from Monday to Wednesday did not change next week, it
+ * changed every week behind it. A teacher who had taught and marked every Monday
+ * came back as never having marked a Wednesday, right to the start of term, and
+ * the punctuality report defaults to the whole term to date.
+ */
+describe('buildCoverage — a lesson that moved weekday', () => {
+  const MONDAY_14 = '2025-11-10';
+  const WEDNESDAY_16 = '2025-11-12';
+
+  /** The week of 10 Nov 2025, read once it is over so the whole week is owed. */
+  const build = (overrides: Partial<CoverageAssignment>, marked: string[]) =>
+    buildCoverage(
+      weekWindow('2025-11-12', '2025-11-30', SEMESTER),
+      [assignment(overrides)],
+      [written({ dates: marked })],
+      { covered: 'everyLessonDay' },
+    );
+
+  it('holds the teacher to the day the timetable said at the time', () => {
+    const coverage = build(
+      {
+        // Moved to Wednesday from the following week.
+        schedule: [on(3)],
+        scheduleHistory: [
+          { from: '2025-01-01', to: '2025-11-17', schedule: [on(MONDAY)] },
+          { from: '2025-11-17', to: null, schedule: [on(3)] },
+        ],
+      },
+      [MONDAY_14],
+    );
+
+    // The Monday they taught and marked still counts, and the Wednesday they were
+    // never timetabled for is not a gap.
+    expect(coverage.rows[0]).toMatchObject({
+      status: 'recorded',
+      lessonDates: [MONDAY_14],
+      missingDates: [],
+    });
+  });
+
+  it('is the bug it exists to stop, when the history is not there', () => {
+    // The same week and the same roll call, judged by today's arrangement alone —
+    // which is what every report did before spells were recorded.
+    const coverage = build({ schedule: [on(3)] }, [MONDAY_14]);
+
+    expect(coverage.rows[0]).toMatchObject({
+      status: 'missing',
+      missingDates: [WEDNESDAY_16],
+    });
+  });
+
+  it('owes the new day once the change has taken effect', () => {
+    const coverage = buildCoverage(
+      weekWindow('2025-11-19', '2025-11-30', SEMESTER),
+      [
+        assignment({
+          schedule: [on(3)],
+          scheduleHistory: [
+            { from: '2025-01-01', to: '2025-11-17', schedule: [on(MONDAY)] },
+            { from: '2025-11-17', to: null, schedule: [on(3)] },
+          ],
+        }),
+      ],
+      [],
+      { covered: 'everyLessonDay' },
+    );
+
+    // The week after the move: Wednesday is owed, Monday is not.
+    expect(coverage.rows[0]).toMatchObject({ missingDates: ['2025-11-19'] });
+  });
+
+  it('leaves a lesson that has never moved exactly as it was', () => {
+    const marked = [MONDAY_14];
+
+    expect(build({ scheduleHistory: [] }, marked).rows).toEqual(build({}, marked).rows);
+  });
+});

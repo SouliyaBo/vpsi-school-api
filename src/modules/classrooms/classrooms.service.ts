@@ -82,6 +82,9 @@ export class ClassroomsService extends BaseCrudService<ClassroomDocument> {
       .findOne({ _id: id, deletedAt: null })
       .populate('gradeLevelId', 'code nameLo nameEn level')
       .populate('homeroomTeacherId', 'teacherCode firstNameLo lastNameLo')
+      // Named rather than left as ids: the history is read to answer "who held
+      // this room in October", and a list of object ids answers nothing.
+      .populate('homeroomHistory.teacherId', 'teacherCode firstNameLo lastNameLo')
       .populate('schoolYearId', 'code nameLo')
       .exec();
     if (!doc) throw AppException.notFound();
@@ -121,7 +124,96 @@ export class ClassroomsService extends BaseCrudService<ClassroomDocument> {
       });
     }
 
-    return this.updateDocument(id, dto, context);
+    /**
+     * A change of ຄູປະຈຳຫ້ອງ goes through the one writer that keeps the history,
+     * never through the plain field update.
+     *
+     * This is the half that is easy to forget: the office reassigns a room from
+     * the classroom form far more often than through a handover, and a history
+     * only the handover wrote would be a history with holes in it — worse than
+     * none, because it would read as complete.
+     */
+    const { homeroomTeacherId, ...rest } = dto;
+    const changesHomeroom =
+      homeroomTeacherId !== undefined &&
+      String(homeroomTeacherId ?? '') !== String(current.homeroomTeacherId ?? '');
+
+    if (!changesHomeroom) {
+      // Still passed through when it was sent unchanged: the edit form posts every
+      // field back, and dropping it here would be a silent difference from what
+      // the caller asked for.
+      return this.updateDocument(id, dto, context);
+    }
+
+    if (Object.keys(rest).length > 0) await this.updateDocument(id, rest, context);
+    await this.setHomeroomTeacher(id, homeroomTeacherId ?? null, context);
+    return this.findOneOrFail(id);
+  }
+
+  /**
+   * Moves a room's ຄູປະຈຳຫ້ອງ and records the spell.
+   *
+   * The only writer of `homeroomTeacherId` and of `homeroomHistory`, which is what
+   * keeps the field and the list from disagreeing — see the field's own note. Two
+   * writes rather than one, because MongoDB refuses a `$set` into an array and a
+   * `$push` onto the same array in one update; the caller passes a session where
+   * it has one, and the handover always does.
+   *
+   * Closing the previous spell and opening the next are the same instant, so a
+   * question about any day lands in exactly one spell and never between two.
+   */
+  async setHomeroomTeacher(
+    classroomId: string | Types.ObjectId,
+    teacherId: string | Types.ObjectId | null,
+    context: CrudContext,
+    options: { note?: string | null } = {},
+  ): Promise<ClassroomDocument> {
+    const at = new Date();
+    const changedBy = context.actor?.sub ? new Types.ObjectId(context.actor.sub) : null;
+    const next = teacherId ? new Types.ObjectId(String(teacherId)) : null;
+    const _id = new Types.ObjectId(String(classroomId));
+
+    await this.model
+      .updateOne(
+        { _id, deletedAt: null },
+        { $set: { homeroomTeacherId: next, 'homeroomHistory.$[open].to': at } },
+        { arrayFilters: [{ 'open.to': null }], session: context.session },
+      )
+      .exec();
+
+    const updated = await this.model
+      .findOneAndUpdate(
+        { _id, deletedAt: null },
+        {
+          $push: {
+            homeroomHistory: {
+              teacherId: next,
+              from: at,
+              to: null,
+              changedBy,
+              note: options.note ?? null,
+            },
+          },
+        },
+        { new: true, session: context.session },
+      )
+      .exec();
+    if (!updated) throw AppException.notFound();
+
+    await this.audit.record(
+      {
+        action: 'update',
+        entityType: 'classrooms',
+        entityId: String(classroomId),
+        userId: context.actor?.sub,
+        username: context.actor?.username,
+        newValue: { homeroomTeacherId: next?.toString() ?? null, note: options.note ?? null },
+        reason: options.note ?? null,
+      },
+      context.session,
+    );
+
+    return updated;
   }
 
   async remove(id: string, context: CrudContext): Promise<void> {

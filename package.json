@@ -30,6 +30,10 @@
     "migrate:student-birthplace": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-student-birthplace.ts",
     "migrate:split-subjects": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-split-upper-subjects.ts",
     "migrate:grade-scale": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-grade-scale.ts",
+    "migrate:cast-ref-ids": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-cast-ref-ids.ts",
+    "migrate:homeroom-teacher-ids": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-homeroom-teacher-ids.ts",
+    "migrate:observation-visit-scope": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-observation-visit-scope.ts",
+    "migrate:social-column-max": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-social-column-max.ts",
     "storage:check": "ts-node -r tsconfig-paths/register src/modules/storage/run-storage-check.ts",
     "worker": "WORKER_MODE=true node dist/main"
   },

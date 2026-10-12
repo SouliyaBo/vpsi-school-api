@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   CERTIFICATE_TYPES,
   CertificateType,
@@ -16,7 +16,7 @@ export type ExamRegistrationDocument = HydratedDocument<ExamRegistration>;
 
 @Schema({ collection: 'examRegistrations', ...baseSchemaOptions })
 export class ExamRegistration extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   @Prop({ type: String, required: true }) // denormalized from Student
@@ -28,7 +28,7 @@ export class ExamRegistration extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: EXAM_LEVELS, index: true })
   level: ExamLevel;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true, index: true })
   schoolYearId: Types.ObjectId;
 
   /** Seat number issued by the exam authority after approval. */
@@ -55,7 +55,7 @@ export class ExamRegistration extends SoftDeletableDocument {
   @Prop({ type: String, default: null })
   rejectionReason?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   approvedBy?: Types.ObjectId | null;
 
   @Prop({ type: Date, default: null })
@@ -78,7 +78,7 @@ ExamRegistrationSchema.index(
 /** One subject's mark in the national exam. */
 @Schema({ _id: false })
 export class ExamSubjectScore {
-  @Prop({ type: Types.ObjectId, ref: 'Subject', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', default: null })
   subjectId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true })
@@ -101,16 +101,16 @@ export type ExamResultDocument = HydratedDocument<ExamResult>;
 @Schema({ collection: 'examResults', ...baseSchemaOptions })
 export class ExamResult extends SoftDeletableDocument {
   // Indexed below as a unique index; declaring it here too would create a duplicate.
-  @Prop({ type: Types.ObjectId, ref: 'ExamRegistration', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'ExamRegistration', required: true })
   registrationId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   @Prop({ type: String, required: true, enum: EXAM_LEVELS })
   level: ExamLevel;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true })
   schoolYearId: Types.ObjectId;
 
   /** Bounded (~5–8 exam subjects) and always read together with the result. */
@@ -135,7 +135,7 @@ export class ExamResult extends SoftDeletableDocument {
   @Prop({ type: Number, default: null })
   nationalRank?: number | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   recordedBy: Types.ObjectId;
 
   @Prop({ type: Boolean, default: false })
@@ -255,7 +255,7 @@ export class Certificate extends SoftDeletableDocument {
   @Prop({ type: String, required: true, trim: true })
   certificateNumber: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Student', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true, index: true })
   studentId: Types.ObjectId;
 
   @Prop({ type: String, required: true }) // denormalized from Student
@@ -264,10 +264,10 @@ export class Certificate extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: CERTIFICATE_TYPES })
   type: CertificateType;
 
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true, index: true })
   schoolYearId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'GradeLevel', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'GradeLevel', default: null })
   gradeLevelId?: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })
@@ -287,7 +287,7 @@ export class Certificate extends SoftDeletableDocument {
   @Prop({ type: Date, required: true })
   issuedDate: Date;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   issuedBy: Types.ObjectId;
 
   /** S3 key of the rendered certificate PDF. */

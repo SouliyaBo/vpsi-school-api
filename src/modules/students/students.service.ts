@@ -57,6 +57,8 @@ export interface StudentPlacement {
   schoolYearId: string;
   rollNumber: number | null;
   enrolledAt: string;
+  /** `ຫ້ອງພາກອັງກິດ`, the English-programme room — not the homeroom. */
+  englishClass: string | null;
 }
 
 /** A student row with its placement resolved. `null` means "not placed yet". */
@@ -185,6 +187,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       filter.status = query.status;
     }
     if (query.gender) filter.gender = query.gender;
+    if (query.age !== undefined) filter.dateOfBirth = birthDateRangeForAge(query.age);
     if (query.villageId) filter.villageId = new Types.ObjectId(query.villageId);
     if (query.guardianId) {
       filter['guardians.guardianId'] = new Types.ObjectId(query.guardianId);
@@ -194,14 +197,37 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       filter.villageId = { $in: await this.resolveVillageIds(query.locationId) };
     }
 
-    // Grade level and classroom live on the enrollment, not the student, so
-    // these filters resolve to a set of student ids first.
-    if (query.classroomId || query.gradeLevelId) {
+    // Grade level, classroom and the English-programme room all live on the
+    // enrollment, not the student, so these filters resolve to a set of student
+    // ids first.
+    const wantsEnglishClass = query.englishClass || query.englishClassSet !== undefined;
+    if (query.classroomId || query.gradeLevelId || wantsEnglishClass) {
       const enrollmentFilter: Record<string, unknown> = { status: 'active', deletedAt: null };
       if (query.classroomId) enrollmentFilter.classroomId = new Types.ObjectId(query.classroomId);
       if (query.gradeLevelId) {
         enrollmentFilter.gradeLevelId = new Types.ObjectId(query.gradeLevelId);
       }
+
+      if (query.englishClass) {
+        enrollmentFilter.englishClass = query.englishClass;
+      } else if (query.englishClassSet !== undefined) {
+        // "Still to be assigned" is the question the office actually has, so an
+        // unset room must match both the `null` the API writes and the missing
+        // field on rows that predate the column.
+        enrollmentFilter.englishClass = query.englishClassSet
+          ? { $nin: [null, ''] }
+          : { $in: [null, ''] };
+      }
+
+      // A room label means nothing without a year — `EP-A` is re-used every
+      // year, and an unscoped match would return the children who sat in it two
+      // years ago. The classroom and grade filters carry their year implicitly
+      // through the classroom, so this is only applied where it is needed.
+      if (wantsEnglishClass && !query.classroomId) {
+        const schoolYearId = await this.resolvePlacementYear(query.schoolYearId);
+        if (schoolYearId) enrollmentFilter.schoolYearId = schoolYearId;
+      }
+
       const enrollments = await this.enrollmentModel
         .find(enrollmentFilter)
         .select('studentId')
@@ -319,6 +345,7 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
         schoolYearId: String(enrollment.schoolYearId),
         rollNumber: enrollment.rollNumber ?? null,
         enrolledAt: new Date(enrollment.enrolledAt).toISOString(),
+        englishClass: enrollment.englishClass ?? null,
       });
     }
 
@@ -923,4 +950,24 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       .exec();
     return villages.map((v) => v._id);
   }
+}
+
+/**
+ * The dates of birth that make a child exactly `age` today.
+ *
+ * Born after this day `age + 1` years ago, and on or before this day `age` years
+ * ago — so a child is the new age on their birthday itself, as `calculateAge` in
+ * the admin counts it. Dates of birth are stored at UTC midnight, so the bounds are too.
+ */
+export function birthDateRangeForAge(
+  age: number,
+  today: Date = new Date(),
+): { $gt: Date; $lte: Date } {
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth();
+  const day = today.getUTCDate();
+  return {
+    $gt: new Date(Date.UTC(year - age - 1, month, day)),
+    $lte: new Date(Date.UTC(year - age, month, day)),
+  };
 }

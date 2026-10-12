@@ -5,6 +5,8 @@ import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
+import { LessonAccessService } from 'src/common/lesson-access/lesson-access.service';
+import { periodsOnDate } from 'src/common/lesson-access/lesson-write-access';
 import { loadCoverageAssignments } from 'src/common/lesson-coverage/coverage-assignments';
 import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
 import { readTimeliness } from 'src/common/record-timeliness/read-timeliness';
@@ -14,6 +16,7 @@ import {
   dayWindow,
   resolveCoverageSemester,
   weekWindow,
+  withRows,
   type CoverageWindow,
   type CoverageWritten,
   type LessonCoverage,
@@ -47,11 +50,12 @@ import { CalendarService } from '../calendar/calendar.service';
 // logs are observations anchored to a timetabled period, and a second
 // implementation of "which periods fall on this date" is a second thing to get
 // wrong.
-import { periodsOnDate, toUtcMidnight } from '../attendances/attendances.service';
+import { toUtcMidnight } from '../attendances/attendances.service';
 import { ClassroomsService } from '../classrooms/classrooms.service';
 import { SemestersService } from '../semesters/semesters.service';
 import {
   BehaviorEntryDto,
+  BehaviorTallyQueryDto,
   CreateBehaviorLogDto,
   MonthlySheetQueryDto,
   QueryBehaviorLogsDto,
@@ -86,6 +90,14 @@ export interface SheetRow {
   period: number;
   subject: unknown;
   teacher: unknown;
+  /**
+   * ຄູສອນແທນ — the colleague who took the lesson, when one did.
+   *
+   * On the printed sheet as well as on screen: the office signs these off, and a
+   * row whose teacher was not in the building that day is a question somebody will
+   * ask of the paper rather than of the app. `null` on an ordinary row.
+   */
+  substituteTeacher: unknown;
   classNote: string | null;
   remark: string | null;
   teachingAssignmentId: string;
@@ -105,6 +117,7 @@ export class BehaviorLogsService {
     private readonly scope: RecordScopeService,
     private readonly tx: TransactionHelper,
     private readonly calendar: CalendarService,
+    private readonly lessons: LessonAccessService,
   ) {}
 
   /**
@@ -184,6 +197,7 @@ export class BehaviorLogsService {
         .populate('studentId', STUDENT_NAME_SELECT)
         .populate('subjectId', 'code nameLo nameEn')
         .populate('teacherId', TEACHER_NAME)
+        .populate('substituteTeacherId', TEACHER_NAME)
         .sort({ date: 1, period: 1 })
         .lean()
         .exec(),
@@ -198,6 +212,7 @@ export class BehaviorLogsService {
         period: record.period,
         subject: record.subjectId,
         teacher: record.teacherId,
+        substituteTeacher: record.substituteTeacherId ?? null,
         classNote: record.classNote ?? null,
         remark: record.remark ?? null,
         teachingAssignmentId: record.teachingAssignmentId.toString(),
@@ -317,7 +332,11 @@ export class BehaviorLogsService {
     ip: string | null,
   ): Promise<{ groupId: string; recorded: number }> {
     const date = toUtcMidnight(dto.date);
-    const assignment = await this.getLessonOrFail(dto.teachingAssignmentId, date, actor);
+    const { assignment, substitution } = await this.lessons.resolveWritableLesson(
+      dto.teachingAssignmentId,
+      date,
+      actor,
+    );
     const semester = await this.semesters.getWritableOrFail(assignment.semesterId.toString());
 
     // The register records what happened, so it cannot be about the future.
@@ -344,6 +363,10 @@ export class BehaviorLogsService {
       schoolYearId: assignment.schoolYearId,
       subjectId: assignment.subjectId,
       teacherId: assignment.teacherId,
+      // Who was in the room, when the timetable's teacher was not — see
+      // `LessonSubstitution`. Carried on the row rather than looked up later,
+      // because the row is what the printed sheet and the edit gate both read.
+      substituteTeacherId: substitution?.substituteTeacherId ?? null,
       date,
       period,
       classNote: dto.classNote?.trim() || null,
@@ -365,6 +388,7 @@ export class BehaviorLogsService {
         classroomId: assignment.classroomId.toString(),
         subjectId: assignment.subjectId.toString(),
         teacherId: assignment.teacherId.toString(),
+        substituteTeacherId: substitution?.substituteTeacherId.toString() ?? null,
         date: dto.date,
         period,
         studentCount: entries.length,
@@ -423,6 +447,9 @@ export class BehaviorLogsService {
       schoolYearId: first.schoolYearId,
       subjectId: first.subjectId,
       teacherId: first.teacherId,
+      // Carried across the rewrite: the row is re-filed under whoever actually
+      // taught it, not under whoever is correcting it.
+      substituteTeacherId: first.substituteTeacherId ?? null,
       date: first.date,
       period: first.period,
       classNote,
@@ -482,7 +509,18 @@ export class BehaviorLogsService {
    * flat log cannot answer it without paging through every row. Class-level
    * records are excluded, having no student to count against.
    */
-  async getClassroomTally(classroomId: string, semesterId: string) {
+  async getClassroomTally(
+    classroomId: string,
+    semesterId: string,
+    scope: BehaviorTallyQueryDto = {},
+  ) {
+    // The window and the subject narrow what is counted, never who is listed:
+    // a student with nothing inside it simply does not appear, which is this
+    // tally's whole convention.
+    const window: Record<string, Date> = {};
+    if (scope.from) window.$gte = toUtcMidnight(scope.from);
+    if (scope.to) window.$lte = toUtcMidnight(scope.to);
+
     const rows = await this.model
       .aggregate<{
         _id: Types.ObjectId;
@@ -502,6 +540,8 @@ export class BehaviorLogsService {
             semesterId: new Types.ObjectId(semesterId),
             studentId: { $ne: null },
             deletedAt: null,
+            ...(Object.keys(window).length > 0 ? { date: window } : {}),
+            ...(scope.subjectId ? { subjectId: new Types.ObjectId(scope.subjectId) } : {}),
           },
         },
         {
@@ -587,17 +627,29 @@ export class BehaviorLogsService {
     // day the school did not teach, and the calendar is the only thing that
     // knows which days those were.
     const bounds = windowFor(semester);
-    const schoolDays = await this.calendar.calendarFor(bounds.start, bounds.end);
+    // Per classroom as well as school-wide: a year or a room the office stood
+    // down on its own owes nothing that day, while the rest of the school does.
+    const schoolDays = await this.calendar.nonTeachingDaysFor(bounds.start, bounds.end);
     const window: CoverageWindow = {
       ...bounds,
-      nonTeachingDays: schoolDays.nonTeachingDays(bounds.start, bounds.end),
+      nonTeachingDays: schoolDays.schoolWide,
+      nonTeachingDaysFor: schoolDays.forClassroom,
     };
+
+    // The same widening the roll call makes: a teacher's own week has to include
+    // the lessons they stood in on, which the timetable files under the teacher who
+    // was away.
+    const covered =
+      teacherId && !options.noLessons
+        ? await this.lessons.coveredAssignmentIds(teacherId, window.start, window.end)
+        : [];
 
     const assignments =
       semester && !options.noLessons
         ? await loadCoverageAssignments(this.assignmentModel, semester._id, {
             teacherId,
             classroomId: query.classroomId,
+            alsoAssignmentIds: covered,
           })
         : [];
     const written = await this.loadWrittenRows(
@@ -606,17 +658,42 @@ export class BehaviorLogsService {
       window.end,
     );
 
+    // Cover claimed in this window, so a day somebody stood in on is owed by them
+    // rather than by the teacher whose lesson it is on the timetable.
+    const substitutions = await this.lessons.substitutionIndex({
+      semesterId: semester?._id ?? null,
+      from: window.start,
+      to: window.end,
+      classroomId: query.classroomId,
+    });
+
     const coverage = buildCoverage(window, assignments, written, {
       // A behaviour note is written when there is something to note, so one row
       // anywhere in the window is the whole of what the register is owed.
       covered: 'anyEntry',
+      substitutions,
       semester: semester
         ? { id: semester._id.toString(), nameLo: semester.nameLo, nameEn: semester.nameEn ?? null }
         : null,
     });
 
-    if (!query.outstandingOnly) return coverage;
-    return { ...coverage, rows: coverage.rows.filter((row) => row.status === 'missing') };
+    // Widening the timetable also brought in the absent teacher's share of the
+    // covered lessons, which belongs on their row. Narrowed before the summary, so
+    // the headline describes the same teacher the rows do.
+    const scoped =
+      teacherId && covered.length > 0
+        ? withRows(
+            coverage,
+            coverage.rows.filter((row) => row.teacherId === teacherId),
+          )
+        : coverage;
+
+    if (!query.outstandingOnly) return scoped;
+    return withRows(
+      scoped,
+      scoped.rows.filter((row) => row.status === 'missing'),
+      scoped.summary,
+    );
   }
 
   /**
@@ -636,6 +713,9 @@ export class BehaviorLogsService {
         assignments: this.assignmentModel,
         log: this.model,
         calendar: this.calendar,
+        // Cover claimed in the window, so a day somebody stood in on is judged
+        // against them and the teacher who was away is not reported late for it.
+        substitutions: this.lessons,
       },
       query,
       'entriesOnly',
@@ -688,10 +768,9 @@ export class BehaviorLogsService {
 
     const rows = await this.model
       .aggregate<{
-        _id: Types.ObjectId;
+        _id: { assignment: Types.ObjectId; date: Date };
         groupIds: Types.ObjectId[];
         studentsNoted: number;
-        dates: Date[];
       }>([
         {
           $match: {
@@ -703,24 +782,39 @@ export class BehaviorLogsService {
           },
         },
         {
+          // Per day, and folded up below. A lesson somebody covered part of has to
+          // be divided between two teachers, and the window's totals cannot be
+          // divided after the fact — see `CoverageWritten.perDay`. Rows are still
+          // counted as `groupId`s: a row naming six students is one entry in the
+          // register rather than six.
           $group: {
-            _id: '$teachingAssignmentId',
+            _id: { assignment: '$teachingAssignmentId', date: '$date' },
             groupIds: { $addToSet: '$groupId' },
             studentsNoted: { $sum: { $cond: [{ $eq: ['$studentId', null] }, 0, 1] } },
-            // The days written on, so the report can name them — one row can
-            // name six students, hence the set rather than a count.
-            dates: { $addToSet: '$date' },
           },
         },
       ])
       .exec();
 
-    return rows.map((row) => ({
-      teachingAssignmentId: row._id.toString(),
-      entries: row.groupIds.length,
-      studentsNoted: row.studentsNoted,
-      dates: row.dates.map((date) => date.toISOString().slice(0, 10)),
-    }));
+    const byAssignment = new Map<string, CoverageWritten>();
+    for (const row of rows) {
+      const id = row._id.assignment.toString();
+      const date = row._id.date.toISOString().slice(0, 10);
+      const found = byAssignment.get(id) ?? {
+        teachingAssignmentId: id,
+        entries: 0,
+        studentsNoted: 0,
+        dates: [],
+        perDay: [],
+      };
+      found.entries += row.groupIds.length;
+      found.studentsNoted += row.studentsNoted;
+      found.dates.push(date);
+      found.perDay!.push({ date, entries: row.groupIds.length, studentsNoted: row.studentsNoted });
+      byAssignment.set(id, found);
+    }
+
+    return [...byAssignment.values()];
   }
 
   /** Trims the entries, refuses duplicates, and refuses a row that says nothing. */
@@ -787,7 +881,16 @@ export class BehaviorLogsService {
     }
   }
 
-  /** Every live record of a row, or 404. Teachers are held to their own lessons. */
+  /**
+   * Every live record of a row, or 404. Teachers are held to their own lessons.
+   *
+   * Judged against the stored row rather than against the timetable, which is the
+   * difference that matters once a lesson can be covered: the row names both the
+   * timetabled teacher and the stand-in who filed it, so the person who wrote it
+   * can still correct a typo in it — and can still do so after their claim has
+   * been withdrawn, which is the state a mistaken row is most likely to be found
+   * in.
+   */
   private async getGroupOrFail(
     groupId: string,
     actor: AuthenticatedUser,
@@ -799,8 +902,8 @@ export class BehaviorLogsService {
       .exec();
     if (records.length === 0) throw AppException.notFound();
 
-    if (actor.personType === 'teacher' && actor.personId !== records[0].teacherId.toString()) {
-      throw AppException.forbidden('attendance.notAssignedTeacher');
+    if (!this.lessons.canWriteRecord(records[0], actor)) {
+      throw AppException.forbidden('attendance.notAssignedTeacher', { groupId });
     }
 
     return records;
@@ -818,42 +921,6 @@ export class BehaviorLogsService {
       )
       .session(session ?? null)
       .exec();
-  }
-
-  /**
-   * Loads the lesson and refuses it unless the actor may write against it.
-   *
-   * Same three refusals as roll call — inactive assignment, a date the lesson is
-   * not taught on, and a teacher reaching for someone else's lesson — because
-   * both logs make the same claim about the timetable.
-   */
-  private async getLessonOrFail(
-    teachingAssignmentId: string,
-    date: Date,
-    actor: AuthenticatedUser,
-  ): Promise<TeachingAssignmentDocument> {
-    const assignment = await this.assignmentModel
-      .findOne({ _id: new Types.ObjectId(teachingAssignmentId), deletedAt: null })
-      .exec();
-    if (!assignment) throw AppException.notFound();
-
-    if (!assignment.isActive) {
-      throw AppException.badRequest('attendance.assignmentInactive', { teachingAssignmentId });
-    }
-
-    if (periodsOnDate(assignment.schedule, date).length === 0) {
-      throw AppException.badRequest('attendance.lessonNotScheduled', {
-        teachingAssignmentId,
-        dayOfWeek: date.getUTCDay(),
-        scheduledDays: [...new Set(assignment.schedule.map((period) => period.dayOfWeek))].sort(),
-      });
-    }
-
-    if (actor.personType === 'teacher' && actor.personId !== assignment.teacherId.toString()) {
-      throw AppException.forbidden('attendance.notAssignedTeacher');
-    }
-
-    return assignment;
   }
 
   /** The period to stamp on the row, falling back to the day's first slot. */

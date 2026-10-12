@@ -40,6 +40,15 @@ const OFFICIAL_WITH_DIGITS = /[\u0E80-\u0EFF0-9\s.,:;/()\-]/;
 const LAO_ONLY = /[\u0E80-\u0EFF]/;
 
 /**
+ * Where a Lao run may be broken across lines.
+ *
+ * Lao writes a whole clause without spaces, so the space is not where a line
+ * may end — it is only where a clause does. ICU's dictionary breaker finds the
+ * word boundaries inside the run; Node ships it for Lao, Thai and Khmer.
+ */
+const LAO_WORDS = new Intl.Segmenter('lo', { granularity: 'word' });
+
+/**
  * Stands in for a value the register does not hold.
  *
  * A blank gap reads as a rendering fault and a parent will hand the letter
@@ -52,10 +61,18 @@ export const BLANK = '……………………';
 /** How many extra space-widths justification may add to one space. */
 const MAX_SPACE_STRETCH = 2.5;
 
-/** A stretch of text with one weight. Assembled per paragraph. */
+/**
+ * A stretch of text with one weight. Assembled per paragraph.
+ *
+ * A no-break space (U+00A0) in `text` is set as an ordinary space but is not a
+ * place the line may end — it ties a label to its value, so `ແຂວງ` never sits
+ * at the end of one line with the province at the start of the next.
+ */
 export interface Span {
   text: string;
   bold?: boolean;
+  /** Set as one piece: no line break anywhere inside, spaces included. */
+  keep?: boolean;
 }
 
 /** One measured piece of a line, set in a single face. */
@@ -67,6 +84,8 @@ interface Atom {
   width: number;
   /** Whitespace atoms are the only ones justification stretches. */
   isSpace: boolean;
+  /** A line may not end just before this atom. */
+  glueBefore: boolean;
 }
 
 /**
@@ -305,18 +324,51 @@ export abstract class OfficialLetterRenderer {
     return runs;
   }
 
-  /** Splits spans into measured atoms, breaking at spaces and face changes. */
+  /**
+   * Splits one official-face run at Lao word boundaries.
+   *
+   * Only a boundary with Lao on both sides counts: the segmenter also breaks
+   * `ມ.4` into `ມ`, `.`, `4` and `2026-2027` around its hyphen, and a class
+   * label or a year split across two lines is worse than a long run.
+   */
+  private words(text: string): string[] {
+    const words: string[] = [];
+    for (const { segment } of LAO_WORDS.segment(text)) {
+      const previous = words[words.length - 1];
+      if (previous !== undefined && !(LAO_ONLY.test(previous) && LAO_ONLY.test(segment))) {
+        words[words.length - 1] = previous + segment;
+      } else {
+        words.push(segment);
+      }
+    }
+    return words;
+  }
+
+  /**
+   * Splits spans into measured atoms, breaking at spaces, face changes and Lao
+   * word boundaries.
+   */
   private toAtoms(doc: PDFKit.PDFDocument, spans: Span[]): Atom[] {
     const atoms: Atom[] = [];
 
+    // The atom after a no-break space is glued to it — across a span boundary
+    // too, since a label ends one span and its value starts the next.
+    let glueNext = false;
+
     for (const span of spans) {
       const bold = span.bold ?? false;
+      const keep = span.keep ?? false;
+      // Inside a kept span every atom is glued to the one before.
+      let first = true;
+
       // Keep the separators: a line break has to fall *between* atoms, and the
-      // space is what gets stretched when the line is justified.
-      for (const token of span.text.split(/(\s+)/)) {
+      // space is what gets stretched when the line is justified. No-break
+      // spaces are split out on their own so they can be told apart.
+      for (const token of span.text.split(/([^\S\u00A0]+|\u00A0+)/)) {
         if (token.length === 0) continue;
 
         if (/^\s+$/.test(token)) {
+          const noBreak = token.includes('\u00A0');
           // Spaces are set in the official face when it has one, so the rhythm
           // of a justified Lao line does not come from Helvetica's metrics.
           const isOfficial = this.officialPattern.test(' ');
@@ -327,19 +379,28 @@ export abstract class OfficialLetterRenderer {
             bold,
             width: doc.widthOfString(' '),
             isSpace: true,
+            glueBefore: noBreak || (keep && !first),
           });
+          glueNext = noBreak;
+          first = false;
           continue;
         }
 
         for (const run of this.segment(token)) {
           doc.font(this.fontFor(run.isOfficial, bold));
-          atoms.push({
-            text: run.text,
-            isOfficial: run.isOfficial,
-            bold,
-            width: doc.widthOfString(run.text),
-            isSpace: false,
-          });
+          const pieces = run.isOfficial ? this.words(run.text) : [run.text];
+          for (const piece of pieces) {
+            atoms.push({
+              text: piece,
+              isOfficial: run.isOfficial,
+              bold,
+              width: doc.widthOfString(piece),
+              isSpace: false,
+              glueBefore: glueNext || (keep && !first),
+            });
+            glueNext = false;
+            first = false;
+          }
         }
       }
     }
@@ -350,11 +411,11 @@ export abstract class OfficialLetterRenderer {
   /**
    * Breaks a Lao atom that is on its own too wide for a line.
    *
-   * Lao writes phrases without internal spaces, so a single unbroken run can
-   * legitimately exceed the measure — and PDFKit, given no break opportunity,
-   * would run it off the page edge. Breaking mid-cluster is not typographically
-   * correct, but an over-long run is rare here (the letter's wording is fixed and
-   * spaced) and a visible wrap beats text disappearing into the margin.
+   * After word segmentation this only happens to a run the dictionary could
+   * not break — a long transliterated name, say — and PDFKit, given no break
+   * opportunity, would run it off the page edge. Breaking mid-cluster is not
+   * typographically correct, but a visible wrap beats text disappearing into
+   * the margin.
    */
   private hardSplit(doc: PDFKit.PDFDocument, atom: Atom, maxWidth: number): Atom[] {
     doc.font(this.fontFor(atom.isOfficial, atom.bold));
@@ -414,8 +475,10 @@ export abstract class OfficialLetterRenderer {
     const atoms = this.toAtoms(doc, spans);
     if (atoms.length === 0) return;
 
-    // Greedy line breaking. `available` shrinks by the indent on the first line
-    // only, which is how the paragraphs on the school's own form are set.
+    // Greedy line breaking over chunks — runs of atoms glued together, which
+    // move to the next line as one. `available` shrinks by the indent on the
+    // first line only, which is how the paragraphs on the school's own form are
+    // set.
     const lines: Atom[][] = [];
     let current: Atom[] = [];
     let used = 0;
@@ -431,22 +494,31 @@ export abstract class OfficialLetterRenderer {
       available = width;
     };
 
-    for (const atom of atoms) {
-      const pieces =
-        atom.width > available && !atom.isSpace ? this.hardSplit(doc, atom, available) : [atom];
+    const place = (piece: Atom): void => {
+      // A space that lands at the end of a full line is dropped, not wrapped.
+      if (used + piece.width > available && current.length > 0) {
+        flush();
+        if (piece.isSpace) return;
+      }
+      if (piece.isSpace && current.length === 0) return;
+      current.push(piece);
+      used += piece.width;
+    };
 
-      for (const piece of pieces) {
-        // A space that lands at the end of a full line is dropped, not wrapped.
-        if (used + piece.width > available && current.length > 0) {
-          if (piece.isSpace) {
-            flush();
-            continue;
-          }
-          flush();
-        }
-        if (piece.isSpace && current.length === 0) continue;
-        current.push(piece);
-        used += piece.width;
+    for (const chunk of this.chunks(atoms)) {
+      const chunkWidth = chunk.reduce((total, atom) => total + atom.width, 0);
+      if (chunkWidth <= available) {
+        // Fits on a fresh line at least: take it whole or move it down whole.
+        if (used + chunkWidth > available && current.length > 0) flush();
+        chunk.forEach(place);
+        continue;
+      }
+      // Wider than any line: the glue has to give, and a single over-long atom
+      // is cut where the measure runs out.
+      for (const atom of chunk) {
+        const pieces =
+          atom.width > available && !atom.isSpace ? this.hardSplit(doc, atom, available) : [atom];
+        pieces.forEach(place);
       }
     }
     if (current.length > 0) flush();
@@ -485,6 +557,17 @@ export abstract class OfficialLetterRenderer {
 
     doc.y = y;
     doc.x = left;
+  }
+
+  /** Groups atoms into the runs a line break may not fall inside. */
+  private chunks(atoms: Atom[]): Atom[][] {
+    const chunks: Atom[][] = [];
+    for (const atom of atoms) {
+      const last = chunks[chunks.length - 1];
+      if (last && atom.glueBefore) last.push(atom);
+      else chunks.push([atom]);
+    }
+    return chunks;
   }
 
   private drawAtoms(

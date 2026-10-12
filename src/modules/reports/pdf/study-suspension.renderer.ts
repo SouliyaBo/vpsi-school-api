@@ -43,7 +43,7 @@ export interface StudySuspensionData {
     fromDate: Date | null;
     /** Printed after `ເຫດຜົນໃນການໂຈະຍ້ອນ:`; null leaves ruled lines. */
     reasonLo: string | null;
-    /** One per line after `ເອກະສານສົ່ງຜູ້ປົກຄອງມີຄື:`; empty leaves ruled lines. */
+    /** Listed after `ເອກະສານສົ່ງຜູ້ປົກຄອງມີຄື:`, comma-separated; empty leaves ruled lines. */
     documentsLo: string[];
   };
 }
@@ -87,25 +87,23 @@ export class StudySuspensionRenderer extends OfficialLetterRenderer {
       ? (LAO_MONTHS[suspension.fromDate.getUTCMonth() + 1] ?? '')
       : this.or(null);
 
-    // The form's opening lines are a header, not prose: each stands on its own
-    // line, so they are set as short paragraphs rather than one justified block.
     this.paragraph(doc, [{ text: 'ເລື່ອງ: ', bold: true }, { text: 'ຂໍໂຈະການຮຽນພາກລາວ.' }]);
-    this.paragraph(doc, [{ text: 'ຊື່ (ຜູ້ປົກຄອງ) ' }, { text: or(guardian.nameLo), bold: true }]);
-    this.paragraph(
-      doc,
-      [
-        { text: 'ບ້ານຢູ່ປັດຈຸບັນ ' },
-        { text: or(guardian.villageLo), bold: true },
-        { text: ' ເມືອງ ' },
-        { text: or(guardian.districtLo), bold: true },
-        { text: ' ແຂວງ ' },
-        { text: or(guardian.provinceLo), bold: true },
-      ],
-      { indent: 0 },
-    );
-    this.paragraph(doc, [{ text: 'ເບີໂທ ' }, { text: or(guardian.phone), bold: true }], {
-      indent: 0,
-    });
+    // Who asks, where they live and how to reach them run on as one paragraph,
+    // the way the office's form fills it in; it wraps only when the measure is
+    // full. Each label is tied to its value and each value is kept whole, so
+    // the line ends between fields — never between `ແຂວງ` and the province.
+    this.paragraph(doc, [
+      { text: 'ຊື່ (ຜູ້ປົກຄອງ)\u00A0' },
+      { text: or(guardian.nameLo), bold: true, keep: true },
+      { text: ' ບ້ານຢູ່ປັດຈຸບັນ\u00A0' },
+      { text: or(guardian.villageLo), bold: true, keep: true },
+      { text: ' ເມືອງ\u00A0' },
+      { text: or(guardian.districtLo), bold: true, keep: true },
+      { text: ' ແຂວງ\u00A0' },
+      { text: or(guardian.provinceLo), bold: true, keep: true },
+      { text: ' ເບີໂທ\u00A0' },
+      { text: or(guardian.phone), bold: true, keep: true },
+    ]);
 
     this.paragraph(doc, [
       { text: 'ມີຈຸດປະສົງ: ', bold: true },
@@ -135,10 +133,13 @@ export class StudySuspensionRenderer extends OfficialLetterRenderer {
 
     const documents = suspension.documentsLo.map((entry) => entry.trim()).filter(Boolean);
     if (documents.length > 0) {
-      this.paragraph(doc, [{ text: 'ເອກະສານສົ່ງຜູ້ປົກຄອງມີຄື:', bold: true }], { justify: false });
-      documents.forEach((entry, index) => {
-        this.paragraph(doc, [{ text: `${index + 1}. ${entry}` }], { indent: 48, justify: false });
-      });
+      // Run in, comma-separated, rather than one per line: the office reads the
+      // list as one clause of the memo, and a column of numbered lines pushed
+      // the signatures down for no gain.
+      this.paragraph(doc, [
+        { text: 'ເອກະສານສົ່ງຜູ້ປົກຄອງມີຄື: ', bold: true },
+        { text: documents.join(', ') },
+      ]);
     } else {
       this.ruledField(doc, 'ເອກະສານສົ່ງຜູ້ປົກຄອງມີຄື:', 4);
     }
@@ -148,11 +149,12 @@ export class StudySuspensionRenderer extends OfficialLetterRenderer {
       { text: 'ສະນັ້ນ, ', bold: true },
       {
         text:
-          // Spaced by phrase, which is how the sentence is read aloud and the
-          // only break opportunities the typesetter gets in Lao.
-          'ທາງພາກພາສາລາວ ຈຶ່ງໄດ້ຕົກລົງເຫັນດີ ເປັນເອກະພາບກັນວ່າ: ສຳລັບນັກຮຽນ ' +
-          'ທີ່ໂຈະການຮຽນພາກພາສາລາວ ໃນກໍລະນີ ມາພົວພັນເອົາເອກະສານໃດໆ ທາງໂຮງຮຽນ ' +
-          'ຈະບໍ່ໄດ້ອອກໃຫ້ ທຸກກໍລະນີ ເພາະໄດ້ສົ່ງຄືນ ຜູ້ປົກຄອງສຳເລັດ ນັບແຕ່ມື້ລົງລາຍເຊັນ ເປັນຕົ້ນໄປ.',
+          // Spaced between clauses only, as the office writes it; the typesetter
+          // finds the word boundaries inside each clause for line breaks.
+          'ທາງພາກພາສາລາວ ຈຶ່ງໄດ້ຕົກລົງເຫັນດີເປັນເອກະພາບກັນວ່າ: ' +
+          'ສຳລັບນັກຮຽນທີ່ໂຈະການຮຽນພາກພາສາລາວໃນກໍລະນີມາພົວພັນເອົາເອກະສານໃດໆ ' +
+          'ທາງໂຮງຮຽນຈະບໍ່ໄດ້ອອກໃຫ້ທຸກກໍລະນີ ' +
+          'ເພາະໄດ້ສົ່ງຄືນຜູ້ປົກຄອງສຳເລັດນັບແຕ່ມື້ລົງລາຍເຊັນເປັນຕົ້ນໄປ.',
       },
     ]);
     doc.y += 6;

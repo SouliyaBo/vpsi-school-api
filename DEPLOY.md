@@ -231,15 +231,29 @@ docker image inspect vpsischool-api:prod --format '{{.Os}}/{{.Architecture}}'
 # must print linux/amd64
 ```
 
-Then ship it — roughly 72 MB gzipped:
+Then ship it — about 464 MB gzipped, most of it LibreOffice:
 
 ```bash
 docker save vpsischool-api:prod | gzip -6 > api-prod.tar.gz
-scp -i vpsi-api.pem -C api-prod.tar.gz ubuntu@3.26.219.236:/tmp/
+scp -i vpsi-api.pem -C api-prod.tar.gz ubuntu@3.26.219.236:~/
 
 ssh -i vpsi-api.pem ubuntu@3.26.219.236 \
-  'gunzip -c /tmp/api-prod.tar.gz | docker load && rm /tmp/api-prod.tar.gz'
+  'gunzip -c ~/api-prod.tar.gz | docker load && rm ~/api-prod.tar.gz'
 ```
+
+**Not `/tmp`.** On this instance `/tmp` is a 455 MB tmpfs — a RAM disk, on a box
+with 908 MB of RAM — so the image cannot land there at all. The transfer dies at
+whatever percent fills it with `scp: write remote ...: Failure`, which after
+several minutes of healthy progress reads as a network fault rather than a full
+disk, and leaves a part-file holding onto the memory until somebody deletes it.
+The home directory is on the root volume, which has about 5 GB free.
+
+The size is worth knowing about: `libreoffice-draw` and `libreoffice-common` are
+927 MB of the 1.2 GB image on their own. They are load-bearing — they are what
+turns the WMF equations in an uploaded Word exam paper into PNGs — so this is a
+cost rather than a mistake. It does mean every deploy re-sends layers the server
+already has, which a registry (ECR) would avoid if the transfer ever becomes the
+thing that hurts.
 
 Only `docker-compose.prod.yml` and `.env.production` need to be on the server —
 `--no-build` means the build context is never read:
@@ -305,7 +319,22 @@ $C down                   # stop; the redis volume survives
 $C down -v                # stop and delete the queue/cache too
 ```
 
-Deploy a change: rsync again, then
+Deploy a change, from your laptop in `vpsischool-api/`:
+
+```bash
+./deploy.sh
+```
+
+[deploy.sh](deploy.sh) is the Option A flow above — buildx for `linux/amd64`,
+`docker save | gzip`, scp, `docker load`, `up -d --no-build` — with the checks
+that are easy to forget: that the image really is amd64 before the transfer is
+paid for, and that `/v1/health/ready` answers afterwards rather than the
+container merely being up. It tags what is running as `vpsischool-api:previous`
+first, so `./deploy.sh --rollback` is a way back. It asks before touching the
+server, and the question it asks is whether the database work this release needs
+has been done — that is the ordering this script cannot check for you.
+
+Building on the server instead: rsync again, then
 
 ```bash
 $C up -d --build

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { LOCATION_TYPES, LocationType } from 'src/common/constants/enums';
 import { baseSchemaOptions, LAO_COLLATION, SoftDeletableDocument } from './base.schema';
 
@@ -26,11 +26,11 @@ export class Location extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: LOCATION_TYPES })
   type: LocationType;
 
-  @Prop({ type: Types.ObjectId, ref: 'Location', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Location', default: null })
   parentId?: Types.ObjectId | null;
 
   /** Root-first: `[provinceId, districtId]` for a village. */
-  @Prop({ type: [Types.ObjectId], ref: 'Location', default: [] })
+  @Prop({ type: [SchemaTypes.ObjectId], ref: 'Location', default: [] })
   ancestors: Types.ObjectId[];
 
   /** 0 = province, 1 = district, 2 = village. Kept for cheap level filtering. */

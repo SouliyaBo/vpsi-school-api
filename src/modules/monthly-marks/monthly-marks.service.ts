@@ -42,10 +42,12 @@ import {
   acrossSubjects,
   annualScore,
   classifyMonth,
-  COLUMN_MAX,
+  columnMaxFor,
+  markedColumns,
   MARK_MAX,
   EMPTY_CELLS,
   isPassing,
+  isWithinMax,
   MONTHLY_COLUMNS,
   monthlyBandsFrom,
   monthScore,
@@ -65,6 +67,8 @@ export interface StrandCell {
   cells: MonthCells;
   /** ລວມ, out of 10 — `null` while nothing has been written. */
   total: number | null;
+  /** ເຫດຜົນ — what the teacher wrote beside the marks, for the letter home. */
+  remark: string | null;
   isLocked: boolean;
 }
 
@@ -137,6 +141,7 @@ export class MonthlyMarksService {
   async getMonthGrid(query: MonthGridQueryDto, actor: AuthenticatedUser) {
     const { subject, classroom, semester } = await this.resolveContext(query);
     const strands = this.strandsOf(subject);
+    const columnMax = columnMaxFor(subject.monthlyColumnMax);
     // The form carries the term's month list so the picker above it does not
     // have to keep its own copy of which months the school collects.
     const months = await this.monthsFor(semester.number);
@@ -161,7 +166,15 @@ export class MonthlyMarksService {
       semester: this.semesterView(semester),
       months,
       month: query.month,
-      columnMax: COLUMN_MAX,
+      columnMax,
+      /**
+       * The columns this subject is actually marked on.
+       *
+       * ພູມສາດ keeps no ປື້ມ, and a form that drew the cell anyway would invite a
+       * mark the save refuses — and, worse, a ຄະແນນເຕັມ prefill of 0 that reads
+       * as a notebook the student lost rather than one nobody keeps.
+       */
+      columns: markedColumns(columnMax),
       canEdit: await this.canEdit(actor, subject, classroom._id, semester._id),
       rows: roster.map((student) => ({
         ...student,
@@ -192,6 +205,7 @@ export class MonthlyMarksService {
     await this.assertCanEdit(actor, subject, classroom._id, semester._id);
 
     const strand = this.resolveStrand(subject, dto.strand);
+    const columnMax = columnMaxFor(subject.monthlyColumnMax);
     const enrolled = await this.enrolledIds(classroom._id);
 
     const result: SaveMarksResultDto = { saved: 0, skipped: 0, errors: [] };
@@ -205,19 +219,30 @@ export class MonthlyMarksService {
           });
         }
 
-        const patch: Partial<Record<MonthlyColumn, number | null>> = {};
+        const patch: CellPatch = {};
         for (const column of MONTHLY_COLUMNS) {
           if (!(column in entry)) continue;
           const value = entry[column] ?? null;
-          if (value !== null && (value < 0 || value > COLUMN_MAX[column])) {
+          // A column the subject is not marked on at all — ປື້ມ for ພູມສາດ —
+          // is refused rather than stored as a mark out of nothing, which
+          // would drag ລວມ nowhere but still read as work that was assessed.
+          if (value !== null && columnMax[column] === 0) {
+            throw AppException.badRequest('score.columnNotMarked', { column });
+          }
+          if (value !== null && !isWithinMax(column, value, columnMax)) {
             throw AppException.badRequest('score.exceedsMax', {
               column,
               value,
-              maxScore: COLUMN_MAX[column],
+              maxScore: columnMax[column],
             });
           }
           patch[column] = value;
         }
+        // Blank is `null`, not an empty string: the row then has no remark
+        // rather than one nobody wrote, and clearing it works the way clearing
+        // a cell does.
+        if ('remark' in entry) patch.remark = entry.remark?.trim() || null;
+
         if (Object.keys(patch).length === 0) {
           result.skipped += 1;
           continue;
@@ -330,7 +355,7 @@ export class MonthlyMarksService {
       classroom: this.classroomView(classroom),
       semester: this.semesterView(semester),
       months,
-      columnMax: COLUMN_MAX,
+      columnMax: columnMaxFor(subject.monthlyColumnMax),
       canEdit: await this.canEdit(actor, subject, classroom._id, semester._id),
       rows,
       summary: summarize(rows),
@@ -752,6 +777,8 @@ export class MonthlyMarksService {
 
     /** studentId → subjectId → strand → the four cells. */
     const cells = new Map<string, Map<string, Map<string, MonthCells>>>();
+    /** studentId → subjectId → ເຫດຜົນ, one line per strand that has one. */
+    const remarks = new Map<string, Map<string, string[]>>();
     for (const mark of marks) {
       const byStudent = cells.get(mark.studentId.toString()) ?? new Map();
       const bySubject = byStudent.get(mark.subjectId.toString()) ?? new Map();
@@ -763,6 +790,15 @@ export class MonthlyMarksService {
       });
       byStudent.set(mark.subjectId.toString(), bySubject);
       cells.set(mark.studentId.toString(), byStudent);
+
+      const written = mark.remark?.trim();
+      if (written) {
+        const forStudent = remarks.get(mark.studentId.toString()) ?? new Map<string, string[]>();
+        const forSubject = forStudent.get(mark.subjectId.toString()) ?? [];
+        forSubject.push(written);
+        forStudent.set(mark.subjectId.toString(), forSubject);
+        remarks.set(mark.studentId.toString(), forStudent);
+      }
     }
 
     /**
@@ -809,10 +845,25 @@ export class MonthlyMarksService {
       const recorded = scores.filter((score): score is number => score !== null);
       const average = acrossSubjects(scores, subjects.length);
 
+      /**
+       * ເຫດຜົນ per subject — what the teacher wrote beside the marks.
+       *
+       * Carried on the summary because this is what ໃບລາຍງານຜູ້ປົກຄອງ prints
+       * under each subject: the remark used to be typed at the moment of export
+       * and kept nowhere, so two exports of the same month could say two
+       * different things. A subject marked in strands joins the lines it has,
+       * since the letter has one cell for the subject.
+       */
+      const subjectRemarks = subjects.map((subject) => {
+        const written = remarks.get(student.studentId)?.get(subject._id.toString()) ?? [];
+        return written.length > 0 ? written.join(' · ') : null;
+      });
+
       return {
         ...student,
         scores,
         testScores,
+        remarks: subjectRemarks,
         /**
          * ເກຣດ per subject — the letter for each month's ລວມ, banded on the same
          * scale as the average's, so the parent report cannot band a subject on
@@ -882,6 +933,8 @@ export class MonthlyMarksService {
         code: subject.code,
         nameLo: subject.nameLo,
         nameEn: subject.nameEn ?? null,
+        // What ກວດກາ is out of, so a reader can judge a test mark without the subject row.
+        testMax: columnMaxFor(subject.monthlyColumnMax).test,
       })),
       rows,
       summary: {
@@ -1165,9 +1218,7 @@ export class MonthlyMarksService {
         // ເກຣດ for the term, withheld while a subject is still short of its
         // ພາກຮຽນ — for the reason a month's is.
         termGrade:
-          termAverage.isComplete && termAverage.value !== null
-            ? gradeOf(termAverage.value)
-            : null,
+          termAverage.isComplete && termAverage.value !== null ? gradeOf(termAverage.value) : null,
         // A student off the sheet — left the school, or moved out of this room —
         // is still shown their marks, with the page free to say so.
         onRoster: rosterRow !== undefined,
@@ -1314,10 +1365,12 @@ export class MonthlyMarksService {
   }
 
   private strandCell(
-    mark: Pick<MonthlyMark, MonthlyColumn | 'isLocked'> | undefined,
+    mark: Pick<MonthlyMark, MonthlyColumn | 'isLocked' | 'remark'> | undefined,
     strand: string | null,
   ): StrandCell {
-    if (!mark) return { strand, cells: EMPTY_CELLS, total: null, isLocked: false };
+    if (!mark) {
+      return { strand, cells: EMPTY_CELLS, total: null, remark: null, isLocked: false };
+    }
 
     const cells: MonthCells = {
       attendance: mark.attendance ?? null,
@@ -1325,7 +1378,13 @@ export class MonthlyMarksService {
       activity: mark.activity ?? null,
       test: mark.test ?? null,
     };
-    return { strand, cells, total: monthTotal(cells), isLocked: mark.isLocked };
+    return {
+      strand,
+      cells,
+      total: monthTotal(cells),
+      remark: mark.remark ?? null,
+      isLocked: mark.isLocked,
+    };
   }
 
   /**
@@ -1338,7 +1397,7 @@ export class MonthlyMarksService {
   private async saveOneCell(
     target: { month: number; strand: string | null; overrideReason?: string },
     studentId: string,
-    patch: Partial<Record<MonthlyColumn, number | null>>,
+    patch: CellPatch,
     context: {
       subject: SubjectDocument;
       classroom: { _id: Types.ObjectId };
@@ -1367,6 +1426,7 @@ export class MonthlyMarksService {
       activity: pick(patch, existing, 'activity'),
       test: pick(patch, existing, 'test'),
     };
+    const nextRemark = 'remark' in patch ? (patch.remark ?? null) : (existing?.remark ?? null);
 
     const before = existing
       ? {
@@ -1374,12 +1434,21 @@ export class MonthlyMarksService {
           notebook: existing.notebook ?? null,
           activity: existing.activity ?? null,
           test: existing.test ?? null,
+          remark: existing.remark ?? null,
         }
       : null;
 
-    if (before && MONTHLY_COLUMNS.every((column) => before[column] === next[column])) return;
+    if (
+      before &&
+      before.remark === nextRemark &&
+      MONTHLY_COLUMNS.every((column) => before[column] === next[column])
+    ) {
+      return;
+    }
 
-    const isBlank = MONTHLY_COLUMNS.every((column) => next[column] === null);
+    // A remark on its own keeps the row: a teacher who explains a month before
+    // the marks are in has written something the letter home needs.
+    const isBlank = nextRemark === null && MONTHLY_COLUMNS.every((column) => next[column] === null);
 
     if (isBlank) {
       if (!existing) return;
@@ -1396,6 +1465,7 @@ export class MonthlyMarksService {
           {
             $set: {
               ...next,
+              remark: nextRemark,
               classroomId: context.classroom._id,
               schoolYearId: context.semester.schoolYearId,
               recordedBy: new Types.ObjectId(actor.sub),
@@ -1420,6 +1490,7 @@ export class MonthlyMarksService {
         month: target.month,
         strand: target.strand,
         ...next,
+        remark: nextRemark,
       },
       ip,
       reason: existing?.isLocked ? `POST-LOCK AMENDMENT: ${target.overrideReason}` : null,
@@ -1534,9 +1605,12 @@ function cellKey(studentId: Types.ObjectId, strand: string | null | undefined): 
   return `${studentId.toString()}|${strand ?? ''}`;
 }
 
+/** What one save may change about a row: any of the four cells, and the remark. */
+type CellPatch = Partial<Record<MonthlyColumn, number | null>> & { remark?: string | null };
+
 /** The sent value where one was sent, otherwise what the row already held. */
 function pick(
-  patch: Partial<Record<MonthlyColumn, number | null>>,
+  patch: CellPatch,
   existing: MonthlyMarkDocument | null,
   column: MonthlyColumn,
 ): number | null {

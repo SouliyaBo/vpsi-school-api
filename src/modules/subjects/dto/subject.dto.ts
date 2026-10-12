@@ -14,10 +14,53 @@ import {
   MaxLength,
   Min,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { SUBJECT_TYPES, SubjectType } from 'src/common/constants/enums';
+import { MARK_MAX } from 'src/modules/monthly-marks/monthly-grading';
 import { SUBJECT_ROLES, SubjectRole } from '../subject-roles';
 import { PaginationQueryDto } from 'src/common/dto/pagination.dto';
+
+/**
+ * ຄະແນນເຕັມ of the monthly sheet's four columns, for a subject the school marks
+ * differently from the usual ຂື້ນຫ້ອງ 1 · ປື້ມ 1 · ກິດຈະກຳ 2 · ກວດກາ 6.
+ *
+ * All four are required rather than patched one at a time: half a scheme is not
+ * a scheme, and the four have to total 10 — the service refuses a set that does
+ * not, since every figure above a month is read on that scale.
+ *
+ * 0 means the column is **not marked** — ພູມສາດ takes no ປື້ມ at ມ.1 — rather
+ * than marked and scored nothing.
+ */
+export class MonthlyColumnMaxDto {
+  @ApiProperty({ description: 'ຂື້ນຫ້ອງ', example: 1 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(MARK_MAX)
+  attendance: number;
+
+  @ApiProperty({ description: 'ປື້ມ — 0 where the subject keeps no notebook mark', example: 0 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(MARK_MAX)
+  notebook: number;
+
+  @ApiProperty({ description: 'ກິດຈະກຳ', example: 3 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(MARK_MAX)
+  activity: number;
+
+  @ApiProperty({ description: 'ກວດກາ', example: 6 })
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(MARK_MAX)
+  test: number;
+}
 
 export class CreateSubjectDto {
   @ApiProperty({ example: 'MATH-M4' })
@@ -100,6 +143,20 @@ export class CreateSubjectDto {
   @MaxLength(60, { each: true })
   @IsOptional()
   strands?: string[];
+
+  @ApiPropertyOptional({
+    type: MonthlyColumnMaxDto,
+    nullable: true,
+    description:
+      "The monthly sheet's ຄະແນນເຕັມ for this subject, where they are not the school's " +
+      'usual 1 / 1 / 2 / 6. The four must total 10, and a column set to 0 is not marked at ' +
+      'all. `null` puts the subject back on the standard columns.',
+  })
+  @ValidateIf((_object, value) => value !== null)
+  @ValidateNested()
+  @Type(() => MonthlyColumnMaxDto)
+  @IsOptional()
+  monthlyColumnMax?: MonthlyColumnMaxDto | null;
 
   @ApiPropertyOptional({
     description: 'Percentage needed to pass. Falls back to the global grading setting.',
@@ -189,6 +246,20 @@ export class UpdateSubjectDto {
   @Max(100)
   @IsOptional()
   passingPercentage?: number;
+
+  @ApiPropertyOptional({
+    type: MonthlyColumnMaxDto,
+    nullable: true,
+    description:
+      "The monthly sheet's ຄະແນນເຕັມ for this subject, where they are not the school's " +
+      'usual 1 / 1 / 2 / 6. The four must total 10, and a column set to 0 is not marked at ' +
+      'all. `null` puts the subject back on the standard columns.',
+  })
+  @ValidateIf((_object, value) => value !== null)
+  @ValidateNested()
+  @Type(() => MonthlyColumnMaxDto)
+  @IsOptional()
+  monthlyColumnMax?: MonthlyColumnMaxDto | null;
 
   @ApiPropertyOptional()
   @IsBoolean()

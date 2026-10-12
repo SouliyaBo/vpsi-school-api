@@ -1,5 +1,5 @@
 import { Prop, Schema } from '@nestjs/mongoose';
-import { Types } from 'mongoose';
+import { SchemaTypes, Types } from 'mongoose';
 
 /**
  * Shared schema options.
@@ -35,7 +35,7 @@ export abstract class SoftDeletableDocument {
   @Prop({ type: Date, default: null, index: true })
   deletedAt?: Date | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   deletedBy?: Types.ObjectId | null;
 
   createdAt?: Date;

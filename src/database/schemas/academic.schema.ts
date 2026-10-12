@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   SEMESTER_STATUSES,
   SUBJECT_TYPES,
@@ -48,7 +48,7 @@ export type SemesterDocument = HydratedDocument<Semester>;
 
 @Schema({ collection: 'semesters', ...baseSchemaOptions })
 export class Semester extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true, index: true })
   schoolYearId: Types.ObjectId;
 
   /** 1 or 2 within the school year. */
@@ -113,22 +113,82 @@ GradeLevelSchema.index({ level: 1 });
 
 // ── Classroom ───────────────────────────────────────────────────────────────
 
+/**
+ * One spell of ຄູປະຈຳຫ້ອງ — who held the room, and between which dates.
+ *
+ * `homeroomTeacherId` alone answers "who is it now" and nothing else, which was
+ * enough until a teacher left mid-term. Then the question the office actually
+ * asks becomes unanswerable: a room that went three weeks without a homeroom
+ * teacher looks, after the fact, exactly like a room whose teacher simply never
+ * reviewed it — and the ວັນພຸດ/ວັນສຸກ compliance report blames whoever holds it
+ * today for days nobody held it at all.
+ *
+ * An interval list rather than a log of changes, because every question put to it
+ * is "who held this room on that day": the open spell is the one with no `to`.
+ * Embedded rather than a collection of its own — it is read with the room, it is
+ * a handful of rows per year, and nothing else references a spell.
+ */
+@Schema({ _id: false })
+export class HomeroomTerm {
+  /**
+   * `null` for a spell with nobody in the post.
+   *
+   * Recorded rather than skipped: "the room had no ຄູປະຈຳຫ້ອງ from the 3rd to the
+   * 21st" is the answer that excuses the gap in the review report, and leaving
+   * those days out of the list would make them look like somebody's.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', default: null })
+  teacherId?: Types.ObjectId | null;
+
+  @Prop({ type: Date, required: true })
+  from: Date;
+
+  /** `null` while this is the spell in force. */
+  @Prop({ type: Date, default: null })
+  to?: Date | null;
+
+  /** Who made the change — the office, or whoever ran the handover. */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  changedBy?: Types.ObjectId | null;
+
+  /** ເຫດຜົນ — free text, e.g. `ຄູລາອອກ`, carried from a handover. */
+  @Prop({ type: String, default: null, trim: true })
+  note?: string | null;
+}
+
+export const HomeroomTermSchema = SchemaFactory.createForClass(HomeroomTerm);
+
 export type ClassroomDocument = HydratedDocument<Classroom>;
 
 @Schema({ collection: 'classrooms', ...baseSchemaOptions })
 export class Classroom extends SoftDeletableDocument {
-  @Prop({ type: Types.ObjectId, ref: 'SchoolYear', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true, index: true })
   schoolYearId: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'GradeLevel', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'GradeLevel', required: true, index: true })
   gradeLevelId: Types.ObjectId;
 
   /** Section name within the grade, e.g. `ກ`, `ຂ`, `A`. */
   @Prop({ type: String, required: true, trim: true })
   name: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', default: null, index: true })
   homeroomTeacherId?: Types.ObjectId | null;
+
+  /**
+   * Every spell of ຄູປະຈຳຫ້ອງ this room has had, oldest first.
+   *
+   * `homeroomTeacherId` is the denormalized "now" of the open spell — everything
+   * that asks who the homeroom teacher is reads it, and a join per room would be
+   * a join on every screen. The two are kept in step in exactly one place,
+   * `ClassroomsService.setHomeroomTeacher`; nothing else may write either.
+   *
+   * Empty on a room nobody has ever changed, which is the honest state: the
+   * history begins when the school first recorded a change, and inventing a spell
+   * back to the start of time would claim a start date nobody wrote down.
+   */
+  @Prop({ type: [HomeroomTermSchema], default: [] })
+  homeroomHistory: HomeroomTerm[];
 
   @Prop({ type: Number, required: true, min: 1, default: 45 })
   capacity: number;
@@ -184,7 +244,7 @@ export class SubjectGroup extends SoftDeletableDocument {
    * a head who resigns leaves the group standing. Plan submissions fall back to
    * every `isAcademicHead` teacher while it is unset.
    */
-  @Prop({ type: Types.ObjectId, ref: 'Teacher', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', default: null, index: true })
   headTeacherId?: Types.ObjectId | null;
 
   /** Display order in menus and on the compliance matrix. */
@@ -201,6 +261,43 @@ SubjectGroupSchema.index({ sortOrder: 1, isActive: 1 });
 
 // ── Subject ─────────────────────────────────────────────────────────────────
 
+/**
+ * One subject's own maxima on the monthly mark sheet, where the school marks it
+ * differently from the standard ຂື້ນຫ້ອງ 1 · ປື້ມ 1 · ກິດຈະກຳ 2 · ກວດກາ 6.
+ *
+ * ສັງຄົມ keeps no ປື້ມ — that column is not taken at all and its point goes to
+ * ກິດຈະກຳ, so it is marked 1 · 0 · 3 · 6. That is the ສາຍວິຊາ itself at ມ.1–ມ.3,
+ * and ພູມສາດ / ສຶກສາພົນລະເມືອງ / ປະຫວັດສາດ each on their own at ມ.5 and ມ.6; at
+ * ມ.4 and ມ.7 they are marked like every other subject. A column at 0 means the
+ * subject is not marked on it,
+ * which is not a mark of zero: the form drops the cell and a value sent for it
+ * is refused.
+ *
+ * All four are required so a stored override is always a whole scheme, and they
+ * must total 10 — `isColumnMaxUsable` in `monthly-marks/monthly-grading.ts` is
+ * the rule, and the subjects service refuses a save that breaks it.
+ */
+@Schema({ _id: false })
+export class MonthlyColumnMax {
+  /** ຂື້ນຫ້ອງ. */
+  @Prop({ type: Number, required: true, min: 0, max: 10 })
+  attendance: number;
+
+  /** ປື້ມ — 0 for a subject that keeps no notebook mark. */
+  @Prop({ type: Number, required: true, min: 0, max: 10 })
+  notebook: number;
+
+  /** ກິດຈະກຳ. */
+  @Prop({ type: Number, required: true, min: 0, max: 10 })
+  activity: number;
+
+  /** ກວດກາ. */
+  @Prop({ type: Number, required: true, min: 0, max: 10 })
+  test: number;
+}
+
+export const MonthlyColumnMaxSchema = SchemaFactory.createForClass(MonthlyColumnMax);
+
 export type SubjectDocument = HydratedDocument<Subject>;
 
 @Schema({ collection: 'subjects', ...baseSchemaOptions })
@@ -214,7 +311,7 @@ export class Subject extends SoftDeletableDocument {
   @Prop({ type: String, default: null, trim: true })
   nameEn?: string | null;
 
-  @Prop({ type: Types.ObjectId, ref: 'GradeLevel', required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'GradeLevel', required: true, index: true })
   gradeLevelId: Types.ObjectId;
 
   /**
@@ -225,7 +322,7 @@ export class Subject extends SoftDeletableDocument {
    * ones the school splits differently. An ungrouped subject shows up under
    * "unassigned" on the compliance matrix, which is a visible prompt to file it.
    */
-  @Prop({ type: Types.ObjectId, ref: 'SubjectGroup', default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SubjectGroup', default: null, index: true })
   subjectGroupId?: Types.ObjectId | null;
 
   /**
@@ -253,7 +350,7 @@ export class Subject extends SoftDeletableDocument {
    * the weaker case — columns averaged into one subject mark — and is left in
    * place for a school that marks that way.
    */
-  @Prop({ type: Types.ObjectId, ref: 'Subject', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', default: null })
   parentSubjectId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true, enum: SUBJECT_TYPES, default: 'core' })
@@ -288,6 +385,17 @@ export class Subject extends SoftDeletableDocument {
    */
   @Prop({ type: [String], default: [] })
   strands: string[];
+
+  /**
+   * The monthly sheet's ຄະແນນເຕັມ for this subject, where they are not the
+   * school's usual ones — see `MonthlyColumnMax`.
+   *
+   * `null` is the ordinary case: ຂື້ນຫ້ອງ 1 · ປື້ມ 1 · ກິດຈະກຳ 2 · ກວດກາ 6. An
+   * override that does not total 10 is not stored, so a sheet read through this
+   * is always out of 10 whichever way the columns are split.
+   */
+  @Prop({ type: MonthlyColumnMaxSchema, default: null })
+  monthlyColumnMax?: MonthlyColumnMax | null;
 
   /** Percentage of `maxScore` required to pass. Falls back to the global setting. */
   @Prop({ type: Number, default: null, min: 0, max: 100 })

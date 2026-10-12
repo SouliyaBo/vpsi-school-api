@@ -14,6 +14,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { MARK_MAX } from '../monthly-grading';
 
 /** Which sheet is being looked at: one subject, in one class, for one term. */
 export class SheetQueryDto {
@@ -99,39 +100,66 @@ export class AnnualSheetQueryDto {
  * Every column is optional and nullable, because the form is filled in as the
  * month goes: `null` clears a cell back to "not written", which is not the same
  * as a mark of zero.
+ *
+ * **What each column is out of is not decided here.** It depends on the subject:
+ * ສັງຄົມ takes no ປື້ມ mark and its point goes to ກິດຈະກຳ, so that column runs to
+ * 3 there and to 2 everywhere else — see `columnMaxFor`. These bounds used to
+ * state the ordinary scheme (1 / 1 / 2 / 6), which made this a second copy of a
+ * rule that has an owner, and the copy ran first: `ValidationPipe` refused a
+ * perfectly legal ກິດຈະກຳ 3 for ສັງຄົມ before the service could consult the
+ * subject at all, and the teacher was told only "ຂໍ້ມູນທີ່ສົ່ງມາບໍ່ຖືກຕ້ອງ".
+ *
+ * So what is left here is the one bound that holds whatever the scheme:
+ * no single column can be worth more than the month itself. The real limit is
+ * checked in `MonthlyMarksService.saveMonth`, against that subject's own maxima,
+ * and refused with `score.exceedsMax` — which names the column and the mark it is
+ * actually out of.
  */
 export class MonthlyMarkEntryDto {
   @ApiProperty()
   @IsMongoId()
   studentId: string;
 
-  @ApiPropertyOptional({ description: 'ຂື້ນຫ້ອງ, out of 1', example: 1 })
+  @ApiPropertyOptional({ description: 'ຂື້ນຫ້ອງ — out of 1 under the usual scheme', example: 1 })
   @IsNumber()
   @Min(0)
-  @Max(1)
+  @Max(MARK_MAX)
   @IsOptional()
   attendance?: number | null;
 
-  @ApiPropertyOptional({ description: 'ປື້ມ, out of 1' })
+  @ApiPropertyOptional({ description: 'ປື້ມ — out of 1, and not marked at all for ສັງຄົມ' })
   @IsNumber()
   @Min(0)
-  @Max(1)
+  @Max(MARK_MAX)
   @IsOptional()
   notebook?: number | null;
 
-  @ApiPropertyOptional({ description: 'ກິດຈະກຳ, out of 2' })
+  @ApiPropertyOptional({ description: 'ກິດຈະກຳ — out of 2, or 3 where ປື້ມ is not marked' })
   @IsNumber()
   @Min(0)
-  @Max(2)
+  @Max(MARK_MAX)
   @IsOptional()
   activity?: number | null;
 
-  @ApiPropertyOptional({ description: 'ກວດກາ, out of 6' })
+  @ApiPropertyOptional({ description: 'ກວດກາ — out of 6' })
   @IsNumber()
   @Min(0)
-  @Max(6)
+  @Max(MARK_MAX)
   @IsOptional()
   test?: number | null;
+
+  /**
+   * ເຫດຜົນ — why the month came out as it did, kept with the marks and printed
+   * under the subject on ໃບລາຍງານຜູ້ປົກຄອງ.
+   *
+   * Nullable like the cells: an empty string clears it. A row that has only a
+   * remark is kept, so a teacher can write one before the marks are in.
+   */
+  @ApiPropertyOptional({ description: 'ເຫດຜົນ, shown to the guardian on the month report' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(300)
+  remark?: string | null;
 }
 
 /**

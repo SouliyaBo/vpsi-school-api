@@ -266,6 +266,56 @@ export type ConductNotifyParty = (typeof CONDUCT_NOTIFY_PARTIES)[number];
 export const ATTENDANCE_STATUSES = tuple('present', 'absent', 'late', 'excused', 'sick');
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 
+// ── Homeroom review (ການຕິດຕາມນັກຮຽນຂອງຄູປະຈຳຫ້ອງ) ──────────────────────────
+
+/**
+ * What the homeroom teacher did about a child they flagged.
+ *
+ * The list is ordered by escalation, and `none` is deliberately available: a
+ * teacher who looked at a flagged child and judged that nothing was wrong has
+ * reviewed the class, and forcing them to claim an action would turn the record
+ * into a fiction. What the office chases is the review, not a contact per name.
+ */
+export const HOMEROOM_REVIEW_ACTIONS = tuple(
+  'none',
+  'watching',
+  'warned_student',
+  'met_student',
+  'contacted_guardian',
+  'referred_discipline',
+);
+export type HomeroomReviewAction = (typeof HOMEROOM_REVIEW_ACTIONS)[number];
+
+/**
+ * How a guardian was reached.
+ *
+ * Recorded because "ແຈ້ງຜູ້ປົກຄອງແລ້ວ" is the claim a later meeting is held
+ * over, and "I rang and nobody answered" is a different fact from a letter the
+ * child was handed. `null` on any action that did not reach out at all.
+ */
+export const GUARDIAN_CONTACT_CHANNELS = tuple('phone', 'telegram', 'in_person', 'letter');
+export type GuardianContactChannel = (typeof GUARDIAN_CONTACT_CHANNELS)[number];
+
+/**
+ * Why a child appeared on the review sheet.
+ *
+ * Snapshotted onto the filed review rather than recomputed: the sheet is what
+ * the teacher was looking at when they acted, and a threshold the office retunes
+ * in November must not rewrite what October's review says it was about.
+ */
+export const HOMEROOM_ANOMALY_KINDS = tuple(
+  'absence',
+  'late',
+  'attendance_rate',
+  'behavior',
+  'conduct',
+);
+export type HomeroomAnomalyKind = (typeof HOMEROOM_ANOMALY_KINDS)[number];
+
+/** Whether a reason was raised by the days since the last review, or by the term to date. */
+export const HOMEROOM_ANOMALY_SCOPES = tuple('window', 'term');
+export type HomeroomAnomalyScope = (typeof HOMEROOM_ANOMALY_SCOPES)[number];
+
 // ── Documents / reports ─────────────────────────────────────────────────────
 
 export const REPORT_TYPES = tuple(
@@ -505,6 +555,11 @@ export const PERMISSION_RESOURCES = tuple(
   'conduct-scores',
   'behavior-logs',
   'attendances',
+  // ການມອບໝາຍສອນແທນ — gated apart from `attendances` and `behavior-logs` because
+  // it is the *key* to them rather than one of them: a claim is what lets a
+  // teacher who is not on the timetable write that lesson's register at all, so
+  // who may hand that key out is a narrower question than who may use it.
+  'lesson-substitutions',
   'term-results',
   'reports',
   'lesson-plans',
@@ -526,6 +581,11 @@ export const PERMISSION_RESOURCES = tuple(
   'feedback',
   'audit-logs',
   'settings',
+  // Who checked their class, and what they did about it — gated apart from
+  // `behavior-logs` and `attendances` because it is the *oversight* of the two:
+  // a teacher who may write a register row is not thereby a party to the report
+  // that names which homeroom teachers have stopped looking at their room.
+  'homeroom-reviews',
   // Health data is gated on its own resource rather than riding on `students`:
   // the office maintains the register, but a child's HPV record is the nurse's,
   // and one permission for both would mean granting either to grant the other.

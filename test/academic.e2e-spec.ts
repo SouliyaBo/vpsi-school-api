@@ -46,6 +46,18 @@ describe('Academic operations (e2e)', () => {
     return typeof link === 'string' ? link : link.id;
   }
 
+  /**
+   * A reference id, whether the read populated it or left it bare.
+   *
+   * Reads differ on this — a list may populate what a detail read does not — so an
+   * assertion about *which* record is pointed at should not also depend on which.
+   */
+  function refId(ref: unknown): string | null {
+    if (!ref) return null;
+    if (typeof ref === 'string') return ref;
+    return (ref as { id?: string }).id ?? null;
+  }
+
   /** Creates a student with one inline guardian and returns its id. */
   async function createStudent(code: string, firstNameLo: string): Promise<string> {
     const response = await http()
@@ -452,6 +464,155 @@ describe('Academic operations (e2e)', () => {
 
       expect(originAfter.body.currentCount).toBe(originBefore.body.currentCount - 1);
       expect(destinationAfter.body.currentCount).toBe(destinationBefore.body.currentCount + 1);
+    });
+
+    /**
+     * `ຫ້ອງພາກອັງກິດ` — set at placement, edited later, and carried through a move.
+     *
+     * It lives on the enrollment rather than the student because the English
+     * lessons regroup the year every school year; these cover the three ways it
+     * is written, including the one that clears it.
+     */
+    it('keeps the English-programme room on the placement, and lets it be edited', async () => {
+      const studentId = await createStudent('S-ENGCLASS-001', 'ນາງ');
+
+      const enrollment = await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId, classroomId, englishClass: 'EP-A' })
+        .expect(201);
+
+      expect(enrollment.body.englishClass).toBe('EP-A');
+
+      const edited = await http()
+        .patch(`/api/enrollments/${enrollment.body.id}`)
+        .set(auth(token))
+        .send({ englishClass: 'EP-B' })
+        .expect(200);
+
+      expect(edited.body.englishClass).toBe('EP-B');
+
+      // An empty string is how the office takes a child out of the programme;
+      // it has to reach `null` rather than be ignored as a blank.
+      const cleared = await http()
+        .patch(`/api/enrollments/${enrollment.body.id}`)
+        .set(auth(token))
+        .send({ englishClass: '' })
+        .expect(200);
+
+      expect(cleared.body.englishClass).toBeNull();
+    });
+
+    it('carries the English-programme room across a transfer', async () => {
+      const studentId = await createStudent('S-ENGCLASS-002', 'ນາງ');
+      const enrollment = await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId, classroomId, englishClass: 'EP-A' })
+        .expect(201);
+
+      await http()
+        .patch(`/api/enrollments/${enrollment.body.id}/status`)
+        .set(auth(token))
+        .send({ status: 'transferred', transferredToClassroomId: secondClassroomId })
+        .expect(200);
+
+      // The English rooms are not the homerooms, so a homeroom move says nothing
+      // about them — the label follows the child rather than being lost.
+      const roster = await http()
+        .get(`/api/enrollments/classroom/${secondClassroomId}/roster`)
+        .set(auth(token))
+        .expect(200);
+
+      const moved = roster.body.find(
+        (row: { studentId: { id?: string } | string }) =>
+          String((row.studentId as { id?: string })?.id ?? row.studentId) === studentId,
+      );
+      expect(moved?.englishClass).toBe('EP-A');
+    });
+
+    it('filters the students list by English-programme room, and by having none', async () => {
+      const inRoom = await createStudent('S-ENGFILTER-001', 'ນາງ');
+      const noRoom = await createStudent('S-ENGFILTER-002', 'ນາງ');
+
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: inRoom, classroomId, englishClass: 'EP-FILTER' })
+        .expect(201);
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: noRoom, classroomId: secondClassroomId })
+        .expect(201);
+
+      const inside = await http()
+        .get('/api/students')
+        .query({ englishClass: 'EP-FILTER', limit: 100 })
+        .set(auth(token))
+        .expect(200);
+
+      const insideIds = inside.body.data.map((student: { id: string }) => student.id);
+      expect(insideIds).toContain(inRoom);
+      expect(insideIds).not.toContain(noRoom);
+
+      // The question the office actually has while the column is still filling:
+      // which placed children have not been given a room yet.
+      const missing = await http()
+        .get('/api/students')
+        .query({ englishClassSet: 'false', limit: 100 })
+        .set(auth(token))
+        .expect(200);
+
+      const missingIds = missing.body.data.map((student: { id: string }) => student.id);
+      expect(missingIds).toContain(noRoom);
+      expect(missingIds).not.toContain(inRoom);
+    });
+
+    it('lists the rooms in use, deduplicated and without the blanks', async () => {
+      const first = await createStudent('S-ENGLIST-001', 'ນາງ');
+      const second = await createStudent('S-ENGLIST-002', 'ນາງ');
+      const third = await createStudent('S-ENGLIST-003', 'ນາງ');
+
+      for (const [studentId, room] of [
+        [first, 'EP-LIST-A'],
+        [second, 'EP-LIST-A'],
+        [third, undefined],
+      ] as const) {
+        await http()
+          .post('/api/enrollments')
+          .set(auth(token))
+          .send({ studentId, classroomId, ...(room ? { englishClass: room } : {}) })
+          .expect(201);
+      }
+
+      const response = await http()
+        .get('/api/enrollments/english-classes')
+        .set(auth(token))
+        .expect(200);
+
+      // One entry for the room two children share, and nothing for the child
+      // with none — "no room" is its own filter, not a label.
+      expect(response.body.filter((room: string) => room === 'EP-LIST-A')).toHaveLength(1);
+      expect(response.body).not.toContain('');
+      expect(response.body).not.toContain(null);
+    });
+
+    it('will not let a classroom be reassigned through the update route', async () => {
+      const studentId = await createStudent('S-ENGCLASS-003', 'ນາງ');
+      const enrollment = await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId, classroomId })
+        .expect(201);
+
+      // `forbidNonWhitelisted` is what keeps the headcounts honest: a placement
+      // moved without the transfer path would leave both classrooms wrong.
+      await http()
+        .patch(`/api/enrollments/${enrollment.body.id}`)
+        .set(auth(token))
+        .send({ classroomId: secondClassroomId })
+        .expect(400);
     });
 
     it('refuses an illegal status transition', async () => {
@@ -1497,9 +1658,178 @@ describe('Academic operations (e2e)', () => {
       expect(september.totalRecorded + october.totalRecorded).toBe(term.totalRecorded);
     });
 
+    it('lists the lessons behind a summary — everything but present, with subject and teacher', async () => {
+      // The tests above left this student late on 18 Sep, absent on the 19th
+      // and excused on 16 Oct. One more lesson, marked present, must stay out.
+      await http()
+        .post('/api/attendances')
+        .set(auth(token))
+        .send({
+          teachingAssignmentId: lessonId,
+          date: '2025-09-25',
+          entries: [{ studentId: attendanceStudentId, status: 'present' }],
+        })
+        .expect(200);
+
+      const records = await http()
+        .get(`/api/attendances?studentId=${attendanceStudentId}&notPresent=true`)
+        .set(auth(token))
+        .expect(200);
+
+      expect(records.body.meta.total).toBe(3);
+      const rows = records.body.data as { status: string; date: string }[];
+      expect(rows.map((row) => row.status)).toEqual(['excused', 'absent', 'late']);
+      expect(rows.some((row) => row.status === 'present')).toBe(false);
+      // The reader wants to know which lesson and whose, not two ids.
+      expect(records.body.data[0].subjectId).toMatchObject({ nameLo: expect.any(String) });
+      expect(records.body.data[0].teacherId).toMatchObject({ firstNameLo: expect.any(String) });
+
+      // A named status still wins over the flag.
+      const present = await http()
+        .get(`/api/attendances?studentId=${attendanceStudentId}&notPresent=true&status=present`)
+        .set(auth(token))
+        .expect(200);
+      expect(present.body.meta.total).toBe(1);
+      expect(present.body.data[0].date).toBe('2025-09-25T00:00:00.000Z');
+    });
+
+    /**
+     * The office reads a stretch that is not a calendar month — the fortnight
+     * before an exam — and a teacher reads their own subject alone. Both narrow
+     * the counts and the rate together, so the rate is the window's own.
+     */
+    it('narrows a summary to a date range, and to one subject', async () => {
+      // On file for this student: late 18 Sep, absent 19 Sep, present 25 Sep,
+      // excused 16 Oct — all in the same lesson's subject.
+      const rowFor = async (query: string) => {
+        const response = await http()
+          .get(`/api/attendances/summary/classroom/${classroomId}/semester/${semesterId}${query}`)
+          .set(auth(token))
+          .expect(200);
+        return response.body.find(
+          (row: { studentId: string }) => row.studentId === attendanceStudentId,
+        );
+      };
+
+      const window = await rowFor('?from=2025-09-19&to=2025-09-25');
+      expect(window.absent).toBe(1);
+      expect(window.present).toBe(1);
+      expect(window.late).toBe(0);
+      expect(window.totalRecorded).toBe(2);
+      expect(window.attendanceRate).toBe(50);
+
+      // The bounds are inclusive on both ends.
+      expect((await rowFor('?from=2025-09-18&to=2025-09-18')).late).toBe(1);
+
+      const records = await http()
+        .get(`/api/attendances?studentId=${attendanceStudentId}&limit=1`)
+        .set(auth(token))
+        .expect(200);
+      const lessonSubjectId = records.body.data[0].subjectId.id as string;
+
+      expect((await rowFor(`?subjectId=${lessonSubjectId}`)).totalRecorded).toBe(4);
+      // No maths lesson was ever marked for this student, so they drop out of
+      // the list rather than coming back as zeroes — the caller holds the roll.
+      expect(await rowFor(`?subjectId=${mathSubjectId}`)).toBeUndefined();
+
+      // The student's own summary takes the same window.
+      const own = await http()
+        .get(
+          `/api/attendances/summary/student/${attendanceStudentId}/semester/${semesterId}` +
+            `?from=2025-10-01&subjectId=${lessonSubjectId}`,
+        )
+        .set(auth(token))
+        .expect(200);
+      expect(own.body.excused).toBe(1);
+      expect(own.body.totalRecorded).toBe(1);
+    });
+
     it('rejects a month outside 1–12', async () => {
       await http()
         .get(`/api/attendances/summary/classroom/${classroomId}/semester/${semesterId}?month=13`)
+        .set(auth(token))
+        .expect(400);
+    });
+
+    /**
+     * Three late arrivals are a day absent without a reason, as far as the
+     * office is concerned. The rule is applied when the counts are read, so it
+     * reaches every sheet through the same figures — see `absence-days.ts`.
+     */
+    it('counts three lates as one unexcused absence, and says so', async () => {
+      // On file: late 18 Sep, absent 19 Sep, present 25 Sep, excused 16 Oct.
+      // Two more lates on lesson days make three.
+      for (const date of ['2025-09-26', '2025-10-02']) {
+        await http()
+          .post('/api/attendances')
+          .set(auth(token))
+          .send({
+            teachingAssignmentId: lessonId,
+            date,
+            entries: [{ studentId: attendanceStudentId, status: 'late', minutesLate: 5 }],
+          })
+          .expect(200);
+      }
+
+      const summary = await http()
+        .get(`/api/attendances/summary/student/${attendanceStudentId}/semester/${semesterId}`)
+        .set(auth(token))
+        .expect(200);
+
+      expect(summary.body).toMatchObject({
+        late: 3,
+        absent: 1,
+        excused: 1,
+        totalRecorded: 6,
+        latesPerAbsence: 3,
+        lateAsAbsent: 1,
+        lateRemainder: 0,
+        absentUnexcused: 2,
+        absentExcused: 1,
+        absentTotal: 3,
+      });
+      // Six lessons, two of them now days absent: the rate follows the rule.
+      expect(summary.body.attendanceRate).toBe(66.67);
+    });
+
+    /**
+     * The office asks "who is at 15 days, and 30" of the whole school, not of
+     * one room at a time, and wants the room beside the name.
+     */
+    it('lists every student over an absence threshold, with their room', async () => {
+      // This student stands at 3 ວັນຂາດ: 2 without a reason (one of them the
+      // three lates), 1 with.
+      const listed = await http()
+        .get(`/api/attendances/summary/semester/${semesterId}/absences?minAbsentDays=3`)
+        .set(auth(token))
+        .expect(200);
+
+      const row = listed.body.find(
+        (entry: { studentId: string }) => entry.studentId === attendanceStudentId,
+      );
+      expect(row).toMatchObject({
+        absentTotal: 3,
+        absentUnexcused: 2,
+        absentExcused: 1,
+        studentCode: 'S-ATT-001',
+        classroomId,
+      });
+      expect(row.studentNameLo).toEqual(expect.any(String));
+      expect(row.classroomName).toEqual(expect.any(String));
+      expect(row.gradeLevelCode).toBe('m4');
+
+      // One day short of the line, they are not listed.
+      const above = await http()
+        .get(`/api/attendances/summary/semester/${semesterId}/absences?minAbsentDays=4`)
+        .set(auth(token))
+        .expect(200);
+      expect(
+        above.body.some((entry: { studentId: string }) => entry.studentId === attendanceStudentId),
+      ).toBe(false);
+
+      // The threshold is required: the list without one would be the school.
+      await http()
+        .get(`/api/attendances/summary/semester/${semesterId}/absences`)
         .set(auth(token))
         .expect(400);
     });
@@ -1863,6 +2193,505 @@ describe('Academic operations (e2e)', () => {
       // An arbitrary field would force an unindexed scan, so it falls back to
       // the default sort rather than erroring.
       await http().get('/api/students?sortBy=notARealField').set(auth(token)).expect(200);
+    });
+  });
+  /**
+   * Last in the file on purpose: this block enrols a student of its own, and the
+   * enrolment and attendance blocks above it assert on a classroom's head count.
+   */
+  /**
+   * ຄະແນນປະຈຳເດືອນ — the columns a subject is marked on.
+   *
+   * ສັງຄົມ takes no ປື້ມ mark and its point goes to ກິດຈະກຳ, so that column runs to
+   * 3 there and to 2 everywhere else. The rule has one owner — the subject's own
+   * `monthlyColumnMax`, checked in `MonthlyMarksService` — and the DTO used to
+   * carry a second copy of the ordinary scheme. The copy ran first, so a teacher
+   * marking ກິດຈະກຳ 3 was refused by `ValidationPipe` with nothing but
+   * "ຂໍ້ມູນທີ່ສົ່ງມາບໍ່ຖືກຕ້ອງ", and the office could not enter the month at all.
+   */
+  describe('monthly marks — a subject marked on its own columns', () => {
+    let socialSubjectId: string;
+    let markedStudentId: string;
+
+    beforeAll(async () => {
+      // A subject of this grade put onto the ສັງຄົມ scheme, the way the office
+      // does it: ຂື້ນຫ້ອງ 1 · ປື້ມ 0 · ກິດຈະກຳ 3 · ກວດກາ 6, still totalling 10.
+      const subjects = await http()
+        .get(`/api/subjects?gradeLevelId=${gradeLevelId}&role=marked&limit=100`)
+        .set(auth(token))
+        .expect(200);
+      socialSubjectId = (subjects.body.data as { id: string }[]).find(
+        (subject) => subject.id !== mathSubjectId && subject.id !== laoSubjectId,
+      )!.id;
+
+      await http()
+        .patch(`/api/subjects/${socialSubjectId}`)
+        .set(auth(token))
+        .send({ monthlyColumnMax: { attendance: 1, notebook: 0, activity: 3, test: 6 } })
+        .expect(200);
+
+      markedStudentId = await createStudent('S-MM-001', 'ນາງ');
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId: markedStudentId, classroomId })
+        .expect(201);
+    });
+
+    it('accepts ກິດຈະກຳ 3 for a subject whose column runs to 3', async () => {
+      const response = await http()
+        .post('/api/monthly-marks/month')
+        .set(auth(token))
+        .send({
+          subjectId: socialSubjectId,
+          classroomId,
+          semesterId,
+          month: 9,
+          entries: [{ studentId: markedStudentId, attendance: 1, activity: 3, test: 5 }],
+        })
+        .expect(201);
+
+      expect(response.body).toMatchObject({ saved: 1, errors: [] });
+    });
+
+    it('still refuses a mark above that subject’s own maximum, and says which', async () => {
+      const response = await http()
+        .post('/api/monthly-marks/month')
+        .set(auth(token))
+        .send({
+          subjectId: socialSubjectId,
+          classroomId,
+          semesterId,
+          month: 9,
+          entries: [{ studentId: markedStudentId, activity: 4 }],
+        })
+        .expect(201);
+
+      // Per row rather than per request: one bad cell must not throw away the
+      // rest of a class's month. The error names the column and the mark it is
+      // actually out of, which the pipe's "validation failed" never could.
+      expect(response.body.saved).toBe(0);
+      expect(response.body.errors[0]).toMatchObject({
+        studentId: markedStudentId,
+        reason: 'score.exceedsMax',
+      });
+    });
+
+    it('refuses a column the subject is not marked on at all', async () => {
+      const response = await http()
+        .post('/api/monthly-marks/month')
+        .set(auth(token))
+        .send({
+          subjectId: socialSubjectId,
+          classroomId,
+          semesterId,
+          month: 9,
+          // ປື້ມ is not kept for this subject — a mark under it would count
+          // towards ລວມ with no cell on the form to see or correct it.
+          entries: [{ studentId: markedStudentId, notebook: 1 }],
+        })
+        .expect(201);
+
+      expect(response.body.saved).toBe(0);
+      expect(response.body.errors[0]).toMatchObject({
+        studentId: markedStudentId,
+        reason: 'score.columnNotMarked',
+      });
+    });
+
+    it('keeps ກິດຈະກຳ at 2 for a subject on the ordinary scheme', async () => {
+      const response = await http()
+        .post('/api/monthly-marks/month')
+        .set(auth(token))
+        .send({
+          subjectId: mathSubjectId,
+          classroomId,
+          semesterId,
+          month: 9,
+          entries: [{ studentId: markedStudentId, activity: 3 }],
+        })
+        .expect(201);
+
+      // Loosening the DTO must not loosen the rule: 3 is still too much here.
+      expect(response.body.saved).toBe(0);
+      expect(response.body.errors[0]).toMatchObject({ reason: 'score.exceedsMax' });
+    });
+  });
+
+  /**
+   * ການສົ່ງມອບການສອນ — a teacher leaves and somebody takes their posts on.
+   *
+   * The school had this happen mid-term, to a teacher who was also a ຄູປະຈຳຫ້ອງ,
+   * and the system's answer was a six-step checklist across three screens whose
+   * every omission failed silently: a homeroom nobody moved keeps the departed
+   * teacher's name on the ວັນພຸດ/ວັນສຸກ report and sends its reminders to an
+   * account that cannot sign in.
+   *
+   * Its own teachers, classroom and lesson, because several blocks above assert on
+   * a classroom's head count and on the seeded teachers' timetables.
+   */
+  /**
+   * ປ່ຽນຕາຕະລາງ — a lesson moved mid-term.
+   *
+   * The timetable is a fact about each day, not about now. Every report derives
+   * which days a lesson was owed on by reading its weekday, so a schedule replaced
+   * in place used to change the weeks behind it too: Mondays a teacher had taught
+   * and marked stopped counting, and Wednesdays they had never taught appeared as
+   * gaps, back to the start of term — and the punctuality report defaults to the
+   * whole term to date.
+   */
+  describe('timetable revision', () => {
+    let movedLessonId: string;
+    let movedRoomId: string;
+
+    /** Its own teacher and room, so moving the lesson cannot clash with anything. */
+    beforeAll(async () => {
+      const teacher = await http()
+        .post('/api/teachers')
+        .set(auth(token))
+        .send({ firstNameLo: 'ຜູ້ສອນ', lastNameLo: 'ຕາຕະລາງ', gender: 'male' })
+        .expect(201);
+
+      const room = await http()
+        .post('/api/classrooms')
+        .set(auth(token))
+        .send({ schoolYearId, gradeLevelId, name: 'ຕ', capacity: 40 })
+        .expect(201);
+      movedRoomId = room.body.id;
+
+      const lesson = await http()
+        .post('/api/teaching-assignments')
+        .set(auth(token))
+        .send({
+          teacherId: teacher.body.id,
+          subjectId: laoSubjectId,
+          classroomId: movedRoomId,
+          semesterId,
+          // Monday, to begin with. Inside the seeded school day, which this school
+          // runs in the afternoon.
+          schedule: [{ dayOfWeek: 1, startTime: '15:10', endTime: '16:00' }],
+        })
+        .expect(201);
+      movedLessonId = lesson.body.id;
+    });
+
+    it('records the days the old arrangement applied to', async () => {
+      const response = await http()
+        .patch(`/api/teaching-assignments/${movedLessonId}`)
+        .set(auth(token))
+        .send({
+          schedule: [{ dayOfWeek: 3, startTime: '15:10', endTime: '16:00' }],
+          effectiveFrom: '2025-10-01',
+          scheduleNote: 'ປ່ຽນຕາຕະລາງກາງເທີມ',
+        })
+        .expect(200);
+
+      expect(response.body.schedule).toEqual([expect.objectContaining({ dayOfWeek: 3 })]);
+
+      const history = response.body.scheduleHistory as {
+        schedule: { dayOfWeek: number }[];
+        from: string;
+        to: string | null;
+        note: string | null;
+      }[];
+      // Two spells: the Monday arrangement, now closed, and the Wednesday one in
+      // force. They meet exactly, so a question about any day lands in one.
+      expect(history).toHaveLength(2);
+      expect(history[0].schedule).toEqual([expect.objectContaining({ dayOfWeek: 1 })]);
+      expect(history[0].to).toBe(history[1].from);
+      expect(history[1].schedule).toEqual([expect.objectContaining({ dayOfWeek: 3 })]);
+      expect(history[1].to).toBeNull();
+      expect(history[1].note).toBe('ປ່ຽນຕາຕະລາງກາງເທີມ');
+    });
+
+    it('still owes the old weekday for the weeks before the change', async () => {
+      // 22 Sep 2025 is a Monday, before the revision took effect.
+      const before = await http()
+        .get(`/api/attendances/coverage?weekOf=2025-09-22&classroomId=${movedRoomId}`)
+        .set(auth(token))
+        .expect(200);
+
+      const row = (
+        before.body.rows as { teachingAssignmentId: string; lessonDates: string[] }[]
+      ).find((candidate) => candidate.teachingAssignmentId === movedLessonId);
+      expect(row?.lessonDates).toEqual(['2025-09-22']);
+    });
+
+    it('owes the new weekday once the change has taken effect', async () => {
+      // The week of 6 Oct 2025: Wednesday the 8th, not Monday the 6th.
+      const after = await http()
+        .get(`/api/attendances/coverage?weekOf=2025-10-06&classroomId=${movedRoomId}`)
+        .set(auth(token))
+        .expect(200);
+
+      const row = (
+        after.body.rows as { teachingAssignmentId: string; lessonDates: string[] }[]
+      ).find((candidate) => candidate.teachingAssignmentId === movedLessonId);
+      expect(row?.lessonDates).toEqual(['2025-10-08']);
+    });
+
+    it('takes a correction back to the start, when that is what is meant', async () => {
+      // Backdating before the lesson existed is how the office says "this is what
+      // the timetable always should have said" — no "before" is recorded.
+      const response = await http()
+        .patch(`/api/teaching-assignments/${movedLessonId}`)
+        .set(auth(token))
+        .send({
+          schedule: [{ dayOfWeek: 5, startTime: '15:10', endTime: '16:00' }],
+          effectiveFrom: '2020-01-01',
+        })
+        .expect(200);
+
+      const history = response.body.scheduleHistory as { from: string; to: string | null }[];
+      const open = history.filter((spell) => spell.to === null);
+      expect(open).toHaveLength(1);
+      expect(open[0].from.slice(0, 10)).toBe('2020-01-01');
+
+      // Every week now reads under the corrected arrangement — Friday the 26th.
+      const week = await http()
+        .get(`/api/attendances/coverage?weekOf=2025-09-22&classroomId=${movedRoomId}`)
+        .set(auth(token))
+        .expect(200);
+      const row = (
+        week.body.rows as { teachingAssignmentId: string; lessonDates: string[] }[]
+      ).find((candidate) => candidate.teachingAssignmentId === movedLessonId);
+      expect(row?.lessonDates).toEqual(['2025-09-26']);
+    });
+  });
+
+  describe('teacher handover', () => {
+    let outgoingId: string;
+    let incomingId: string;
+    let handoverRoomId: string;
+    let handoverLessonId: string;
+
+    const makeTeacher = async (firstNameLo: string): Promise<string> => {
+      const response = await http()
+        .post('/api/teachers')
+        .set(auth(token))
+        .send({ firstNameLo, lastNameLo: 'ຜູ້ສອນ', gender: 'female' })
+        .expect(201);
+      return response.body.id as string;
+    };
+
+    beforeAll(async () => {
+      outgoingId = await makeTeacher('ຜູ້ໄປ');
+      incomingId = await makeTeacher('ຜູ້ມາ');
+
+      const room = await http()
+        .post('/api/classrooms')
+        .set(auth(token))
+        .send({ schoolYearId, gradeLevelId, name: 'ຮ', capacity: 40 })
+        .expect(201);
+      handoverRoomId = room.body.id;
+
+      await http()
+        .patch(`/api/classrooms/${handoverRoomId}`)
+        .set(auth(token))
+        .send({ homeroomTeacherId: outgoingId })
+        .expect(200);
+
+      const lesson = await http()
+        .post('/api/teaching-assignments')
+        .set(auth(token))
+        .send({
+          teacherId: outgoingId,
+          subjectId: mathSubjectId,
+          classroomId: handoverRoomId,
+          semesterId,
+          schedule: [{ dayOfWeek: 2, startTime: '15:10', endTime: '16:00', room: 'R200' }],
+        })
+        .expect(201);
+      handoverLessonId = lesson.body.id;
+    });
+
+    it('lists the posts a departure would leave vacant, and not the history', async () => {
+      const response = await http()
+        .get(`/api/teachers/${outgoingId}/commitments`)
+        .set(auth(token))
+        .expect(200);
+
+      expect(response.body).toMatchObject({
+        status: 'active',
+        hasActiveAccount: false,
+        isAcademicHead: false,
+      });
+      expect(response.body.assignments).toHaveLength(1);
+      expect(response.body.homerooms).toEqual([
+        expect.objectContaining({ id: handoverRoomId, name: 'ຮ', gradeLevelCode: 'm4' }),
+      ]);
+    });
+
+    it('refuses to delete a teacher who still holds a post, and says what', async () => {
+      // There was no guard here at all: a deleted teacher kept their timetable and
+      // their homeroom, so the coverage report went on naming them while they
+      // vanished from every picker the office would have used to fix it.
+      const response = await http()
+        .delete(`/api/teachers/${outgoingId}`)
+        .set(auth(token))
+        .expect(409);
+
+      expect(response.body.messageKey).toBe('teacher.stillResponsible');
+      expect(response.body.details).toMatchObject({ assignments: 1, homerooms: ['m4/ຮ'] });
+    });
+
+    it('refuses a handover to the same teacher, or to one who has left themselves', async () => {
+      const toSelf = await http()
+        .post(`/api/teachers/${outgoingId}/handover`)
+        .set(auth(token))
+        .send({ toTeacherId: outgoingId })
+        .expect(400);
+      expect(toSelf.body.messageKey).toBe('teacher.handoverToSelf');
+
+      const retired = await makeTeacher('ຜູ້ບຳນານ');
+      await http()
+        .patch(`/api/teachers/${retired}`)
+        .set(auth(token))
+        .send({ status: 'retired' })
+        .expect(200);
+
+      const toRetired = await http()
+        .post(`/api/teachers/${outgoingId}/handover`)
+        .set(auth(token))
+        .send({ toTeacherId: retired })
+        .expect(400);
+      expect(toRetired.body.messageKey).toBe('teacher.handoverTargetInactive');
+    });
+
+    it('refuses to double-book the teacher taking over', async () => {
+      // Their own lesson at the same time on the same day. Refused whole rather
+      // than partly moved: half a timetable is a timetable nobody can read.
+      const clashRoom = await http()
+        .post('/api/classrooms')
+        .set(auth(token))
+        .send({ schoolYearId, gradeLevelId, name: 'ຯ', capacity: 40 })
+        .expect(201);
+
+      const clash = await http()
+        .post('/api/teaching-assignments')
+        .set(auth(token))
+        .send({
+          teacherId: incomingId,
+          subjectId: laoSubjectId,
+          classroomId: clashRoom.body.id,
+          semesterId,
+          schedule: [{ dayOfWeek: 2, startTime: '15:10', endTime: '16:00' }],
+        })
+        .expect(201);
+
+      const response = await http()
+        .post(`/api/teachers/${outgoingId}/handover`)
+        .set(auth(token))
+        .send({ toTeacherId: incomingId })
+        .expect(409);
+      expect(response.body.messageKey).toBe('assignment.teacherConflict');
+
+      // Nothing moved — the outgoing teacher still holds everything.
+      const held = await http()
+        .get(`/api/teachers/${outgoingId}/commitments`)
+        .set(auth(token))
+        .expect(200);
+      expect(held.body.assignments).toHaveLength(1);
+      expect(held.body.homerooms).toHaveLength(1);
+
+      // Out of the way for the tests below.
+      await http()
+        .patch(`/api/teaching-assignments/${clash.body.id}`)
+        .set(auth(token))
+        .send({ isActive: false })
+        .expect(200);
+    });
+
+    it('moves the lesson, the homeroom and the status in one go', async () => {
+      const response = await http()
+        .post(`/api/teachers/${outgoingId}/handover`)
+        .set(auth(token))
+        .send({ toTeacherId: incomingId, note: 'ຄູລາອອກກາງເທີມ' })
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        assignmentsMoved: 1,
+        homeroomsMoved: 1,
+        subjectGroupsMoved: 0,
+        resigned: true,
+      });
+
+      // The old lesson is closed, not rewritten: every coverage and punctuality
+      // figure is derived per day from the assignment's teacher, so editing it
+      // would hand the incoming teacher a term of somebody else's gaps.
+      const old = await http()
+        .get(`/api/teaching-assignments/${handoverLessonId}`)
+        .set(auth(token))
+        .expect(200);
+      expect(old.body.isActive).toBe(false);
+      expect(refId(old.body.teacherId)).toBe(outgoingId);
+
+      // And it reopens under the incoming teacher with the same periods.
+      const theirs = await http()
+        .get(`/api/teaching-assignments?teacherId=${incomingId}&classroomId=${handoverRoomId}`)
+        .set(auth(token))
+        .expect(200);
+      expect(theirs.body.data).toHaveLength(1);
+      expect(theirs.body.data[0]).toMatchObject({
+        isActive: true,
+        schedule: [expect.objectContaining({ dayOfWeek: 2, startTime: '15:10', room: 'R200' })],
+      });
+
+      const room = await http()
+        .get(`/api/classrooms/${handoverRoomId}`)
+        .set(auth(token))
+        .expect(200);
+      expect(refId(room.body.homeroomTeacherId)).toBe(incomingId);
+
+      const outgoing = await http().get(`/api/teachers/${outgoingId}`).set(auth(token)).expect(200);
+      expect(outgoing.body.status).toBe('resigned');
+    });
+
+    it('leaves a readable trail of who held the room and when', async () => {
+      const room = await http()
+        .get(`/api/classrooms/${handoverRoomId}`)
+        .set(auth(token))
+        .expect(200);
+
+      // Two spells: the outgoing teacher's, now closed, and the incoming one's,
+      // still open. A room that went weeks without a ຄູປະຈຳຫ້ອງ used to be
+      // indistinguishable afterwards from one whose teacher never reviewed it.
+      const history = room.body.homeroomHistory as {
+        teacherId: unknown;
+        from: string;
+        to: string | null;
+        note: string | null;
+      }[];
+      expect(history).toHaveLength(2);
+      expect(refId(history[0].teacherId)).toBe(outgoingId);
+      expect(history[0].to).not.toBeNull();
+      expect(refId(history[1].teacherId)).toBe(incomingId);
+      expect(history[1].to).toBeNull();
+      expect(history[1].note).toBe('ຄູລາອອກກາງເທີມ');
+      // The spells meet exactly, so a question about any day lands in one of them.
+      expect(history[0].to).toBe(history[1].from);
+    });
+
+    it('lets the office delete the teacher once nothing is theirs', async () => {
+      const held = await http()
+        .get(`/api/teachers/${outgoingId}/commitments`)
+        .set(auth(token))
+        .expect(200);
+      expect(held.body).toMatchObject({ assignments: [], homerooms: [], subjectGroups: [] });
+
+      await http().delete(`/api/teachers/${outgoingId}`).set(auth(token)).expect(204);
+    });
+
+    it('refuses a handover with nothing left to hand over', async () => {
+      const spare = await makeTeacher('ຜູ້ຫວ່າງ');
+
+      const response = await http()
+        .post(`/api/teachers/${spare}/handover`)
+        .set(auth(token))
+        .send({ toTeacherId: incomingId })
+        .expect(400);
+
+      expect(response.body.messageKey).toBe('teacher.nothingToHandOver');
     });
   });
 });

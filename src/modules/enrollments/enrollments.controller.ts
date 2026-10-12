@@ -10,7 +10,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ClientIp, CurrentUser, RequirePermissions } from 'src/common/decorators';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import {
@@ -19,6 +19,7 @@ import {
   ChangeEnrollmentStatusDto,
   CreateEnrollmentDto,
   QueryEnrollmentsDto,
+  UpdateEnrollmentDto,
 } from './dto/enrollment.dto';
 import { EnrollmentsService } from './enrollments.service';
 
@@ -39,6 +40,21 @@ export class EnrollmentsController {
   @ApiOperation({ summary: "A student's enrollment history across years" })
   findByStudent(@Param('studentId') studentId: string) {
     return this.service.findByStudent(studentId);
+  }
+
+  @Get('english-classes')
+  @RequirePermissions({ resource: 'enrollments', action: 'read' })
+  @ApiOperation({
+    summary: 'The `ຫ້ອງພາກອັງກິດ` labels in use, for a filter to offer',
+    description:
+      'Distinct over the active placements of one school year — the active year when ' +
+      '`schoolYearId` is omitted. The rooms have no register of their own, so what exists ' +
+      'is whatever the office has written on a child.',
+  })
+  @ApiQuery({ name: 'schoolYearId', required: false })
+  @ApiResponse({ status: 200, type: [String] })
+  englishClasses(@Query('schoolYearId') schoolYearId?: string) {
+    return this.service.listEnglishClasses(schoolYearId);
   }
 
   @Get('classroom/:classroomId/roster')
@@ -86,6 +102,23 @@ export class EnrollmentsController {
     @ClientIp() ip: string | null,
   ) {
     return this.service.bulkEnroll(dto, { actor, ip });
+  }
+
+  @Patch(':id')
+  @RequirePermissions({ resource: 'enrollments', action: 'update' })
+  @ApiOperation({
+    summary: "Edit a placement's English-programme room",
+    description:
+      'The only editable field on a placement. Moving a student between classrooms is a ' +
+      'status change, not an update, because it has to adjust both headcounts.',
+  })
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateEnrollmentDto,
+    @CurrentUser() actor: AuthenticatedUser,
+    @ClientIp() ip: string | null,
+  ) {
+    return this.service.update(id, dto, { actor, ip });
   }
 
   @Patch(':id/status')
