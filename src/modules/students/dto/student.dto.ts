@@ -405,6 +405,19 @@ export class QueryStudentsDto extends PaginationQueryDto {
   age?: number;
 
   @ApiPropertyOptional({
+    description:
+      'Younger than this many whole years today — `11` is every child not yet 11. ' +
+      'Intersects with `age` when both are sent.',
+    example: 11,
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(99)
+  @IsOptional()
+  ageUnder?: number;
+
+  @ApiPropertyOptional({
     description: 'School year the placement filters apply to. Defaults to the active year.',
   })
   @IsMongoId()

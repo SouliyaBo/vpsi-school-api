@@ -187,7 +187,16 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
       filter.status = query.status;
     }
     if (query.gender) filter.gender = query.gender;
-    if (query.age !== undefined) filter.dateOfBirth = birthDateRangeForAge(query.age);
+    if (query.age !== undefined || query.ageUnder !== undefined) {
+      const range: Record<string, Date> = {};
+      if (query.age !== undefined) Object.assign(range, birthDateRangeForAge(query.age));
+      if (query.ageUnder !== undefined) {
+        const youngest = bornAfterForAgeUnder(query.ageUnder);
+        // Both sent: keep whichever lower bound is the later date.
+        if (!range.$gt || youngest > range.$gt) range.$gt = youngest;
+      }
+      filter.dateOfBirth = range;
+    }
     if (query.villageId) filter.villageId = new Types.ObjectId(query.villageId);
     if (query.guardianId) {
       filter['guardians.guardianId'] = new Types.ObjectId(query.guardianId);
@@ -970,4 +979,12 @@ export function birthDateRangeForAge(
     $gt: new Date(Date.UTC(year - age - 1, month, day)),
     $lte: new Date(Date.UTC(year - age, month, day)),
   };
+}
+
+/**
+ * The date a child must be born after to be younger than `age` today — on this
+ * day `age` years ago they turned `age`, so that day itself is excluded.
+ */
+export function bornAfterForAgeUnder(age: number, today: Date = new Date()): Date {
+  return new Date(Date.UTC(today.getUTCFullYear() - age, today.getUTCMonth(), today.getUTCDate()));
 }
