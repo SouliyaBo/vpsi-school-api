@@ -17,9 +17,11 @@ import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user
 import type { Response } from 'express';
 import {
   CreateHomeroomReviewDto,
+  MonthlyReportComplianceQueryDto,
   MonthlyReportQueryDto,
   QueryHomeroomReviewsDto,
   ReviewComplianceQueryDto,
+  SaveMonthlyReportDto,
   ReviewSheetQueryDto,
   UpdateHomeroomReviewDto,
 } from './dto/homeroom-review.dto';
@@ -78,6 +80,51 @@ export class HomeroomReviewsController {
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.monthlyReport.build(query, actor);
+  }
+
+  @Put('monthly-report')
+  @RequirePermissions({ resource: 'homeroom-reviews', action: 'update' })
+  @ApiOperation({
+    summary: 'Save the teacher’s sections of the monthly report as a draft',
+    description:
+      'ສະພາບລວມ, extra classes, outside activities and ຂໍ້ສະເໜີ — the parts no other screen ' +
+      'records. Sent whole; a save replaces what was there. Does not send the report.',
+  })
+  saveMonthlyReport(
+    @Body() dto: SaveMonthlyReportDto,
+    @CurrentUser() actor: AuthenticatedUser,
+    @ClientIp() ip: string | null,
+  ) {
+    return this.monthlyReport.save(dto, actor, { submit: false, ip });
+  }
+
+  @Post('monthly-report/submit')
+  @RequirePermissions({ resource: 'homeroom-reviews', action: 'create' })
+  @ApiOperation({
+    summary: 'ສົ່ງບົດສະຫຼຸບ — save and send the monthly report',
+    description:
+      'Due by the 5th of the next month (Vientiane time); sent later, it is received and marked ' +
+      'late. Opens on the last day of the month. A resend refreshes the copy of the figures the ' +
+      'office reads, but lateness stays judged on the first send.',
+  })
+  submitMonthlyReport(
+    @Body() dto: SaveMonthlyReportDto,
+    @CurrentUser() actor: AuthenticatedUser,
+    @ClientIp() ip: string | null,
+  ) {
+    return this.monthlyReport.save(dto, actor, { submit: true, ip });
+  }
+
+  @Get('monthly-report/compliance')
+  @RequirePermissions({ resource: 'homeroom-reviews', action: 'manage' })
+  @ApiOperation({
+    summary: 'Which rooms have sent their monthly report, and which are late or missing',
+    description:
+      'Every room of the term against every month whose report can be sent. `manage`: this ' +
+      'names other people’s work, as the review compliance grid does.',
+  })
+  monthlyReportCompliance(@Query() query: MonthlyReportComplianceQueryDto) {
+    return this.monthlyReport.compliance(query);
   }
 
   @Get('monthly-report/docx')

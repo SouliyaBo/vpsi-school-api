@@ -15,7 +15,7 @@ import {
 } from 'docx';
 import { readFileSync } from 'node:fs';
 import { resolveLetterheadImages } from '../reports/pdf/study-certificate-assets';
-import type { MonthlyReport } from './homeroom-monthly-report.service';
+import type { MonthlyReportView as MonthlyReport } from './homeroom-monthly-report.service';
 
 /**
  * Writes ຮ່າງບົດສະຫຼຸບຄູປະຈຳຫ້ອງ as the office's own form, in Word.
@@ -84,8 +84,7 @@ export class HomeroomMonthlyReportDocxWriter {
       this.header(r),
 
       this.heading('I. ສະພາບລວມ.'),
-      this.para(DOTS, { indent: true }),
-      this.para(DOTS, { indent: true }),
+      ...this.written(r.entry.overview, 2),
       this.para(`ຈຳນວນນັກຮຽນທັງໝົດ ${r.overview.students} ຄົນ, ຍິງ ${r.overview.female} ຄົນ`, {
         indent: true,
       }),
@@ -162,7 +161,7 @@ export class HomeroomMonthlyReportDocxWriter {
           { header: 'ວິຊາທີ່ຮຽນ', width: 0.3 },
           { header: 'ອາຈານທີ່ສອນ', width: 0.3 },
         ],
-        [],
+        r.entry.extraClasses.map((row) => [row.studentNameLo ?? '', row.subject, row.teacherName]),
         3,
       ),
 
@@ -200,7 +199,11 @@ export class HomeroomMonthlyReportDocxWriter {
           { header: 'ວ/ດ/ປ ທີ່ເຄື່ອນໄຫວ', width: 0.23, align: AlignmentType.CENTER },
           { header: 'ລາຍລະອຽດ', width: 0.4 },
         ],
-        [],
+        r.entry.outsideActivities.map((row) => [
+          row.studentNameLo ?? '',
+          row.date ? laoDate(row.date) : null,
+          row.detail,
+        ]),
         3,
       ),
 
@@ -216,11 +219,9 @@ export class HomeroomMonthlyReportDocxWriter {
       ),
 
       this.heading('IV. ຂໍ້ສະເໜີ'),
-      this.para(DOTS, { indent: true }),
-      this.para(DOTS, { indent: true }),
-      this.para(DOTS, { indent: true }),
+      ...this.written(r.entry.suggestions, 3),
 
-      this.para('ທີ່ ມ.ສ ນານາຊາດ ວຽງຈັນພັດທະນາ, ວັນທີ......./......./..........', {
+      this.para(`ທີ່ ມ.ສ ນານາຊາດ ວຽງຈັນພັດທະນາ, ວັນທີ ${this.signedOn(r)}`, {
         align: AlignmentType.RIGHT,
         spaceBefore: 240,
       }),
@@ -234,6 +235,24 @@ export class HomeroomMonthlyReportDocxWriter {
   }
 
   // ── Blocks ────────────────────────────────────────────────────────────────
+
+  /** What the teacher wrote, a paragraph per line — or dotted lines to write on when they wrote nothing. */
+  private written(text: string | null, blankLines: number): Paragraph[] {
+    const lines = (text ?? '').split('\n').filter((line) => line.trim());
+    if (lines.length === 0) {
+      return Array.from({ length: blankLines }, () => this.para(DOTS, { indent: true }));
+    }
+    return lines.map((line) => this.para(line, { indent: true }));
+  }
+
+  /** The date it was sent, or blanks for a draft printed to be signed by hand. */
+  private signedOn(report: MonthlyReport): string {
+    const sent = report.submission.firstSubmittedAt;
+    if (!sent) return '......./......./..........';
+    // The send instant in Vientiane, as the calendar date the teacher would write.
+    const local = new Date(new Date(sent).getTime() + 7 * 60 * 60 * 1000);
+    return laoDate(local.toISOString().slice(0, 10));
+  }
 
   /** Crest left, title beside it — one borderless row, as the paper form sets it. */
   private header(report: MonthlyReport): Table {

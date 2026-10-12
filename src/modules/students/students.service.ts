@@ -32,6 +32,8 @@ import { StorageService } from '../storage/storage.service';
 import type { WithPhotoUrl } from '../teachers/teachers.service';
 import { registerName } from 'src/common/utils/student-name';
 import { escapeRegex } from '../users/users.service';
+import type { Gender } from 'src/common/constants/enums';
+import { summarizeStudents, type StudentListStats } from './student-stats';
 import {
   CreateStudentDto,
   QueryStudentsDto,
@@ -166,10 +168,15 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
    * no request behind it; every route passes one, and omitting it means no
    * homeroom scoping is applied.
    */
-  async findAll(
+  /**
+   * The Mongo filter behind the list — every query param, plus the homeroom
+   * scope. Shared with `getListStats` so the dashboard above the list counts
+   * exactly the children the list would show.
+   */
+  private async listFilter(
     query: QueryStudentsDto,
     actor?: AuthenticatedUser,
-  ): Promise<PaginatedResponse<StudentListRow>> {
+  ): Promise<Record<string, unknown>> {
     const filter: Record<string, unknown> = { deletedAt: null };
     // Constraints on `_id` can come from two independent places (the
     // classroom/grade filters and the placement filter); collected here so the
@@ -287,6 +294,39 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
         { nicknameEn: { $regex: escaped, $options: 'i' } },
       ];
     }
+
+    return filter;
+  }
+
+  /**
+   * The dashboard above the list: the same filters, counted rather than paged.
+   *
+   * The age filters are dropped so the breakdown stays whole — it is what the
+   * reader clicks to apply one. Only two fields are read, so a whole school is a
+   * cheap query.
+   */
+  async getListStats(
+    query: QueryStudentsDto,
+    actor?: AuthenticatedUser,
+  ): Promise<StudentListStats> {
+    const unaged = Object.assign(Object.create(Object.getPrototypeOf(query)), query, {
+      age: undefined,
+      ageUnder: undefined,
+    }) as QueryStudentsDto;
+    const filter = await this.listFilter(unaged, actor);
+    const rows = await this.model
+      .find(filter)
+      .select('gender dateOfBirth')
+      .lean<{ gender?: Gender; dateOfBirth?: Date }[]>()
+      .exec();
+    return summarizeStudents(rows);
+  }
+
+  async findAll(
+    query: QueryStudentsDto,
+    actor?: AuthenticatedUser,
+  ): Promise<PaginatedResponse<StudentListRow>> {
+    const filter = await this.listFilter(query, actor);
 
     const sort = query.toSort(this.sortableFields, this.defaultSort);
     const [data, total] = await Promise.all([

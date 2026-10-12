@@ -157,6 +157,81 @@ export class MonthlyReportQueryDto {
   semesterId?: string;
 }
 
+/** ນັກຮຽນທີ່ຮຽນເພີ່ມ — one row as the teacher wrote it. */
+export class MonthlyReportExtraClassDto {
+  @ApiProperty()
+  @IsMongoId()
+  studentId: string;
+
+  @ApiProperty({ description: 'ວິຊາທີ່ຮຽນ' })
+  @IsString()
+  @MaxLength(200)
+  subject: string;
+
+  @ApiPropertyOptional({ description: 'ອາຈານທີ່ສອນ' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  teacherName?: string;
+}
+
+/** ການເຄື່ອນໄຫວພາຍນອກທີ່ພົ້ນເດັ່ນ — one row as the teacher wrote it. */
+export class MonthlyReportActivityDto {
+  @ApiProperty()
+  @IsMongoId()
+  studentId: string;
+
+  @ApiPropertyOptional({ example: '2026-10-15', description: 'ວ/ດ/ປ ທີ່ເຄື່ອນໄຫວ' })
+  @IsDateString()
+  @IsOptional()
+  date?: string;
+
+  @ApiProperty({ description: 'ລາຍລະອຽດ' })
+  @IsString()
+  @MaxLength(1000)
+  detail: string;
+}
+
+/**
+ * The teacher's part of the monthly report — the four sections the system
+ * cannot fill. Sent whole each time: a save replaces what was there.
+ */
+export class SaveMonthlyReportDto extends MonthlyReportQueryDto {
+  @ApiPropertyOptional({ description: 'I. ສະພາບລວມ' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(4000)
+  overview?: string;
+
+  @ApiProperty({ type: [MonthlyReportExtraClassDto] })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => MonthlyReportExtraClassDto)
+  extraClasses: MonthlyReportExtraClassDto[];
+
+  @ApiProperty({ type: [MonthlyReportActivityDto] })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => MonthlyReportActivityDto)
+  outsideActivities: MonthlyReportActivityDto[];
+
+  @ApiPropertyOptional({ description: 'IV. ຂໍ້ສະເໜີ' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(4000)
+  suggestions?: string;
+}
+
+/** The office's grid of monthly reports — a term, defaulting to the active one. */
+export class MonthlyReportComplianceQueryDto {
+  @ApiPropertyOptional({ description: 'Defaults to the active semester' })
+  @IsMongoId()
+  @IsOptional()
+  semesterId?: string;
+}
+
 /**
  * The office's window.
  *

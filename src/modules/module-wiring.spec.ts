@@ -58,6 +58,8 @@ const MODELS = [
   'ConductRule',
   'ConductScore',
   'Enrollment',
+  // ຮ່າງບົດສະຫຼຸບຄູປະຈຳຫ້ອງ — what the homeroom teacher writes and sends each month.
+  'HomeroomMonthlyReport',
   // StudentsService re-syncs the copy of `studentCode` these hold when the
   // office reissues one, which puts them in the graph of anything reading the
   // roster.

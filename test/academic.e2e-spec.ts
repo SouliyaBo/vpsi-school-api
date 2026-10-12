@@ -2694,4 +2694,134 @@ describe('Academic operations (e2e)', () => {
       expect(response.body.messageKey).toBe('teacher.nothingToHandOver');
     });
   });
+
+  describe('homeroom monthly report — written, sent, and tracked', () => {
+    let studentId: string;
+    let year: number;
+    let month: number;
+    const report = () => ({ classroomId: secondClassroomId, month });
+
+    beforeAll(async () => {
+      // The room needs a homeroom teacher to credit the report to.
+      await http()
+        .patch(`/api/classrooms/${secondClassroomId}`)
+        .set(auth(token))
+        .send({ homeroomTeacherId: teacherId })
+        .expect(200);
+
+      studentId = await createStudent('MR-0001', 'ມະນີວອນ');
+      await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId, classroomId: secondClassroomId })
+        .expect(201);
+
+      // The seeded term is in the past, so its first month's report is long overdue.
+      const semester = await http().get('/api/semesters/active').set(auth(token)).expect(200);
+      const start = new Date(semester.body.startDate);
+      year = start.getUTCFullYear();
+      month = start.getUTCMonth() + 1;
+    });
+
+    it('starts as nothing written and overdue', async () => {
+      const response = await http()
+        .get('/api/homeroom-reviews/monthly-report')
+        .query(report())
+        .set(auth(token))
+        .expect(200);
+
+      expect(response.body.entry).toMatchObject({ overview: null, extraClasses: [] });
+      expect(response.body.submission).toMatchObject({
+        status: 'missing',
+        hasDraft: false,
+        canSubmit: true,
+        dueDate: new Date(Date.UTC(year, month, 5)).toISOString().slice(0, 10),
+      });
+      expect(response.body.isSnapshot).toBe(false);
+    });
+
+    it('saves a draft without sending it', async () => {
+      const response = await http()
+        .put('/api/homeroom-reviews/monthly-report')
+        .set(auth(token))
+        .send({
+          ...report(),
+          overview: 'ຫ້ອງຮຽນດີ',
+          extraClasses: [{ studentId, subject: 'ພາສາອັງກິດ', teacherName: 'ອຈ ສົມພອນ' }],
+          outsideActivities: [
+            {
+              studentId,
+              date: `${year}-${String(month).padStart(2, '0')}-15`,
+              detail: 'ແຂ່ງຂັນກິລາ',
+            },
+          ],
+          suggestions: '',
+        })
+        .expect(200);
+
+      expect(response.body.entry.overview).toBe('ຫ້ອງຮຽນດີ');
+      expect(response.body.entry.extraClasses[0]).toMatchObject({
+        studentId,
+        studentNameLo: expect.stringContaining('ມະນີວອນ'),
+        subject: 'ພາສາອັງກິດ',
+      });
+      expect(response.body.entry.suggestions).toBeNull();
+      expect(response.body.submission).toMatchObject({ status: 'missing', hasDraft: true });
+    });
+
+    it('marks a report sent after the 5th as late, and keeps the mark on a resend', async () => {
+      const sent = await http()
+        .post('/api/homeroom-reviews/monthly-report/submit')
+        .set(auth(token))
+        .send({ ...report(), overview: 'ຫ້ອງຮຽນດີ', extraClasses: [], outsideActivities: [] })
+        .expect(201);
+
+      expect(sent.body.submission.status).toBe('late');
+      expect(sent.body.submission.daysLate).toBeGreaterThan(0);
+      expect(sent.body.isSnapshot).toBe(true);
+      const first = sent.body.submission.firstSubmittedAt;
+
+      const resent = await http()
+        .post('/api/homeroom-reviews/monthly-report/submit')
+        .set(auth(token))
+        .send({ ...report(), overview: 'ແກ້ໄຂ', extraClasses: [], outsideActivities: [] })
+        .expect(201);
+
+      expect(resent.body.submission).toMatchObject({ status: 'late', firstSubmittedAt: first });
+      expect(resent.body.entry.overview).toBe('ແກ້ໄຂ');
+    });
+
+    it('shows the office which room sent it, and when', async () => {
+      const response = await http()
+        .get('/api/homeroom-reviews/monthly-report/compliance')
+        .set(auth(token))
+        .expect(200);
+
+      const row = response.body.rows.find(
+        (candidate: { classroomId: string }) => candidate.classroomId === secondClassroomId,
+      );
+      const cell = row.cells.find(
+        (candidate: { year: number; month: number }) =>
+          candidate.year === year && candidate.month === month,
+      );
+      expect(cell).toMatchObject({ status: 'late' });
+      expect(cell.firstSubmittedAt).not.toBeNull();
+      expect(response.body.summary.late).toBeGreaterThanOrEqual(1);
+    });
+
+    it('refuses a row naming a child who is not in the room', async () => {
+      const outsider = await createStudent('MR-0002', 'ນອກຫ້ອງ');
+      const response = await http()
+        .put('/api/homeroom-reviews/monthly-report')
+        .set(auth(token))
+        .send({
+          ...report(),
+          extraClasses: [{ studentId: outsider, subject: 'ຄະນິດ' }],
+          outsideActivities: [],
+        })
+        .expect(400);
+
+      expect(response.body.messageKey).toBe('homeroomReview.studentNotOnRoll');
+    });
+  });
 });

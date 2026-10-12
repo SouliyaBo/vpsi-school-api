@@ -307,6 +307,10 @@ export const MESSAGES = {
     lo: 'ຫ້ອງນີ້ຍັງບໍ່ມີຄູປະຈຳຫ້ອງ',
     en: 'That class has no homeroom teacher on file',
   },
+  'homeroomReview.reportNotOpen': {
+    lo: 'ຍັງສົ່ງບົດສະຫຼຸບເດືອນນີ້ບໍ່ໄດ້ — ສົ່ງໄດ້ແຕ່ວັນສຸດທ້າຍຂອງເດືອນເປັນຕົ້ນໄປ',
+    en: 'This month’s report cannot be sent yet — it opens on the last day of the month',
+  },
   'homeroomReview.monthNotInSemester': {
     lo: 'ເດືອນທີ່ເລືອກບໍ່ຢູ່ໃນພາກຮຽນນີ້',
     en: 'That month does not fall in the chosen term',

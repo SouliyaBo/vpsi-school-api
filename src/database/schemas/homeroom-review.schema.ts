@@ -191,3 +191,132 @@ HomeroomReviewSchema.index({ semesterId: 1, dueDate: -1 });
 
 /** One teacher's own record, which is what the teacher's screen reads. */
 HomeroomReviewSchema.index({ teacherId: 1, dueDate: -1 });
+
+// ── ຮ່າງບົດສະຫຼຸບຄູປະຈຳຫ້ອງ — the monthly report ─────────────────────────────
+
+/** ນັກຮຽນທີ່ຮຽນເພີ່ມ — one child taking an extra class, as the teacher wrote it. */
+@Schema({ _id: false })
+export class MonthlyReportExtraClass {
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true })
+  studentId: Types.ObjectId;
+
+  /** The roster name at the time of writing, so the report reads the same later. */
+  @Prop({ type: String, default: null, trim: true })
+  studentNameLo?: string | null;
+
+  /** ວິຊາທີ່ຮຽນ — free text: extra classes are not subjects on the timetable. */
+  @Prop({ type: String, required: true, trim: true })
+  subject: string;
+
+  /** ອາຈານທີ່ສອນ — free text: the tutor is often not on the school's staff. */
+  @Prop({ type: String, default: null, trim: true })
+  teacherName?: string | null;
+}
+
+export const MonthlyReportExtraClassSchema = SchemaFactory.createForClass(MonthlyReportExtraClass);
+
+/** ການເຄື່ອນໄຫວພາຍນອກທີ່ພົ້ນເດັ່ນ — something a child did outside the classroom. */
+@Schema({ _id: false })
+export class MonthlyReportActivity {
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', required: true })
+  studentId: Types.ObjectId;
+
+  @Prop({ type: String, default: null, trim: true })
+  studentNameLo?: string | null;
+
+  /** ວ/ດ/ປ ທີ່ເຄື່ອນໄຫວ, at UTC midnight. */
+  @Prop({ type: Date, default: null })
+  date?: Date | null;
+
+  /** ລາຍລະອຽດ. */
+  @Prop({ type: String, required: true, trim: true })
+  detail: string;
+}
+
+export const MonthlyReportActivitySchema = SchemaFactory.createForClass(MonthlyReportActivity);
+
+export type HomeroomMonthlyReportDocument = HydratedDocument<HomeroomMonthlyReport>;
+
+/**
+ * ຮ່າງບົດສະຫຼຸບຄູປະຈຳຫ້ອງ — one room's report for one month.
+ *
+ * Most of the form is derived — absences, the register, the discipline ledger,
+ * the reviews, the ກວດກາ marks — and is not stored while the teacher works on
+ * it. What is stored is the part only the teacher knows (ສະພາບລວມ, extra
+ * classes, outside activities, ຂໍ້ສະເໜີ) and the act of sending it.
+ *
+ * On sending, the derived sections are copied into `generated`: the office reads
+ * the report the teacher put their name to, and a roll-call correction made a
+ * week later must not quietly rewrite what was sent. Sending again refreshes the
+ * copy.
+ *
+ * `firstSubmittedAt` is what lateness is judged on and is never moved — see
+ * `monthly-report-deadline.ts`.
+ */
+@Schema({ collection: 'homeroomMonthlyReports', ...baseSchemaOptions })
+export class HomeroomMonthlyReport extends SoftDeletableDocument {
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Classroom', required: true, index: true })
+  classroomId: Types.ObjectId;
+
+  /** The homeroom teacher at the time of writing — credited even if the room changes hands later. */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', required: true, index: true })
+  teacherId: Types.ObjectId;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'SchoolYear', required: true, index: true })
+  schoolYearId: Types.ObjectId;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Semester', required: true, index: true })
+  semesterId: Types.ObjectId;
+
+  /** The calendar year the month falls in — a term crosses the new year. */
+  @Prop({ type: Number, required: true })
+  year: number;
+
+  /** 1–12. */
+  @Prop({ type: Number, required: true, min: 1, max: 12 })
+  month: number;
+
+  /** I. ສະພາບລວມ. */
+  @Prop({ type: String, default: null, trim: true })
+  overview?: string | null;
+
+  /** II.5 ນັກຮຽນທີ່ຮຽນເພີ່ມ. */
+  @Prop({ type: [MonthlyReportExtraClassSchema], default: [] })
+  extraClasses: MonthlyReportExtraClass[];
+
+  /** II.7 ການເຄື່ອນໄຫວພາຍນອກທີ່ພົ້ນເດັ່ນ. */
+  @Prop({ type: [MonthlyReportActivitySchema], default: [] })
+  outsideActivities: MonthlyReportActivity[];
+
+  /** IV. ຂໍ້ສະເໜີ. */
+  @Prop({ type: String, default: null, trim: true })
+  suggestions?: string | null;
+
+  /** The first time it was sent; `null` while it is a draft. Never moved by a resend. */
+  @Prop({ type: Date, default: null, index: true })
+  firstSubmittedAt?: Date | null;
+
+  /** The most recent send. */
+  @Prop({ type: Date, default: null })
+  lastSubmittedAt?: Date | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  submittedById?: Types.ObjectId | null;
+
+  /** The derived sections as they stood when last sent — see the class comment. */
+  @Prop({ type: Object, default: null })
+  generated?: Record<string, unknown> | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  recordedById?: Types.ObjectId | null;
+}
+
+export const HomeroomMonthlyReportSchema = SchemaFactory.createForClass(HomeroomMonthlyReport);
+
+/** One report per room per month; a second save is the same report. */
+HomeroomMonthlyReportSchema.index(
+  { classroomId: 1, year: 1, month: 1 },
+  { unique: true, partialFilterExpression: { deletedAt: null } },
+);
+/** The office's grid: every room's reports across a term. */
+HomeroomMonthlyReportSchema.index({ semesterId: 1, year: 1, month: 1 });

@@ -5,6 +5,8 @@ import {
   ClassroomSchema,
   Enrollment,
   EnrollmentSchema,
+  HomeroomMonthlyReport,
+  HomeroomMonthlyReportSchema,
   HomeroomReview,
   HomeroomReviewSchema,
 } from 'src/database/schemas';
@@ -37,6 +39,7 @@ import { HomeroomReviewsService } from './homeroom-reviews.service';
   imports: [
     MongooseModule.forFeature([
       { name: HomeroomReview.name, schema: HomeroomReviewSchema },
+      { name: HomeroomMonthlyReport.name, schema: HomeroomMonthlyReportSchema },
       { name: Classroom.name, schema: ClassroomSchema },
       { name: Enrollment.name, schema: EnrollmentSchema },
     ]),

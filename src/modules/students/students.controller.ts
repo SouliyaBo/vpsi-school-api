@@ -46,6 +46,20 @@ export class StudentsController {
     return this.service.findAll(query, actor);
   }
 
+  @Get('stats')
+  @RequirePermissions({ resource: 'students', action: 'read' })
+  @ApiOperation({
+    summary: 'Headcount above the list — total, girls, boys, and each age from 11 to 20',
+    description:
+      'Takes the same filters as the list and counts the children it would return, so picking ' +
+      'a class narrows the figures to that class. `age`/`ageUnder` are ignored here: the age ' +
+      'breakdown is what a click on it filters by, and narrowing it to one age would empty the ' +
+      'rest. Paging and sorting do not apply.',
+  })
+  stats(@Query() query: QueryStudentsDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.service.getListStats(query, actor);
+  }
+
   @Get(':id')
   @RequirePermissions({ resource: 'students', action: 'read' })
   @ApiOperation({
