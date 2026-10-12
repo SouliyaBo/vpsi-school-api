@@ -26,6 +26,7 @@
     "import:teachers": "ts-node -r tsconfig-paths/register src/database/imports/run-teacher-import.ts",
     "import:locations": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/locations/run-location-import.ts",
     "import:calendar": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/imports/run-calendar-import.ts",
+    "import:library": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/imports/run-library-import.ts",
     "migrate:student-title": "ts-node -r tsconfig-paths/register src/database/migrations/run-drop-student-title.ts",
     "migrate:student-birthplace": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-student-birthplace.ts",
     "migrate:split-subjects": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-split-upper-subjects.ts",

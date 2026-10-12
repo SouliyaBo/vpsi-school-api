@@ -84,6 +84,8 @@ export const ROLE_SEEDS: RoleSeed[] = [
       // a set for a colleague who is away, or to check one before it is sat.
       { resource: 'exam-papers', actions: ['manage'] },
       { resource: 'exams', actions: ['manage'] },
+      // ຄັງປື້ມ — the books and the workbook sales are run from the academic office.
+      { resource: 'library', actions: ['manage'] },
       { resource: 'certificates', actions: ['create', 'read'] },
       { resource: 'announcements', actions: ['manage'] },
       { resource: 'calendar', actions: ['manage'] },
@@ -177,6 +179,8 @@ export const ROLE_SEEDS: RoleSeed[] = [
         'notifications',
         'calendar',
         'documents',
+        // What the school holds and what is out — teachers borrow from it.
+        'library',
       ),
     ],
   },
@@ -197,6 +201,8 @@ export const ROLE_SEEDS: RoleSeed[] = [
       { resource: 'locations', actions: ['create', 'read', 'update'] },
       { resource: 'exams', actions: ['manage'] },
       { resource: 'certificates', actions: ['create', 'read'] },
+      // The registrar keeps the shelf at the counter: titles and loans.
+      { resource: 'library', actions: ['manage'] },
       { resource: 'reports', actions: ['create', 'read', 'export'] },
       { resource: 'term-results', actions: ['read'] },
       { resource: 'attendances', actions: ['read'] },

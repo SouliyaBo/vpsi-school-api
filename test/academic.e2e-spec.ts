@@ -2824,4 +2824,268 @@ describe('Academic operations (e2e)', () => {
       expect(response.body.messageKey).toBe('homeroomReview.studentNotOnRoll');
     });
   });
+
+  describe('library — counts, titles, loans and workbook sales', () => {
+    let grades: { id: string; code: string }[];
+    const gradeId = (code: string) => grades.find((grade) => grade.code === code)!.id;
+
+    beforeAll(async () => {
+      const response = await http()
+        .get('/api/library/counts')
+        .query({ category: 'teacher_guide' })
+        .set(auth(token))
+        .expect(200);
+      grades = response.body.grades;
+    });
+
+    it('stores a ຄູ່ມືຄູ sheet and works out every total itself', async () => {
+      const response = await http()
+        .put('/api/library/counts')
+        .set(auth(token))
+        .send({
+          category: 'teacher_guide',
+          rows: [
+            {
+              name: 'ວິຊາ ພາສາລາວ',
+              counts: [
+                { gradeLevelId: gradeId('m1'), quantity: 4 },
+                { gradeLevelId: gradeId('m7'), quantity: 4 },
+              ],
+            },
+            { name: 'ວິຊາ ຊີວະສາດ', counts: [{ gradeLevelId: gradeId('m7'), quantity: 3 }] },
+          ],
+        })
+        .expect(200);
+
+      expect(response.body.rows).toHaveLength(2);
+      expect(response.body.totals.rowTotals).toEqual([8, 3]);
+      expect(response.body.totals.columnTotals[gradeId('m7')]).toBe(7);
+      expect(response.body.totals.grandTotal).toBe(11);
+
+      // The ແບບຮຽນ sheet is a separate one and stays empty.
+      const textbooks = await http()
+        .get('/api/library/counts')
+        .query({ category: 'textbook' })
+        .set(auth(token))
+        .expect(200);
+      expect(textbooks.body.rows).toEqual([]);
+    });
+
+    it('lends a donated title, refuses to over-lend it, and takes it back', async () => {
+      const title = await http()
+        .post('/api/library/titles')
+        .set(auth(token))
+        .send({
+          category: 'donated',
+          title: 'ຈຸດຈົບຢູ່ຜາຖີ່',
+          quantity: 4,
+          unitPrice: 85000,
+          source: 'Book Festival 2026',
+        })
+        .expect(201);
+      expect(title.body).toMatchObject({ value: 340000, onLoan: 0, available: 4 });
+
+      const loan = await http()
+        .post('/api/library/loans')
+        .set(auth(token))
+        .send({
+          bookTitleId: title.body.id,
+          borrowerType: 'teacher',
+          teacherId,
+          quantity: 3,
+          loanedOn: '2026-10-01',
+        })
+        .expect(201);
+      expect(loan.body.borrowerName).toBeTruthy();
+
+      const tooMany = await http()
+        .post('/api/library/loans')
+        .set(auth(token))
+        .send({
+          bookTitleId: title.body.id,
+          borrowerType: 'other',
+          borrowerName: 'ສົມເພັດ',
+          quantity: 2,
+          loanedOn: '2026-10-02',
+        })
+        .expect(400);
+      expect(tooMany.body.messageKey).toBe('library.notEnoughCopies');
+
+      const listed = await http()
+        .get('/api/library/titles')
+        .query({ category: 'donated', onLoan: true })
+        .set(auth(token))
+        .expect(200);
+      expect(listed.body.data).toEqual([
+        expect.objectContaining({ id: title.body.id, onLoan: 3, available: 1 }),
+      ]);
+
+      // Not while copies are out, and not cut below the copies that are out.
+      await http().delete(`/api/library/titles/${title.body.id}`).set(auth(token)).expect(409);
+      const cut = await http()
+        .patch(`/api/library/titles/${title.body.id}`)
+        .set(auth(token))
+        .send({ quantity: 2 })
+        .expect(400);
+      expect(cut.body.messageKey).toBe('library.quantityBelowLoans');
+
+      const returned = await http()
+        .post(`/api/library/loans/${loan.body.id}/return`)
+        .set(auth(token))
+        .send({ returnedOn: '2026-10-10' })
+        .expect(201);
+      expect(returned.body.returnedOn).toBe('2026-10-10');
+      await http()
+        .post(`/api/library/loans/${loan.body.id}/return`)
+        .set(auth(token))
+        .send({})
+        .expect(409);
+
+      const summary = await http()
+        .get('/api/library/titles/summary')
+        .query({ category: 'donated' })
+        .set(auth(token))
+        .expect(200);
+      expect(summary.body).toMatchObject({ copies: 4, value: 340000, onLoan: 0 });
+      expect(summary.body.sources[0]).toMatchObject({ source: 'Book Festival 2026', titles: 1 });
+
+      await http().delete(`/api/library/titles/${title.body.id}`).set(auth(token)).expect(204);
+    });
+
+    it('lends a ແບບຮຽນ by subject and grade, and holds the sheet to what is out', async () => {
+      const saved = await http()
+        .put('/api/library/counts')
+        .set(auth(token))
+        .send({
+          category: 'textbook',
+          rows: [{ name: 'ວິຊາ ຄະນິດສາດ', counts: [{ gradeLevelId: gradeId('m5'), quantity: 2 }] }],
+        })
+        .expect(200);
+      const { sheetId } = saved.body;
+      const { rowId } = saved.body.rows[0];
+
+      const picker = await http()
+        .get('/api/library/lendables')
+        .query({ search: 'ຄະນິດ' })
+        .set(auth(token))
+        .expect(200);
+      expect(picker.body).toContainEqual(
+        expect.objectContaining({
+          key: `c:${sheetId}:${rowId}:${gradeId('m5')}`,
+          category: 'textbook',
+          available: 2,
+        }),
+      );
+
+      const lend = (quantity: number) =>
+        http()
+          .post('/api/library/loans')
+          .set(auth(token))
+          .send({
+            countSheetId: sheetId,
+            rowId,
+            gradeLevelId: gradeId('m5'),
+            borrowerType: 'teacher',
+            teacherId,
+            quantity,
+            loanedOn: '2026-10-12',
+          });
+      const loan = await lend(2).expect(201);
+      expect(loan.body).toMatchObject({ bookCategory: 'textbook', countSheetId: sheetId });
+      expect(loan.body.bookTitle).toContain('ວິຊາ ຄະນິດສາດ');
+      expect((await lend(1).expect(400)).body.messageKey).toBe('library.notEnoughCopies');
+
+      // The sheet now shows the copies out, and cannot be cut below them —
+      // nor have the row renamed out from under them.
+      const sheet = await http()
+        .get('/api/library/counts')
+        .query({ category: 'textbook' })
+        .set(auth(token))
+        .expect(200);
+      expect(sheet.body.rows[0].onLoan).toEqual({ [gradeId('m5')]: 2 });
+
+      const cut = await http()
+        .put('/api/library/counts')
+        .set(auth(token))
+        .send({
+          category: 'textbook',
+          rows: [
+            {
+              rowId,
+              name: 'ວິຊາ ຄະນິດສາດ',
+              counts: [{ gradeLevelId: gradeId('m5'), quantity: 1 }],
+            },
+          ],
+        })
+        .expect(400);
+      expect(cut.body.messageKey).toBe('library.quantityBelowLoans');
+      await http()
+        .put('/api/library/counts')
+        .set(auth(token))
+        .send({ category: 'textbook', rows: [] })
+        .expect(400);
+
+      // Renaming keeps the loan, because it follows the row's id.
+      await http()
+        .put('/api/library/counts')
+        .set(auth(token))
+        .send({
+          category: 'textbook',
+          rows: [
+            {
+              rowId,
+              name: 'ວິຊາ ຄະນິດສາດ (ສະບັບໃໝ່)',
+              counts: [{ gradeLevelId: gradeId('m5'), quantity: 3 }],
+            },
+          ],
+        })
+        .expect(200);
+
+      await http()
+        .post(`/api/library/loans/${loan.body.id}/return`)
+        .set(auth(token))
+        .send({})
+        .expect(201);
+      const after = await http()
+        .get('/api/library/counts')
+        .query({ category: 'textbook' })
+        .set(auth(token))
+        .expect(200);
+      expect(after.body.rows[0].onLoan).toEqual({});
+    });
+
+    it('refuses a loan that names no book, or two', async () => {
+      const response = await http()
+        .post('/api/library/loans')
+        .set(auth(token))
+        .send({ borrowerType: 'other', borrowerName: 'x', loanedOn: '2026-10-12' })
+        .expect(400);
+      expect(response.body.messageKey).toBe('library.loanTargetRequired');
+    });
+
+    it('totals the workbook sales the way the office’s sheet does', async () => {
+      const response = await http()
+        .put('/api/library/workbook-sales')
+        .set(auth(token))
+        .send({
+          lines: [
+            { gradeLevelId: gradeId('m5'), booksPerSet: 5, setsProduced: 24, pricePerSet: 170000 },
+            { gradeLevelId: gradeId('m6'), booksPerSet: 5, setsProduced: 29, pricePerSet: 200000 },
+            { gradeLevelId: gradeId('m7'), booksPerSet: 4, setsProduced: 17, pricePerSet: 165000 },
+          ],
+          extraSales: [{ description: 'ຂາຍເພີ່ມຕື່ມ', sets: 2, books: 10, amount: 340000 }],
+        })
+        .expect(200);
+
+      expect(response.body.totals).toMatchObject({
+        sets: 70,
+        books: 333,
+        amount: 12685000,
+        extraSets: 2,
+        extraBooks: 10,
+        grandAmount: 13025000,
+      });
+      expect(response.body.extraSales[0]).toMatchObject({ sets: 2, books: 10 });
+    });
+  });
 });

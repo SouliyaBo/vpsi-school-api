@@ -586,6 +586,11 @@ export const PERMISSION_RESOURCES = tuple(
   // a teacher who may write a register row is not thereby a party to the report
   // that names which homeroom teachers have stopped looking at their room.
   'homeroom-reviews',
+  // ຄັງປື້ມ — the school's books: teacher guides, textbooks, donated and
+  // reference titles, loans, and the workbooks it prints and sells. Its own
+  // resource because the people who keep it (the office, the librarian) are not
+  // the people who keep `documents`, and the sales figures are money.
+  'library',
   // Health data is gated on its own resource rather than riding on `students`:
   // the office maintains the register, but a child's HPV record is the nurse's,
   // and one permission for both would mean granting either to grant the other.
@@ -615,3 +620,17 @@ export const AUDIT_ACTIONS = tuple(
   'export',
 );
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
+
+// ── ຄັງປື້ມ (library) ────────────────────────────────────────────────────────
+
+/** The two kinds of book counted subject × grade, as the office's sheets do: ຄູ່ມືຄູ and ແບບຮຽນ. */
+export const BOOK_COUNT_CATEGORIES = tuple('teacher_guide', 'textbook');
+export type BookCountCategory = (typeof BOOK_COUNT_CATEGORIES)[number];
+
+/** The two kinds of book kept title by title: ປື້ມອຸປະຖຳ (donated) and ເອກະສານອ້າງອີງ (reference). */
+export const BOOK_TITLE_CATEGORIES = tuple('donated', 'reference');
+export type BookTitleCategory = (typeof BOOK_TITLE_CATEGORIES)[number];
+
+/** Who has a book out — a member of staff, a student, or somebody named by hand. */
+export const BOOK_BORROWER_TYPES = tuple('teacher', 'student', 'other');
+export type BookBorrowerType = (typeof BOOK_BORROWER_TYPES)[number];

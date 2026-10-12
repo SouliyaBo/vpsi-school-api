@@ -56,6 +56,7 @@ import { TeacherHandoverModule } from './modules/teacher-handover/teacher-handov
 import { TeachingAssignmentsModule } from './modules/teaching-assignments/teaching-assignments.module';
 import { TermResultsModule } from './modules/term-results/term-results.module';
 import { VaccinationsModule } from './modules/vaccinations/vaccinations.module';
+import { LibraryModule } from './modules/library/library.module';
 import { UsersModule } from './modules/users/users.module';
 
 @Module({
@@ -177,6 +178,7 @@ import { UsersModule } from './modules/users/users.module';
     MonthlyMarksModule,
     TermResultsModule,
     VaccinationsModule,
+    LibraryModule,
 
     // Phase 3 — reporting and lesson plans
     ReportsModule,

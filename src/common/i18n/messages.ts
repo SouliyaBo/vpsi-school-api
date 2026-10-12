@@ -316,6 +316,36 @@ export const MESSAGES = {
     en: 'That month does not fall in the chosen term',
   },
 
+  // ── Library (ຄັງປື້ມ) ──────────────────────────────────────────────────────
+  'library.notEnoughCopies': {
+    lo: 'ປື້ມເຫຼືອບໍ່ພໍໃຫ້ຢືມ',
+    en: 'Not enough copies are on the shelf for that loan',
+  },
+  'library.borrowerRequired': {
+    lo: 'ກະລຸນາລະບຸຜູ້ຢືມ',
+    en: 'Say who is borrowing the book',
+  },
+  'library.hasOutstandingLoans': {
+    lo: 'ປື້ມນີ້ຍັງມີຄົນຢືມຢູ່ — ຕ້ອງສົ່ງຄືນກ່ອນ',
+    en: 'Copies of this title are still on loan — record their return first',
+  },
+  'library.quantityBelowLoans': {
+    lo: 'ຈຳນວນປື້ມໜ້ອຍກວ່າຈຳນວນທີ່ກຳລັງຖືກຢືມຢູ່',
+    en: 'The number of copies cannot be less than the number out on loan',
+  },
+  'library.loanAlreadyReturned': {
+    lo: 'ປື້ມນີ້ສົ່ງຄືນແລ້ວ',
+    en: 'That loan has already been returned',
+  },
+  'library.loanTargetRequired': {
+    lo: 'ກະລຸນາເລືອກປື້ມທີ່ຈະຢືມ',
+    en: 'Choose the book being lent',
+  },
+  'library.duplicateGrade': {
+    lo: 'ມີຊັ້ນຊ້ຳກັນໃນຕາຕະລາງ',
+    en: 'The same grade appears twice on the sheet',
+  },
+
   // ── Conduct deductions (ຕັດຄະແນນກົດລະບຽບ) ──────────────────────────────────
   'conductRule.duplicateCode': {
     lo: 'ມີລະບຽບຂໍ້ນີ້ຢູ່ແລ້ວ',

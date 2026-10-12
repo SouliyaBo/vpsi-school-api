@@ -22,3 +22,4 @@ export * from './reporting.schema';
 export * from './exam.schema';
 export * from './communication.schema';
 export * from './system.schema';
+export * from './library.schema';

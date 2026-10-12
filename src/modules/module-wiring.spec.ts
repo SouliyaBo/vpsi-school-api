@@ -16,6 +16,8 @@ import { LessonPlansModule } from './lesson-plans/lesson-plans.module';
 import { LessonPlansService } from './lesson-plans/lesson-plans.service';
 import { LessonSubstitutionsModule } from './lesson-substitutions/lesson-substitutions.module';
 import { LessonSubstitutionsService } from './lesson-substitutions/lesson-substitutions.service';
+import { LibraryModule } from './library/library.module';
+import { LibraryService } from './library/library.service';
 import { MonthlyMarksModule } from './monthly-marks/monthly-marks.module';
 import { MonthlyMarksService } from './monthly-marks/monthly-marks.service';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -52,6 +54,11 @@ const MODELS = [
   // The homeroom review triages on the roll call, which puts it in this graph.
   'Attendance',
   'BehaviorLog',
+  // ຄັງປື້ມ.
+  'BookCountSheet',
+  'BookLoan',
+  'BookTitle',
+  'WorkbookSaleSheet',
   'CalendarEvent',
   'Classroom',
   'ConductDeduction',
@@ -201,6 +208,12 @@ describe('module wiring', () => {
   it('resolves conduct deductions, which publish the conduct score they compute', async () => {
     const app = await build([ConductDeductionsModule]);
     expect(app.get(ConductDeductionsService)).toBeInstanceOf(ConductDeductionsService);
+    await app.close();
+  });
+
+  it('resolves the library, which reads the active school year', async () => {
+    const app = await build([LibraryModule]);
+    expect(app.get(LibraryService)).toBeInstanceOf(LibraryService);
     await app.close();
   });
 
