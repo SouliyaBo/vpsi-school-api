@@ -115,11 +115,10 @@ export class AnswerSheetRenderer {
 
     const { code, sets, pitch, bubbleRadius } = layout;
     const codeWidth = code.digits * pitch;
-    const setWidth = pitch + 4;
     type.draw([{ text: 'ລະຫັດນັກຮຽນ', bold: true }], code.left - 6, headTop, codeWidth + 12, 8, {
       align: 'center',
     });
-    type.draw([{ text: 'ຊຸດ', bold: true }], sets.left - 4, headTop, setWidth + 8, 8, {
+    type.draw([{ text: 'ຊຸດ', bold: true }], sets.left - 4, headTop, sets.width + 8, 8, {
       align: 'center',
     });
     const paddedCode = pupil?.studentCode.padStart(code.digits, '0') ?? null;
@@ -148,7 +147,8 @@ export class AnswerSheetRenderer {
     }
     data.sets.forEach((set, index) => {
       const centre = sets.bubble(index);
-      type.draw([{ text: set }], sets.left - 12, centre.y - 5, 10, 7, { align: 'right' });
+      const labelRight = centre.x - pitch / 2;
+      type.draw([{ text: set }], labelRight - 12, centre.y - 5, 10, 7, { align: 'right' });
       this.bubble(doc, layout, centre, pupil?.set === set);
     });
 
@@ -205,7 +205,11 @@ export class AnswerSheetRenderer {
       const fieldLeft = linesLeft + 6 + labelWidth;
       const fieldWidth = linesWidth - 12 - labelWidth;
       if (value) {
-        type.draw([{ text: value, bold: true }], fieldLeft, ly, fieldWidth, BODY);
+        // A sheet with many sets leaves a narrower field; shrink a long name
+        // rather than let it wrap onto the next line.
+        const spans = [{ text: value, bold: true }];
+        const size = Math.max(6.5, Math.min(BODY, (BODY * fieldWidth) / type.widthOf(spans, BODY)));
+        type.draw(spans, fieldLeft, ly + (BODY - size) / 2, fieldWidth, size);
       } else {
         doc
           .moveTo(fieldLeft, ly + 11)

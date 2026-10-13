@@ -213,7 +213,8 @@ export class ExamPaper extends SoftDeletableDocument {
 
   // ── Sets ──────────────────────────────────────────────────────────────────
 
-  @Prop({ type: Number, default: 4, min: 1, max: 8 })
+  // Kept equal to `MAX_VARIANTS` in exam-papers/variants.ts — variants.spec checks.
+  @Prop({ type: Number, default: 4, min: 1, max: 25 })
   variantCount: number;
 
   @Prop({ type: Boolean, default: true })

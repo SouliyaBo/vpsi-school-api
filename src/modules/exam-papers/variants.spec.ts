@@ -1,4 +1,13 @@
-import { answerFor, drawVariants, seatClass, seededRandom, setForSeat } from './variants';
+import { model } from 'mongoose';
+import { ExamPaperSchema } from 'src/database/schemas/exam-paper.schema';
+import {
+  answerFor,
+  drawVariants,
+  MAX_VARIANTS,
+  seatClass,
+  seededRandom,
+  setForSeat,
+} from './variants';
 
 const question = (optionCount = 4, section: string | null = null, lockOptions = false) => ({
   section,
@@ -63,7 +72,7 @@ describe('drawVariants', () => {
   });
 
   it('caps the number of sets and copes with a paper too small to differ', () => {
-    expect(drawVariants(twenty, { count: 99, shuffleOptions: false, seed: 1 })).toHaveLength(8);
+    expect(drawVariants(twenty, { count: 99, shuffleOptions: false, seed: 1 })).toHaveLength(25);
     const tiny = drawVariants([question(2)], { count: 3, shuffleOptions: true, seed: 1 });
     expect(tiny).toHaveLength(3);
     expect(tiny.every((v) => v.questionOrder.length === 1)).toBe(true);
@@ -124,5 +133,15 @@ describe('seating', () => {
 
   it('is a single set when there is only one', () => {
     expect(seatClass(['a', 'b', 'c'], 2, 1).map((s) => s.setIndex)).toEqual([0, 0, 0]);
+  });
+});
+
+describe('the stored set count', () => {
+  it('lets the database hold as many sets as can be drawn', async () => {
+    const ExamPaper = model('ExamPaperVariantCountCheck', ExamPaperSchema);
+    const atMax = new ExamPaper({ variantCount: MAX_VARIANTS });
+    expect(atMax.validateSync()?.errors.variantCount).toBeUndefined();
+    const over = new ExamPaper({ variantCount: MAX_VARIANTS + 1 });
+    expect(over.validateSync()?.errors.variantCount).toBeDefined();
   });
 });

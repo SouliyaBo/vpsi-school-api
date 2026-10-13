@@ -6,7 +6,33 @@
  * that is a property of these functions, not of the screens around them.
  */
 
-export const VARIANT_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] as const;
+export const VARIANT_LABELS = [
+  'A',
+  'B',
+  'C',
+  'D',
+  'E',
+  'F',
+  'G',
+  'H',
+  'I',
+  'J',
+  'K',
+  'L',
+  'M',
+  'N',
+  'O',
+  'P',
+  'Q',
+  'R',
+  'S',
+  'T',
+  'U',
+  'V',
+  'W',
+  'X',
+  'Y',
+] as const;
 export const MAX_VARIANTS = VARIANT_LABELS.length;
 
 export interface VariantSource {

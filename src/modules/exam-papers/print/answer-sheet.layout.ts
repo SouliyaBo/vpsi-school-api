@@ -41,6 +41,8 @@ export interface AnswerSheetLayout {
   };
   sets: {
     left: number;
+    /** From the first column's left edge to the last column's bubble, plus padding. */
+    width: number;
     count: number;
     /** Centre of the bubble for set `index`. */
     bubble: (index: number) => Point;
@@ -67,6 +69,10 @@ export const PITCH = 14.5;
 export const QUESTIONS_PER_BLOCK = 12;
 export const BLOCKS_PER_COLUMN = 2;
 export const MIN_CODE_DIGITS = 4;
+/** Sets stack beside the ten code rows; an eleventh starts a new column. */
+export const SETS_PER_COLUMN = 10;
+/** A column of set bubbles plus room for the next column's letters. */
+export const SET_COLUMN_STEP = PITCH + 10;
 
 const CODE_GRID_TOP = 95;
 const PARTICULARS_TOP = 122;
@@ -98,7 +104,9 @@ export function answerSheetLayout(input: {
   ];
 
   const gridRight = right - FIDUCIAL - 6;
-  const setWidth = PITCH + 4;
+  // Up to ten sets this is the single column every sheet printed so far has.
+  const setColumns = Math.max(1, Math.ceil(input.setCount / SETS_PER_COLUMN));
+  const setWidth = PITCH + 4 + (setColumns - 1) * SET_COLUMN_STEP;
   const setLeft = gridRight - setWidth;
   const codeWidth = codeDigits * PITCH;
   const codeLeft = setLeft - 16 - codeWidth;
@@ -165,8 +173,12 @@ export function answerSheetLayout(input: {
     },
     sets: {
       left: setLeft,
+      width: setWidth,
       count: input.setCount,
-      bubble: (index) => ({ x: setLeft + PITCH / 2, y: CODE_GRID_TOP + index * PITCH + BUBBLE_R }),
+      bubble: (index) => ({
+        x: setLeft + Math.floor(index / SETS_PER_COLUMN) * SET_COLUMN_STEP + PITCH / 2,
+        y: CODE_GRID_TOP + (index % SETS_PER_COLUMN) * PITCH + BUBBLE_R,
+      }),
     },
     optionCount,
     questionCount: input.questionCount,

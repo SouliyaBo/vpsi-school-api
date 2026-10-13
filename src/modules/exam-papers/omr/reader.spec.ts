@@ -26,23 +26,23 @@ interface Filled {
 
 /** The sheet as SVG at 1pt = 1 user unit. */
 /** `blockDrift` moves every block — square and bubbles together — off where the layout says. */
-function sheetSvg(filled: Filled, blockDrift = { x: 0, y: 0 }): string {
+function sheetSvg(filled: Filled, blockDrift = { x: 0, y: 0 }, sheet = layout): string {
   const parts: string[] = [];
-  const f = layout.fiducialSize;
-  for (const c of layout.corners) {
+  const f = sheet.fiducialSize;
+  for (const c of sheet.corners) {
     parts.push(
       `<rect x="${c.x - f / 2}" y="${c.y - f / 2}" width="${f}" height="${f}" fill="#000"/>`,
     );
   }
-  for (const block of layout.blocks) {
+  for (const block of sheet.blocks) {
     parts.push(
       `<rect x="${block.origin.x + blockDrift.x}" y="${block.origin.y + blockDrift.y}" width="${f}" height="${f}" fill="#000"/>`,
     );
   }
   const ring = (x: number, y: number, fill = 'none', opacity = 1) =>
-    `<circle cx="${x}" cy="${y}" r="${layout.bubbleRadius}" fill="${fill}" fill-opacity="${opacity}" stroke="#333" stroke-width="0.7"/>`;
-  for (let q = 1; q <= layout.questionCount; q += 1) {
-    const centres = layout.question(q)!;
+    `<circle cx="${x}" cy="${y}" r="${sheet.bubbleRadius}" fill="${fill}" fill-opacity="${opacity}" stroke="#333" stroke-width="0.7"/>`;
+  for (let q = 1; q <= sheet.questionCount; q += 1) {
+    const centres = sheet.question(q)!;
     centres.forEach((c, i) => {
       const dark = filled.answers[q]?.includes(i);
       const faint = filled.faint?.[q] === i;
@@ -55,19 +55,19 @@ function sheetSvg(filled: Filled, blockDrift = { x: 0, y: 0 }): string {
         ),
       );
     });
-    const label = layout.questionLabel(q)!;
+    const label = sheet.questionLabel(q)!;
     parts.push(
       `<text x="${label.x + blockDrift.x}" y="${label.y + blockDrift.y + 3}" font-size="8" text-anchor="end" font-family="sans-serif">${q}</text>`,
     );
   }
-  for (let d = 0; d < layout.code.digits; d += 1) {
+  for (let d = 0; d < sheet.code.digits; d += 1) {
     for (let digit = 0; digit < 10; digit += 1) {
-      const c = layout.code.bubble(d, digit);
+      const c = sheet.code.bubble(d, digit);
       parts.push(ring(c.x, c.y, Number(filled.code[d]) === digit ? '#000' : 'none'));
     }
   }
-  for (let i = 0; i < layout.sets.count; i += 1) {
-    const c = layout.sets.bubble(i);
+  for (let i = 0; i < sheet.sets.count; i += 1) {
+    const c = sheet.sets.bubble(i);
     parts.push(ring(c.x, c.y, filled.set === i ? '#000' : 'none'));
   }
   // Some text in the header, like the real sheet, so the reader is not
@@ -76,20 +76,20 @@ function sheetSvg(filled: Filled, blockDrift = { x: 0, y: 0 }): string {
     `<text x="140" y="80" font-size="12" font-family="sans-serif">ANSWER SHEET · sample paper</text>`,
   );
   parts.push(
-    `<rect x="160" y="${layout.particularsTop}" width="220" height="110" fill="none" stroke="#000" stroke-width="0.8"/>`,
+    `<rect x="160" y="${sheet.particularsTop}" width="220" height="110" fill="none" stroke="#000" stroke-width="0.8"/>`,
   );
   const qr = QRCode.create(qrText(PAPER_ID, 'C', STUDENT_ID), { errorCorrectionLevel: 'M' });
-  const cell = layout.qr.size / qr.modules.size;
+  const cell = sheet.qr.size / qr.modules.size;
   for (let r = 0; r < qr.modules.size; r += 1) {
     for (let c = 0; c < qr.modules.size; c += 1) {
       if (qr.modules.get(r, c)) {
         parts.push(
-          `<rect x="${layout.qr.x + c * cell}" y="${layout.qr.y + r * cell}" width="${cell}" height="${cell}" fill="#000"/>`,
+          `<rect x="${sheet.qr.x + c * cell}" y="${sheet.qr.y + r * cell}" width="${cell}" height="${cell}" fill="#000"/>`,
         );
       }
     }
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${layout.page.width}" height="${layout.page.height}" viewBox="0 0 ${layout.page.width} ${layout.page.height}"><rect width="100%" height="100%" fill="#fff"/>${parts.join('')}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${sheet.page.width}" height="${sheet.page.height}" viewBox="0 0 ${sheet.page.width} ${sheet.page.height}"><rect width="100%" height="100%" fill="#fff"/>${parts.join('')}</svg>`;
 }
 
 /** Rasterise at `scale` px/pt and mistreat the result like a phone would. */
@@ -154,6 +154,25 @@ describe('readAnswerSheet', () => {
     expect(result.codeFromBubbles).toBe('0807');
     expect(result.setFromBubbles).toBe(2);
     expect(result.qr).toEqual({ paperId: PAPER_ID, set: 'C', studentId: STUDENT_ID });
+  }, 30000);
+
+  it('reads the set from a sheet whose 25 sets run to three columns', async () => {
+    const wide = answerSheetLayout({
+      questionCount: 40,
+      optionCount: 4,
+      codeDigits: 4,
+      setCount: 25,
+    });
+    const photo = await photograph(sheetSvg({ ...FILLED, set: 22 }, undefined, wide), {
+      rotate: 3,
+      blur: 0.6,
+    });
+    const { result } = await readAnswerSheet(photo, wide);
+    if (!result.ok) throw new Error(result.reason);
+
+    expect(result.setFromBubbles).toBe(22);
+    expect(result.codeFromBubbles).toBe('0807');
+    expect(result.questions[0].marked).toBe(1);
   }, 30000);
 
   it('reads a tilted, blurred, dim photograph with desk in frame', async () => {
