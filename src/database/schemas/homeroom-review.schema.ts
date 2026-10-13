@@ -204,11 +204,22 @@ export class MonthlyReportExtraClass {
   @Prop({ type: String, default: null, trim: true })
   studentNameLo?: string | null;
 
-  /** ວິຊາທີ່ຮຽນ — free text: extra classes are not subjects on the timetable. */
+  /**
+   * ວິຊາທີ່ຮຽນ, picked from the subject list. `null` on rows written before the
+   * picker, when the subject was typed.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Subject', default: null })
+  subjectId?: Types.ObjectId | null;
+
+  /** The subject's name at the time of writing — what the report prints. */
   @Prop({ type: String, required: true, trim: true })
   subject: string;
 
-  /** ອາຈານທີ່ສອນ — free text: the tutor is often not on the school's staff. */
+  /** ອາຈານທີ່ສອນ, picked from the staff list; `null` on typed rows. */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Teacher', default: null })
+  teacherId?: Types.ObjectId | null;
+
+  /** The teacher's name at the time of writing. */
   @Prop({ type: String, default: null, trim: true })
   teacherName?: string | null;
 }
@@ -235,6 +246,37 @@ export class MonthlyReportActivity {
 
 export const MonthlyReportActivitySchema = SchemaFactory.createForClass(MonthlyReportActivity);
 
+/**
+ * III. ການພົວພັນຜູ້ປົກຄອງ — a contact the teacher records by hand: a call or a
+ * meeting that happened outside the ວັນພຸດ/ວັນສຸກ review. Printed beside the
+ * contacts the reviews already logged.
+ */
+@Schema({ _id: false })
+export class MonthlyReportGuardianContact {
+  /** `null` when the contact went to every guardian in the room — see `allStudents`. */
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Student', default: null })
+  studentId?: Types.ObjectId | null;
+
+  /** One notice to the whole class — a meeting call, a fee reminder — rather than one child's. */
+  @Prop({ type: Boolean, default: false })
+  allStudents: boolean;
+
+  @Prop({ type: String, default: null, trim: true })
+  studentNameLo?: string | null;
+
+  /** ວ.ດ.ປ ທີ່ພົວພັນ, at UTC midnight. */
+  @Prop({ type: Date, required: true })
+  date: Date;
+
+  /** ເນື້ອໃນການພົວພັນ — what it was about. */
+  @Prop({ type: String, required: true, trim: true })
+  content: string;
+}
+
+export const MonthlyReportGuardianContactSchema = SchemaFactory.createForClass(
+  MonthlyReportGuardianContact,
+);
+
 export type HomeroomMonthlyReportDocument = HydratedDocument<HomeroomMonthlyReport>;
 
 /**
@@ -243,7 +285,8 @@ export type HomeroomMonthlyReportDocument = HydratedDocument<HomeroomMonthlyRepo
  * Most of the form is derived — absences, the register, the discipline ledger,
  * the reviews, the ກວດກາ marks — and is not stored while the teacher works on
  * it. What is stored is the part only the teacher knows (ສະພາບລວມ, extra
- * classes, outside activities, ຂໍ້ສະເໜີ) and the act of sending it.
+ * classes, outside activities, guardian contacts made outside a review,
+ * ຂໍ້ສະເໜີ) and the act of sending it.
  *
  * On sending, the derived sections are copied into `generated`: the office reads
  * the report the teacher put their name to, and a roll-call correction made a
@@ -287,6 +330,10 @@ export class HomeroomMonthlyReport extends SoftDeletableDocument {
   /** II.7 ການເຄື່ອນໄຫວພາຍນອກທີ່ພົ້ນເດັ່ນ. */
   @Prop({ type: [MonthlyReportActivitySchema], default: [] })
   outsideActivities: MonthlyReportActivity[];
+
+  /** III. ການພົວພັນຜູ້ປົກຄອງ — the teacher's own rows; the reviews' rows are derived. */
+  @Prop({ type: [MonthlyReportGuardianContactSchema], default: [] })
+  guardianContacts: MonthlyReportGuardianContact[];
 
   /** IV. ຂໍ້ສະເໜີ. */
   @Prop({ type: String, default: null, trim: true })

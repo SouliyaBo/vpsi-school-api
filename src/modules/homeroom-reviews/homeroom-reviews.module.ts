@@ -9,6 +9,10 @@ import {
   HomeroomMonthlyReportSchema,
   HomeroomReview,
   HomeroomReviewSchema,
+  Subject,
+  SubjectSchema,
+  Teacher,
+  TeacherSchema,
 } from 'src/database/schemas';
 
 import { AttendancesModule } from '../attendances/attendances.module';
@@ -42,6 +46,9 @@ import { HomeroomReviewsService } from './homeroom-reviews.service';
       { name: HomeroomMonthlyReport.name, schema: HomeroomMonthlyReportSchema },
       { name: Classroom.name, schema: ClassroomSchema },
       { name: Enrollment.name, schema: EnrollmentSchema },
+      // ນັກຮຽນທີ່ຮຽນເພີ່ມ names a subject and a teacher picked from these lists.
+      { name: Subject.name, schema: SubjectSchema },
+      { name: Teacher.name, schema: TeacherSchema },
     ]),
     CalendarModule,
     SemestersModule,

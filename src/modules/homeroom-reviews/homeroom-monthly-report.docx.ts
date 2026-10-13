@@ -215,7 +215,21 @@ export class HomeroomMonthlyReportDocxWriter {
           { header: 'ວ.ດ.ປ ທີ່ພົວພັນ', width: 0.17, align: AlignmentType.CENTER },
           { header: 'ເນື້ອໃນການພົວພັນ', width: 0.48 },
         ],
-        r.guardianContacts.map((row) => [named(row), laoDate(row.date), row.content]),
+        // The reviews' contacts and the ones the teacher added, in date order.
+        [
+          ...r.guardianContacts.map((row) => ({ name: named(row), ...row })),
+          ...(r.entry.guardianContacts ?? []).map((row) => ({
+            name: named({
+              studentNameLo: row.studentNameLo ?? '',
+              studentCode: row.allStudents
+                ? null
+                : (r.roster.find((s) => s.studentId === row.studentId)?.studentCode ?? null),
+            }),
+            ...row,
+          })),
+        ]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((row) => [row.name, laoDate(row.date), row.content]),
       ),
 
       this.heading('IV. ຂໍ້ສະເໜີ'),

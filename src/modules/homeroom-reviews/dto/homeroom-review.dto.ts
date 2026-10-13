@@ -13,6 +13,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -163,12 +164,29 @@ export class MonthlyReportExtraClassDto {
   @IsMongoId()
   studentId: string;
 
-  @ApiProperty({ description: 'ວິຊາທີ່ຮຽນ' })
-  @IsString()
-  @MaxLength(200)
-  subject: string;
+  @ApiPropertyOptional({ description: 'ວິຊາທີ່ຮຽນ, from the subject list' })
+  @IsMongoId()
+  @IsOptional()
+  subjectId?: string;
 
-  @ApiPropertyOptional({ description: 'ອາຈານທີ່ສອນ' })
+  @ApiPropertyOptional({
+    description:
+      'ວິຊາທີ່ຮຽນ as typed — kept for rows written before the picker; ignored with `subjectId`',
+  })
+  @IsString()
+  @IsOptional()
+  @MaxLength(200)
+  subject?: string;
+
+  @ApiPropertyOptional({ description: 'ອາຈານທີ່ສອນ, from the staff list' })
+  @IsMongoId()
+  @IsOptional()
+  teacherId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'ອາຈານທີ່ສອນ as typed — kept for rows written before the picker; ignored with `teacherId`',
+  })
   @IsString()
   @IsOptional()
   @MaxLength(200)
@@ -190,6 +208,28 @@ export class MonthlyReportActivityDto {
   @IsString()
   @MaxLength(1000)
   detail: string;
+}
+
+/** III. ການພົວພັນຜູ້ປົກຄອງ — one contact the teacher records by hand. */
+export class MonthlyReportGuardianContactDto {
+  @ApiPropertyOptional({ description: 'Required unless `allStudents`' })
+  @ValidateIf((row: MonthlyReportGuardianContactDto) => !row.allStudents)
+  @IsMongoId()
+  studentId?: string;
+
+  @ApiPropertyOptional({ description: 'The contact went to every guardian in the room' })
+  @IsBoolean()
+  @IsOptional()
+  allStudents?: boolean;
+
+  @ApiProperty({ example: '2026-10-15', description: 'ວ.ດ.ປ ທີ່ພົວພັນ' })
+  @IsDateString()
+  date: string;
+
+  @ApiProperty({ description: 'ເນື້ອໃນການພົວພັນ' })
+  @IsString()
+  @MaxLength(1000)
+  content: string;
 }
 
 /**
@@ -216,6 +256,14 @@ export class SaveMonthlyReportDto extends MonthlyReportQueryDto {
   @ValidateNested({ each: true })
   @Type(() => MonthlyReportActivityDto)
   outsideActivities: MonthlyReportActivityDto[];
+
+  @ApiPropertyOptional({ type: [MonthlyReportGuardianContactDto] })
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => MonthlyReportGuardianContactDto)
+  guardianContacts?: MonthlyReportGuardianContactDto[];
 
   @ApiPropertyOptional({ description: 'IV. ຂໍ້ສະເໜີ' })
   @IsString()

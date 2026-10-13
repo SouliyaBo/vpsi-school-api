@@ -30,6 +30,10 @@ import {
   HomeroomReview,
   HomeroomReviewDocument,
   SemesterDocument,
+  Subject,
+  SubjectDocument,
+  Teacher,
+  TeacherDocument,
 } from 'src/database/schemas';
 import {
   daysLate,
@@ -49,10 +53,15 @@ import {
   SaveMonthlyReportDto,
 } from './dto/homeroom-review.dto';
 
+/** How a contact to every guardian in the room is named on the report. */
+export const ALL_STUDENTS_LO = 'ນັກຮຽນທັງໝົດ';
+
 export interface MonthlyReport extends MonthlyReportBody {
   classroom: {
     id: string;
     name: string;
+    /** For the extra-class subject picker; absent on reports sent before it. */
+    gradeLevelId?: string | null;
     gradeLevelCode: string | null;
     teacherName: string | null;
   };
@@ -71,7 +80,10 @@ export interface MonthlyReportEntry {
   extraClasses: {
     studentId: string;
     studentNameLo: string | null;
+    /** `null` on a row typed before the subject picker. */
+    subjectId: string | null;
     subject: string;
+    teacherId: string | null;
     teacherName: string | null;
   }[];
   outsideActivities: {
@@ -79,6 +91,15 @@ export interface MonthlyReportEntry {
     studentNameLo: string | null;
     date: string | null;
     detail: string;
+  }[];
+  /** III. contacts the teacher recorded by hand — the reviews' own are in `guardianContacts`. */
+  guardianContacts: {
+    /** `null` for a contact to the whole class. */
+    studentId: string | null;
+    allStudents: boolean;
+    studentNameLo: string | null;
+    date: string;
+    content: string;
   }[];
   suggestions: string | null;
 }
@@ -166,6 +187,8 @@ export class HomeroomMonthlyReportService {
     private readonly scope: RecordScopeService,
     @InjectModel(HomeroomMonthlyReport.name)
     private readonly stored: Model<HomeroomMonthlyReportDocument>,
+    @InjectModel(Subject.name) private readonly subjectModel: Model<SubjectDocument>,
+    @InjectModel(Teacher.name) private readonly teacherModel: Model<TeacherDocument>,
     private readonly audit: AuditLogsService,
   ) {}
 
@@ -189,8 +212,11 @@ export class HomeroomMonthlyReportService {
           semester: this.semesterView(ctx),
         } as MonthlyReport)
       : await this.generate(ctx);
+    const grade = ctx.room.gradeLevelId as unknown as { _id?: Types.ObjectId } | null;
     return {
       ...report,
+      // Read live: a snapshot from before the picker does not carry it.
+      classroom: { ...report.classroom, gradeLevelId: grade?._id ? String(grade._id) : null },
       entry: this.entryOf(saved),
       submission: this.submissionOf(ctx, saved, now),
       isSnapshot: Boolean(generated),
@@ -228,17 +254,28 @@ export class HomeroomMonthlyReportService {
       return student.studentNameLo;
     };
 
+    const { subjectName, teacherName } = await this.extraClassNames(dto);
+
     const fields = {
       overview: dto.overview?.trim() || null,
       suggestions: dto.suggestions?.trim() || null,
-      extraClasses: dto.extraClasses
-        .filter((row) => row.subject.trim())
-        .map((row) => ({
+      extraClasses: dto.extraClasses.map((row) => {
+        // A picked subject or teacher is printed under the name on file today
+        // and keeps that name; a typed one (rows written before the pickers) is
+        // kept as typed.
+        const subject = row.subjectId ? subjectName.get(row.subjectId) : row.subject?.trim();
+        if (!subject) throw AppException.badRequest('homeroomReview.extraClassSubjectRequired');
+        return {
           studentId: new Types.ObjectId(row.studentId),
           studentNameLo: nameOf(row.studentId),
-          subject: row.subject.trim(),
-          teacherName: row.teacherName?.trim() || null,
-        })),
+          subjectId: row.subjectId ? new Types.ObjectId(row.subjectId) : null,
+          subject,
+          teacherId: row.teacherId ? new Types.ObjectId(row.teacherId) : null,
+          teacherName: row.teacherId
+            ? (teacherName.get(row.teacherId) ?? null)
+            : row.teacherName?.trim() || null,
+        };
+      }),
       outsideActivities: dto.outsideActivities
         .filter((row) => row.detail.trim())
         .map((row) => ({
@@ -246,6 +283,19 @@ export class HomeroomMonthlyReportService {
           studentNameLo: nameOf(row.studentId),
           date: row.date ? new Date(`${row.date.slice(0, 10)}T00:00:00.000Z`) : null,
           detail: row.detail.trim(),
+        })),
+      guardianContacts: (dto.guardianContacts ?? [])
+        .filter((row) => row.content.trim())
+        .map((row) => ({
+          ...(row.allStudents
+            ? { studentId: null, allStudents: true, studentNameLo: ALL_STUDENTS_LO }
+            : {
+                studentId: new Types.ObjectId(row.studentId),
+                allStudents: false,
+                studentNameLo: nameOf(row.studentId!),
+              }),
+          date: new Date(`${row.date.slice(0, 10)}T00:00:00.000Z`),
+          content: row.content.trim(),
         })),
       recordedById: new Types.ObjectId(actor.sub),
     };
@@ -401,6 +451,47 @@ export class HomeroomMonthlyReportService {
       .exec();
   }
 
+  /**
+   * The names behind the picked subjects and teachers, as they stand today.
+   * An id that matches nothing on file is refused rather than printed blank.
+   */
+  private async extraClassNames(dto: SaveMonthlyReportDto) {
+    const subjectIds = [
+      ...new Set(dto.extraClasses.flatMap((row) => (row.subjectId ? [row.subjectId] : []))),
+    ];
+    const teacherIds = [
+      ...new Set(dto.extraClasses.flatMap((row) => (row.teacherId ? [row.teacherId] : []))),
+    ];
+    const [subjects, teachers] = await Promise.all([
+      subjectIds.length
+        ? this.subjectModel
+            .find({ _id: { $in: subjectIds.map((id) => new Types.ObjectId(id)) }, deletedAt: null })
+            .select('nameLo')
+            .lean()
+            .exec()
+        : [],
+      teacherIds.length
+        ? this.teacherModel
+            .find({ _id: { $in: teacherIds.map((id) => new Types.ObjectId(id)) }, deletedAt: null })
+            .select('firstNameLo lastNameLo')
+            .lean()
+            .exec()
+        : [],
+    ]);
+    if (subjects.length !== subjectIds.length || teachers.length !== teacherIds.length) {
+      throw AppException.badRequest('homeroomReview.unknownSubjectOrTeacher');
+    }
+    return {
+      subjectName: new Map(subjects.map((subject) => [String(subject._id), subject.nameLo])),
+      teacherName: new Map(
+        teachers.map((teacher) => [
+          String(teacher._id),
+          `${teacher.firstNameLo ?? ''} ${teacher.lastNameLo ?? ''}`.trim(),
+        ]),
+      ),
+    };
+  }
+
   private entryOf(saved: HomeroomMonthlyReportDocument | null): MonthlyReportEntry {
     return {
       overview: saved?.overview ?? null,
@@ -408,7 +499,9 @@ export class HomeroomMonthlyReportService {
       extraClasses: (saved?.extraClasses ?? []).map((row) => ({
         studentId: String(row.studentId),
         studentNameLo: row.studentNameLo ?? null,
+        subjectId: row.subjectId ? String(row.subjectId) : null,
         subject: row.subject,
+        teacherId: row.teacherId ? String(row.teacherId) : null,
         teacherName: row.teacherName ?? null,
       })),
       outsideActivities: (saved?.outsideActivities ?? []).map((row) => ({
@@ -416,6 +509,13 @@ export class HomeroomMonthlyReportService {
         studentNameLo: row.studentNameLo ?? null,
         date: row.date ? row.date.toISOString().slice(0, 10) : null,
         detail: row.detail,
+      })),
+      guardianContacts: (saved?.guardianContacts ?? []).map((row) => ({
+        studentId: row.studentId ? String(row.studentId) : null,
+        allStudents: Boolean(row.allStudents),
+        studentNameLo: row.studentNameLo ?? null,
+        date: row.date.toISOString().slice(0, 10),
+        content: row.content,
       })),
     };
   }
@@ -633,13 +733,14 @@ export class HomeroomMonthlyReportService {
       })),
     });
 
-    const grade = room.gradeLevelId as unknown as { code?: string } | null;
+    const grade = room.gradeLevelId as unknown as { _id?: Types.ObjectId; code?: string } | null;
     const teacher = ctx.homeroomTeacher;
 
     return {
       classroom: {
         id: classroomId,
         name: room.name,
+        gradeLevelId: grade?._id ? String(grade._id) : null,
         gradeLevelCode: grade?.code ?? null,
         teacherName: teacher
           ? `${teacher.firstNameLo ?? ''} ${teacher.lastNameLo ?? ''}`.trim() || null

@@ -315,6 +315,14 @@ export const MESSAGES = {
     lo: 'ເດືອນທີ່ເລືອກບໍ່ຢູ່ໃນພາກຮຽນນີ້',
     en: 'That month does not fall in the chosen term',
   },
+  'homeroomReview.extraClassSubjectRequired': {
+    lo: 'ກະລຸນາເລືອກວິຊາທີ່ຮຽນເພີ່ມໃຫ້ຄົບທຸກແຖວ',
+    en: 'Every extra-class row needs a subject',
+  },
+  'homeroomReview.unknownSubjectOrTeacher': {
+    lo: 'ບໍ່ພົບວິຊາ ຫຼື ອາຈານທີ່ເລືອກໃນລະບົບ',
+    en: 'A chosen subject or teacher is not on file',
+  },
 
   // ── Library (ຄັງປື້ມ) ──────────────────────────────────────────────────────
   'library.notEnoughCopies': {

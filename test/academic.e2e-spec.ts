@@ -2769,6 +2769,87 @@ describe('Academic operations (e2e)', () => {
       expect(response.body.submission).toMatchObject({ status: 'missing', hasDraft: true });
     });
 
+    it('prints a picked subject and teacher by their names on file, and keeps added contacts', async () => {
+      const [subject, teacher] = await Promise.all([
+        http().get(`/api/subjects/${mathSubjectId}`).set(auth(token)).expect(200),
+        http().get(`/api/teachers/${teacherId}`).set(auth(token)).expect(200),
+      ]);
+      const date = `${year}-${String(month).padStart(2, '0')}-20`;
+
+      const response = await http()
+        .put('/api/homeroom-reviews/monthly-report')
+        .set(auth(token))
+        .send({
+          ...report(),
+          extraClasses: [{ studentId, subjectId: mathSubjectId, teacherId }],
+          outsideActivities: [],
+          guardianContacts: [{ studentId, date, content: 'ໂທແຈ້ງເລື່ອງການບ້ານ' }],
+        })
+        .expect(200);
+
+      expect(response.body.entry.extraClasses[0]).toMatchObject({
+        subjectId: mathSubjectId,
+        subject: subject.body.nameLo,
+        teacherId,
+        teacherName: `${teacher.body.firstNameLo} ${teacher.body.lastNameLo}`,
+      });
+      expect(response.body.entry.guardianContacts).toEqual([
+        {
+          studentId,
+          allStudents: false,
+          studentNameLo: expect.stringContaining('ມະນີວອນ'),
+          date,
+          content: 'ໂທແຈ້ງເລື່ອງການບ້ານ',
+        },
+      ]);
+    });
+
+    it('records one contact for every guardian in the room', async () => {
+      const date = `${year}-${String(month).padStart(2, '0')}-21`;
+      const response = await http()
+        .put('/api/homeroom-reviews/monthly-report')
+        .set(auth(token))
+        .send({
+          ...report(),
+          extraClasses: [],
+          outsideActivities: [],
+          guardianContacts: [{ allStudents: true, date, content: 'ເຊີນປະຊຸມຜູ້ປົກຄອງ' }],
+        })
+        .expect(200);
+
+      expect(response.body.entry.guardianContacts).toEqual([
+        {
+          studentId: null,
+          allStudents: true,
+          studentNameLo: 'ນັກຮຽນທັງໝົດ',
+          date,
+          content: 'ເຊີນປະຊຸມຜູ້ປົກຄອງ',
+        },
+      ]);
+
+      // Neither a child nor the whole class is not a contact.
+      await http()
+        .put('/api/homeroom-reviews/monthly-report')
+        .set(auth(token))
+        .send({
+          ...report(),
+          extraClasses: [],
+          outsideActivities: [],
+          guardianContacts: [{ date, content: 'ບໍ່ມີຊື່' }],
+        })
+        .expect(400);
+    });
+
+    it('refuses an extra class with no subject', async () => {
+      const response = await http()
+        .put('/api/homeroom-reviews/monthly-report')
+        .set(auth(token))
+        .send({ ...report(), extraClasses: [{ studentId, teacherId }], outsideActivities: [] })
+        .expect(400);
+
+      expect(response.body.messageKey).toBe('homeroomReview.extraClassSubjectRequired');
+    });
+
     it('marks a report sent after the 5th as late, and keeps the mark on a resend', async () => {
       const sent = await http()
         .post('/api/homeroom-reviews/monthly-report/submit')
