@@ -633,7 +633,15 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     if (dto.admissionDate) patch.admissionDate = new Date(dto.admissionDate);
     if (dto.suspendedAt) patch.suspendedAt = new Date(dto.suspendedAt);
     // A suspension date belongs to a suspension; a child back in class has none.
-    if ((dto.status ?? current.status) !== 'suspended') patch.suspendedAt = null;
+    // What the child was suspended from is kept with it, read off the record
+    // as it stands rather than posted, so the district report can tell a
+    // ບໍ່ເອົາໃບປະກາດ child who stopped coming from a pupil who did.
+    if ((dto.status ?? current.status) !== 'suspended') {
+      patch.suspendedAt = null;
+      patch.statusBeforeSuspension = null;
+    } else if (current.status !== 'suspended') {
+      patch.statusBeforeSuspension = current.status;
+    }
     // Replaced wholesale, like the guardian list: the edit form posts the set it
     // wants, and patching entries individually would need a key the list has not
     // got. An omitted field leaves the stored memberships alone.

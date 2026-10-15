@@ -187,6 +187,15 @@ export class Student extends SoftDeletableDocument {
   @Prop({ type: Date, default: null })
   suspendedAt?: Date | null;
 
+  /**
+   * The status a `suspended` child was suspended from. A child who had already
+   * declined the certificate (`no_certificate`) and then stopped coming is not
+   * reported to the district as a suspension — the office's rule, 15 Oct 2026.
+   * Set by the service on the change, never posted; cleared with `suspendedAt`.
+   */
+  @Prop({ type: String, default: null })
+  statusBeforeSuspension?: StudentStatus | null;
+
   @Prop({ type: String, default: null })
   notes?: string | null;
 }

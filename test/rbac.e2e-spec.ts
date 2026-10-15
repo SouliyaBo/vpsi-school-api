@@ -576,6 +576,7 @@ describe('RBAC (e2e)', () => {
         .send({ status: 'suspended', suspendedAt: '2026-09-15' })
         .expect(200);
       expect(suspended.body.suspendedAt).toBe('2026-09-15T00:00:00.000Z');
+      expect(suspended.body.statusBeforeSuspension).toBe('active');
 
       // The date is part of the office's decision, not the homeroom teacher's.
       const refused = await http()
@@ -591,6 +592,7 @@ describe('RBAC (e2e)', () => {
         .send({ status: 'active' })
         .expect(200);
       expect(back.body.suspendedAt).toBeNull();
+      expect(back.body.statusBeforeSuspension).toBeNull();
     });
 
     it('refuses a code change from a homeroom teacher', async () => {
