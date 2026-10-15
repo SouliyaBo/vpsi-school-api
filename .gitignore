@@ -9,6 +9,9 @@ coverage/
 # The filled-in production secrets. `.env.*.local` does not cover it, and the
 # example next to it is the file that belongs in the repo.
 .env.production
+# Any other copy of a filled-in env (.env.bak-lan carried live AWS keys).
+.env.*
+!.env.example
 !.env.production.example
 
 .DS_Store
