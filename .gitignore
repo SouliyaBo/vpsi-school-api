@@ -28,3 +28,6 @@ assets/fonts/*.otf
 
 # Pre-migration dumps written by the location import — restore aids, not source.
 data/backups/
+
+# Docker image exports (docker save) — far over GitHub's 100 MB limit
+*.tar.gz
