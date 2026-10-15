@@ -569,17 +569,28 @@ describe('RBAC (e2e)', () => {
         .expect(200);
     });
 
-    it('still lets the office change a status', async () => {
-      await http()
+    it('still lets the office change a status, dating a suspension and clearing it on return', async () => {
+      const suspended = await http()
         .patch(`/api/students/${studentId}`)
         .set(auth(tokens.registrar))
-        .send({ status: 'suspended' })
+        .send({ status: 'suspended', suspendedAt: '2026-09-15' })
         .expect(200);
-      await http()
+      expect(suspended.body.suspendedAt).toBe('2026-09-15T00:00:00.000Z');
+
+      // The date is part of the office's decision, not the homeroom teacher's.
+      const refused = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ suspendedAt: '2026-10-01' })
+        .expect(403);
+      expect(refused.body.messageKey).toBe('student.statusIsOfficeOnly');
+
+      const back = await http()
         .patch(`/api/students/${studentId}`)
         .set(auth(tokens.registrar))
         .send({ status: 'active' })
         .expect(200);
+      expect(back.body.suspendedAt).toBeNull();
     });
 
     it('refuses a code change from a homeroom teacher', async () => {

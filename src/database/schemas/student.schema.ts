@@ -179,6 +179,14 @@ export class Student extends SoftDeletableDocument {
   @Prop({ type: String, required: true, enum: STUDENT_STATUSES, default: 'active' })
   status: StudentStatus;
 
+  /**
+   * ວັນທີໂຈະການຮຽນ — when a `suspended` child stopped. The date places the
+   * suspension in a school year, which is what the district report counts by;
+   * cleared whenever the status moves off `suspended`.
+   */
+  @Prop({ type: Date, default: null })
+  suspendedAt?: Date | null;
+
   @Prop({ type: String, default: null })
   notes?: string | null;
 }

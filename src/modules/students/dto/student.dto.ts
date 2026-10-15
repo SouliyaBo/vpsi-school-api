@@ -173,6 +173,10 @@ export class CreateStudentDto {
   @ApiPropertyOptional() @IsMongoId() @IsOptional() villageId?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(300) addressDetail?: string;
   @ApiPropertyOptional() @IsDateString() @IsOptional() admissionDate?: string;
+  @ApiPropertyOptional({ description: 'ວັນທີໂຈະການຮຽນ — kept only while `status` is `suspended`' })
+  @IsDateString()
+  @IsOptional()
+  suspendedAt?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(1000) notes?: string;
 
   @ApiPropertyOptional({
@@ -272,6 +276,10 @@ export class UpdateStudentDto {
   @ApiPropertyOptional() @IsMongoId() @IsOptional() villageId?: string;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(300) addressDetail?: string;
   @ApiPropertyOptional() @IsDateString() @IsOptional() admissionDate?: string;
+  @ApiPropertyOptional({ description: 'ວັນທີໂຈະການຮຽນ — kept only while `status` is `suspended`' })
+  @IsDateString()
+  @IsOptional()
+  suspendedAt?: string;
 
   @ApiPropertyOptional({ enum: STUDENT_STATUSES })
   @IsIn(STUDENT_STATUSES)

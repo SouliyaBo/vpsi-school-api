@@ -5,6 +5,7 @@ import { extname } from 'node:path';
 import { FilterQuery, Model, Types } from 'mongoose';
 import { PaginatedResponse } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
+import { isStudying } from 'src/common/utils/current-roll';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import {
   Classroom,
@@ -509,7 +510,14 @@ export class ExamPapersService {
     };
   }
 
-  /** The class in the order it sits — by roll number, then by name. */
+  /**
+   * The class in the order it sits — by roll number, then by name.
+   *
+   * ກຳລັງຮຽນ only, the same list the monthly mark sheet is drawn from: a student
+   * who has dropped out, moved away or been suspended can keep an `active`
+   * enrollment until the office closes it, and has no paper to sit. Sheets
+   * already marked for them stay in the database untouched.
+   */
   private async roll(
     classroomId: Types.ObjectId | string | null | undefined,
   ): Promise<{ classroom: ClassroomDocument; students: RollStudent[] }> {
@@ -523,16 +531,22 @@ export class ExamPapersService {
     const enrollments = await this.enrollmentModel
       .find({ classroomId: classroom._id, status: 'active', deletedAt: null })
       .select('studentId studentCode studentNameLo rollNumber')
+      .populate('studentId', 'status')
       .sort({ rollNumber: 1, studentNameLo: 1 })
       .lean()
       .exec();
-    if (enrollments.length === 0) throw AppException.badRequest('examPaper.noStudents');
+    const studying = enrollments.filter((row) => isStudying(row.studentId));
+    if (studying.length === 0) throw AppException.badRequest('examPaper.noStudents');
 
     return {
       classroom,
-      students: enrollments.map((row) => ({
-        studentId: String(row.studentId),
-        rollNumber: row.rollNumber ?? null,
+      students: studying.map((row, index) => ({
+        // Off the populated ref: `String()` of a populated lean row is `[object Object]`.
+        studentId: String(refIdOf(row.studentId)),
+        // Counted afresh down the list, not the enrollment's own number: pupils
+        // who left keep theirs, and a ລ/ດ column running 1, 2, 4, 5 loses the
+        // teacher counting down a pile of sheets.
+        rollNumber: index + 1,
         studentCode: row.studentCode,
         studentNameLo: row.studentNameLo,
       })),

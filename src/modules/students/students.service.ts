@@ -595,6 +595,8 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
           birthLocationId: dto.birthLocationId ? new Types.ObjectId(dto.birthLocationId) : null,
           dateOfBirth: new Date(dto.dateOfBirth),
           admissionDate: dto.admissionDate ? new Date(dto.admissionDate) : null,
+          suspendedAt:
+            dto.suspendedAt && dto.status === 'suspended' ? new Date(dto.suspendedAt) : null,
           guardians: links,
           organizations: toMemberships(dto.organizations),
         } as Partial<StudentDocument>,
@@ -629,6 +631,9 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     if (dto.birthLocationId) patch.birthLocationId = new Types.ObjectId(dto.birthLocationId);
     if (dto.dateOfBirth) patch.dateOfBirth = new Date(dto.dateOfBirth);
     if (dto.admissionDate) patch.admissionDate = new Date(dto.admissionDate);
+    if (dto.suspendedAt) patch.suspendedAt = new Date(dto.suspendedAt);
+    // A suspension date belongs to a suspension; a child back in class has none.
+    if ((dto.status ?? current.status) !== 'suspended') patch.suspendedAt = null;
     // Replaced wholesale, like the guardian list: the edit form posts the set it
     // wants, and patching entries individually would need a key the list has not
     // got. An omitted field leaves the stored memberships alone.
@@ -737,13 +742,17 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
    * the whole record back, so an untouched `status` must still go through.
    */
   private async assertStatusUnchanged(id: string, dto: UpdateStudentDto): Promise<void> {
-    if (dto.status === undefined) return;
+    if (dto.status === undefined && dto.suspendedAt === undefined) return;
 
     const current = await this.findOneOrFail(id);
-    if (current.status !== dto.status) {
+    // The suspension date is part of the status decision, so it is the office's too.
+    const sameDate =
+      dto.suspendedAt === undefined ||
+      (current.suspendedAt?.getTime() ?? null) === new Date(dto.suspendedAt).getTime();
+    if ((dto.status !== undefined && current.status !== dto.status) || !sameDate) {
       throw AppException.forbidden('student.statusIsOfficeOnly', {
         from: current.status,
-        to: dto.status,
+        to: dto.status ?? current.status,
       });
     }
   }
