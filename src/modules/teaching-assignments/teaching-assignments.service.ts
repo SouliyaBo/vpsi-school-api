@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import { BaseCrudService, CrudContext } from 'src/common/services/base-crud.service';
 import type { MessageKey } from 'src/common/i18n/messages';
@@ -102,7 +102,7 @@ export class TeachingAssignmentsService extends BaseCrudService<TeachingAssignme
         .populate('teacherId', 'teacherCode firstNameLo lastNameLo')
         .populate('subjectId', 'code nameLo nameEn credits')
         .populate(CLASSROOM_WITH_GRADE)
-        .sort({ createdAt: -1 })
+        .sort(stableSort({ createdAt: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),

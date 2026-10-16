@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
@@ -91,7 +91,7 @@ export class ConductDeductionsService {
         .find(filter)
         .populate('studentId', ROSTER_STUDENT_SELECT)
         .populate('classroomId', 'name')
-        .sort({ date: -1, createdAt: -1 })
+        .sort(stableSort({ date: -1, createdAt: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),

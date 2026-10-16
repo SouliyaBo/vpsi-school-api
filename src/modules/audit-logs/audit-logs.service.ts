@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { AuditAction } from 'src/common/constants/enums';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { toApiDocuments } from 'src/common/utils/serialize';
 import { AuditLog, AuditLogDocument } from 'src/database/schemas';
 import { QueryAuditLogsDto } from './dto/query-audit-logs.dto';
@@ -96,7 +96,7 @@ export class AuditLogsService {
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
-        .sort({ createdAt: -1 })
+        .sort(stableSort({ createdAt: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .lean()

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { FeedbackStatus } from 'src/common/constants/enums';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { toApiDocuments } from 'src/common/utils/serialize';
@@ -67,7 +67,7 @@ export class FeedbackService {
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
-        .sort({ createdAt: -1 })
+        .sort(stableSort({ createdAt: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .lean()
@@ -97,7 +97,7 @@ export class FeedbackService {
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
-        .sort({ createdAt: -1 })
+        .sort(stableSort({ createdAt: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .lean()

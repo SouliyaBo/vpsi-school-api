@@ -48,10 +48,19 @@ export class PaginationQueryDto {
    *
    * `sortBy` is whitelisted by the caller (see `toSort`) — never passed through
    * raw, since an arbitrary field name can force an unindexed collection scan.
+   *
+   * Always ends on `_id`. Mongo promises no order among rows that tie on the sort
+   * key, and `skip`/`limit` re-run the sort for every page — so with three
+   * students sharing the surname ໄຊຍະພູມ across a page boundary, reading the
+   * school 100 at a time returned one of them twice and never returned another.
+   * The district report counts every page, and lost a ມ.7 boy that way.
    */
   toSort(allowedFields: readonly string[], fallback: Record<string, 1 | -1>) {
-    if (!this.sortBy || !allowedFields.includes(this.sortBy)) return fallback;
-    return { [this.sortBy]: this.sortOrder === 'asc' ? 1 : (-1 as 1 | -1) };
+    const sort =
+      !this.sortBy || !allowedFields.includes(this.sortBy)
+        ? fallback
+        : { [this.sortBy]: this.sortOrder === 'asc' ? 1 : (-1 as 1 | -1) };
+    return stableSort(sort);
   }
 }
 
@@ -83,4 +92,16 @@ export class PaginatedResponse<T> {
       hasPreviousPage: page > 1,
     };
   }
+}
+
+/**
+ * A sort that cannot tie: `_id` appended unless the sort already names it.
+ *
+ * Every paged read needs this, not only the ones built by `toSort` — see its
+ * note for the student who went missing between two pages. A roll call is forty
+ * rows on the same date and period, so a register read by `{ date, period }`
+ * alone pages worse than the students ever did.
+ */
+export function stableSort<S extends Record<string, 1 | -1>>(sort: S): S & { _id?: 1 | -1 } {
+  return '_id' in sort ? sort : { ...sort, _id: 1 as const };
 }

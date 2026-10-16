@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { LessonPlanStatus } from 'src/common/constants/enums';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import {
@@ -121,7 +121,7 @@ export class LessonPlansService {
         .populate('subjectId', 'code nameLo')
         .populate('classroomId', 'name')
         .populate('teacherId', 'teacherCode firstNameLo lastNameLo')
-        .sort({ dueDate: -1 })
+        .sort(stableSort({ dueDate: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),

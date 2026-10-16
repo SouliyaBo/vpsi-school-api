@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import {
   DEFAULT_REVIEW_THRESHOLDS,
@@ -809,7 +809,7 @@ export class HomeroomReviewsService {
     const [rows, total] = await Promise.all([
       this.model
         .find(filter)
-        .sort({ dueDate: -1, createdAt: -1 })
+        .sort(stableSort({ dueDate: -1, createdAt: -1 }))
         .skip((page - 1) * limit)
         .limit(limit)
         .lean()

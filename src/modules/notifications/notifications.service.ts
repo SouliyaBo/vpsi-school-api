@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { NotificationType } from 'src/common/constants/enums';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import { toApiDocuments } from 'src/common/utils/serialize';
 import {
@@ -180,7 +180,7 @@ export class NotificationsService {
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
-        .sort({ createdAt: -1 })
+        .sort(stableSort({ createdAt: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .lean()

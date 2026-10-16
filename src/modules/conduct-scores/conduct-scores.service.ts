@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { ConductGrade } from 'src/common/constants/enums';
@@ -40,7 +40,7 @@ export class ConductScoresService {
     const [data, total] = await Promise.all([
       this.model
         .find(filter)
-        .sort({ periodType: 1, periodValue: 1 })
+        .sort(stableSort({ periodType: 1, periodValue: 1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),

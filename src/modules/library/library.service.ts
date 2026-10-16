@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model, Types } from 'mongoose';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { registerName } from 'src/common/utils/student-name';
@@ -465,7 +465,7 @@ export class LibraryService {
         .find(filter)
         .populate('bookTitleId', 'title category')
         // Outstanding first, oldest loan at the top: that is the one to chase.
-        .sort({ returnedOn: 1, loanedOn: 1 })
+        .sort(stableSort({ returnedOn: 1, loanedOn: 1 }))
         .skip(query.skip)
         .limit(query.limit)
         .lean()

@@ -6,7 +6,7 @@ import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
 import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
 import { readTimeliness } from 'src/common/record-timeliness/read-timeliness';
 import type { RecordTimeliness } from 'src/common/record-timeliness/record-timeliness';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { LessonAccessService } from 'src/common/lesson-access/lesson-access.service';
@@ -170,7 +170,7 @@ export class AttendancesService {
         // `personId` so the client can tell a teacher filing their own roll call
         // from someone filing it for them, without a second lookup per row.
         .populate('recordedBy', 'username personType personId')
-        .sort({ date: -1, period: 1 })
+        .sort(stableSort({ date: -1, period: 1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { CoverageQueryDto } from 'src/common/dto/coverage-query.dto';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { LessonAccessService } from 'src/common/lesson-access/lesson-access.service';
@@ -160,7 +160,7 @@ export class BehaviorLogsService {
         .populate('subjectId', 'code nameLo nameEn')
         .populate('teacherId', TEACHER_NAME)
         .populate('recordedBy', 'username personType personId')
-        .sort({ date: -1, period: 1 })
+        .sort(stableSort({ date: -1, period: 1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),

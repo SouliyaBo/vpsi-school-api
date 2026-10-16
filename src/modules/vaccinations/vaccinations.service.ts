@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { PaginatedResponse } from 'src/common/dto/pagination.dto';
+import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { MessageKey } from 'src/common/i18n/messages';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
@@ -87,7 +87,7 @@ export class VaccinationsService {
     const [data, total] = await Promise.all([
       this.campaigns
         .find(filter)
-        .sort({ scheduledDate: -1 })
+        .sort(stableSort({ scheduledDate: -1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),
@@ -432,7 +432,7 @@ export class VaccinationsService {
     const [data, total] = await Promise.all([
       this.records
         .find(filter)
-        .sort({ vaccine: 1, doseNumber: 1 })
+        .sort(stableSort({ vaccine: 1, doseNumber: 1 }))
         .skip(query.skip)
         .limit(query.limit)
         .exec(),
