@@ -16,6 +16,7 @@ import {
 import { TransactionHelper } from 'src/database/transaction.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ClassroomsService } from '../classrooms/classrooms.service';
+import { openingHistory, schoolToday } from '../teaching-assignments/opening-history';
 import { findScheduleConflicts } from '../teaching-assignments/schedule-conflict';
 import { TeachersService } from '../teachers/teachers.service';
 import { TeacherHandoverDto, TeacherHandoverResultDto } from './dto/teacher-handover.dto';
@@ -101,6 +102,12 @@ export class TeacherHandoverService {
 
     if (movable.length > 0) await this.assertIncomingIsFree(incoming._id, movable);
 
+    // The incoming teacher owes these lessons from today, not from the start of
+    // term: before today they were somebody else's — see `openingHistory`.
+    const startsOn = schoolToday();
+    const termStarts = await this.termStarts(movable);
+    const changedBy = context.actor?.sub ? new Types.ObjectId(context.actor.sub) : null;
+
     await this.tx.run(async (session) => {
       const scoped: CrudContext = { ...context, session };
 
@@ -121,6 +128,13 @@ export class TeacherHandoverService {
               semesterId: assignment.semesterId,
               schoolYearId: assignment.schoolYearId,
               schedule: assignment.schedule,
+              scheduleHistory: openingHistory({
+                termStart: termStarts.get(assignment.semesterId.toString()) ?? startsOn,
+                startsOn,
+                schedule: assignment.schedule,
+                changedBy,
+                note: dto.note,
+              }),
               notes: dto.note?.trim() || assignment.notes || null,
             },
           ],
@@ -215,6 +229,17 @@ export class TeacherHandoverService {
 
     const open = new Set(openTerms.map((term) => term._id.toString()));
     return assignments.filter((assignment) => open.has(assignment.semesterId.toString()));
+  }
+
+  /** Each term's first day, for the lessons being moved. */
+  private async termStarts(assignments: TeachingAssignmentDocument[]): Promise<Map<string, Date>> {
+    if (assignments.length === 0) return new Map();
+    const terms = await this.semesterModel
+      .find({ _id: { $in: [...new Set(assignments.map((a) => a.semesterId.toString()))] } })
+      .select('_id startDate')
+      .lean()
+      .exec();
+    return new Map(terms.map((term) => [term._id.toString(), term.startDate]));
   }
 
   /**

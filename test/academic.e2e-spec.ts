@@ -2457,6 +2457,47 @@ describe('Academic operations (e2e)', () => {
       ).find((candidate) => candidate.teachingAssignmentId === movedLessonId);
       expect(row?.lessonDates).toEqual(['2025-09-26']);
     });
+
+    it('owes a lesson added mid-term only from the day it starts', async () => {
+      // A second subject in the same room, added on 1 Oct 2025. Owed from the
+      // start of term, its Mondays since then came back as roll calls "never
+      // filed" — which is what the office's 5 Oct 2026 revision did to every
+      // lesson it created.
+      const teacher = await http()
+        .post('/api/teachers')
+        .set(auth(token))
+        .send({ firstNameLo: 'ຜູ້ສອນ', lastNameLo: 'ກາງເທີມ', gender: 'female' })
+        .expect(201);
+      const added = await http()
+        .post('/api/teaching-assignments')
+        .set(auth(token))
+        .send({
+          teacherId: teacher.body.id,
+          subjectId: mathSubjectId,
+          classroomId: movedRoomId,
+          semesterId,
+          schedule: [{ dayOfWeek: 1, startTime: '15:10', endTime: '16:00' }],
+          effectiveFrom: '2025-10-01',
+        })
+        .expect(201);
+
+      const history = added.body.scheduleHistory as { schedule: unknown[]; to: string | null }[];
+      expect(history).toHaveLength(2);
+      expect(history[0].schedule).toEqual([]);
+
+      const lessonDates = async (weekOf: string) => {
+        const week = await http()
+          .get(`/api/attendances/coverage?weekOf=${weekOf}&classroomId=${movedRoomId}`)
+          .set(auth(token))
+          .expect(200);
+        const row = (
+          week.body.rows as { teachingAssignmentId: string; lessonDates: string[] }[]
+        ).find((candidate) => candidate.teachingAssignmentId === added.body.id);
+        return row?.lessonDates ?? [];
+      };
+      expect(await lessonDates('2025-09-22')).toEqual([]);
+      expect(await lessonDates('2025-10-06')).toEqual(['2025-10-06']);
+    });
   });
 
   describe('teacher handover', () => {
@@ -2636,6 +2677,17 @@ describe('Academic operations (e2e)', () => {
         isActive: true,
         schedule: [expect.objectContaining({ dayOfWeek: 2, startTime: '15:10', room: 'R200' })],
       });
+
+      // Owed by the incoming teacher from the handover on, not from the start of
+      // term: the weeks before it were the outgoing teacher's.
+      const reopened = await http()
+        .get(`/api/teaching-assignments/${theirs.body.data[0].id}`)
+        .set(auth(token))
+        .expect(200);
+      const spells = reopened.body.scheduleHistory as { schedule: unknown[]; to: string | null }[];
+      expect(spells).toHaveLength(2);
+      expect(spells[0].schedule).toEqual([]);
+      expect(spells[1]).toMatchObject({ to: null });
 
       const room = await http()
         .get(`/api/classrooms/${handoverRoomId}`)

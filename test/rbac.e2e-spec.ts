@@ -595,6 +595,38 @@ describe('RBAC (e2e)', () => {
       expect(back.body.statusBeforeSuspension).toBeNull();
     });
 
+    it('takes the office’s ກ່ອນໂຈະ over the status the child had', async () => {
+      const suspended = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.registrar))
+        .send({
+          status: 'suspended',
+          suspendedAt: '2026-09-15',
+          statusBeforeSuspension: 'no_certificate',
+        })
+        .expect(200);
+      expect(suspended.body.statusBeforeSuspension).toBe('no_certificate');
+
+      // Posted back unchanged by the edit form, it goes through; changed, it does not.
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ statusBeforeSuspension: 'no_certificate', contactName: 'ແມ່ນ້ອຍ' })
+        .expect(200);
+      const refused = await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ statusBeforeSuspension: 'active' })
+        .expect(403);
+      expect(refused.body.messageKey).toBe('student.statusIsOfficeOnly');
+
+      await http()
+        .patch(`/api/students/${studentId}`)
+        .set(auth(tokens.registrar))
+        .send({ status: 'active' })
+        .expect(200);
+    });
+
     it('refuses a code change from a homeroom teacher', async () => {
       const response = await http()
         .patch(`/api/students/${studentId}`)

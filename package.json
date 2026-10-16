@@ -36,6 +36,7 @@
     "migrate:observation-visit-scope": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-observation-visit-scope.ts",
     "migrate:social-column-max": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-social-column-max.ts",
     "migrate:status-before-suspension": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-status-before-suspension.ts",
+    "migrate:timetable-revision-history": "ts-node -r tsconfig-paths/register -r dotenv/config src/database/migrations/run-timetable-revision-history.ts",
     "storage:check": "ts-node -r tsconfig-paths/register src/modules/storage/run-storage-check.ts",
     "worker": "WORKER_MODE=true node dist/main"
   },

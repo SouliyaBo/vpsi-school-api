@@ -597,6 +597,8 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
           admissionDate: dto.admissionDate ? new Date(dto.admissionDate) : null,
           suspendedAt:
             dto.suspendedAt && dto.status === 'suspended' ? new Date(dto.suspendedAt) : null,
+          statusBeforeSuspension:
+            dto.status === 'suspended' ? (dto.statusBeforeSuspension ?? null) : null,
           guardians: links,
           organizations: toMemberships(dto.organizations),
         } as Partial<StudentDocument>,
@@ -633,13 +635,13 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
     if (dto.admissionDate) patch.admissionDate = new Date(dto.admissionDate);
     if (dto.suspendedAt) patch.suspendedAt = new Date(dto.suspendedAt);
     // A suspension date belongs to a suspension; a child back in class has none.
-    // What the child was suspended from is kept with it, read off the record
-    // as it stands rather than posted, so the district report can tell a
-    // ບໍ່ເອົາໃບປະກາດ child who stopped coming from a pupil who did.
+    // What the child was suspended from is kept with it, so the district report
+    // can tell a ບໍ່ເອົາໃບປະກາດ child who stopped coming from a pupil who did:
+    // the office's answer when it gives one, else the record as it stands.
     if ((dto.status ?? current.status) !== 'suspended') {
       patch.suspendedAt = null;
       patch.statusBeforeSuspension = null;
-    } else if (current.status !== 'suspended') {
+    } else if (!dto.statusBeforeSuspension && current.status !== 'suspended') {
       patch.statusBeforeSuspension = current.status;
     }
     // Replaced wholesale, like the guardian list: the edit form posts the set it
@@ -750,14 +752,26 @@ export class StudentsService extends BaseCrudService<StudentDocument> {
    * the whole record back, so an untouched `status` must still go through.
    */
   private async assertStatusUnchanged(id: string, dto: UpdateStudentDto): Promise<void> {
-    if (dto.status === undefined && dto.suspendedAt === undefined) return;
+    if (
+      dto.status === undefined &&
+      dto.suspendedAt === undefined &&
+      dto.statusBeforeSuspension === undefined
+    ) {
+      return;
+    }
 
     const current = await this.findOneOrFail(id);
     // The suspension date is part of the status decision, so it is the office's too.
     const sameDate =
       dto.suspendedAt === undefined ||
       (current.suspendedAt?.getTime() ?? null) === new Date(dto.suspendedAt).getTime();
-    if ((dto.status !== undefined && current.status !== dto.status) || !sameDate) {
+    // Compared as the form shows it — declined the certificate or not — since
+    // an older record may say `transferred` where the form posts `active`.
+    const sameBefore =
+      dto.statusBeforeSuspension === undefined ||
+      (dto.statusBeforeSuspension === 'no_certificate') ===
+        (current.statusBeforeSuspension === 'no_certificate');
+    if ((dto.status !== undefined && current.status !== dto.status) || !sameDate || !sameBefore) {
       throw AppException.forbidden('student.statusIsOfficeOnly', {
         from: current.status,
         to: dto.status ?? current.status,

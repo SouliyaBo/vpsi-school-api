@@ -21,6 +21,7 @@ import {
   QueryTeachingAssignmentsDto,
   UpdateTeachingAssignmentDto,
 } from './dto/teaching-assignment.dto';
+import { openingHistory } from './opening-history';
 import { ConflictKind, findScheduleConflicts, findSelfOverlaps } from './schedule-conflict';
 
 /**
@@ -175,7 +176,7 @@ export class TeachingAssignmentsService extends BaseCrudService<TeachingAssignme
     const classroom = await this.classrooms.findOneOrFail(dto.classroomId);
     const subject = await this.subjects.findOneOrFail(dto.subjectId);
 
-    await Promise.all([
+    const [, semester] = await Promise.all([
       this.teachers.assertExists(dto.teacherId),
       this.semesters.getWritableOrFail(dto.semesterId),
     ]);
@@ -204,6 +205,15 @@ export class TeachingAssignmentsService extends BaseCrudService<TeachingAssignme
         semesterId: new Types.ObjectId(dto.semesterId),
         schoolYearId: classroom.schoolYearId,
         schedule: dto.schedule,
+        // Started mid-term: nothing is owed before the day it starts.
+        scheduleHistory: dto.effectiveFrom
+          ? openingHistory({
+              termStart: semester.startDate,
+              startsOn: dto.effectiveFrom,
+              schedule: dto.schedule,
+              changedBy: context.actor?.sub ? new Types.ObjectId(context.actor.sub) : null,
+            })
+          : [],
         notes: dto.notes ?? null,
       } as Partial<TeachingAssignmentDocument>,
       context,

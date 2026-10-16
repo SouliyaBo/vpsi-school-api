@@ -87,6 +87,22 @@ export class CreateTeachingAssignmentDto {
   @Type(() => SchedulePeriodDto)
   schedule: SchedulePeriodDto[];
 
+  /**
+   * ເລີ່ມສອນແຕ່ — the first day the lesson is owed. Omitted, it is owed from the
+   * start of term, which is what the term's own timetable means.
+   *
+   * A lesson added mid-term — a new class, or a new teacher taking a subject
+   * over — used to be owed from the start of term too, so the reports charged
+   * its teacher with every roll call since August. See `openingHistory`.
+   */
+  @ApiPropertyOptional({
+    example: '2026-10-05',
+    description: 'First day the lesson is owed; omitted, from the start of term',
+  })
+  @IsDateString()
+  @IsOptional()
+  effectiveFrom?: string;
+
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()

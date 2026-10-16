@@ -72,6 +72,7 @@ export type StudentStatus = (typeof STUDENT_STATUSES)[number];
  * cares about the difference.
  */
 export const CURRENT_ROLL_STUDENT_STATUSES = tuple('active', 'no_certificate');
+export type CurrentRollStudentStatus = (typeof CURRENT_ROLL_STUDENT_STATUSES)[number];
 
 /**
  * The mass organisations a student is enrolled into — `ເຍົາວະຊົນ`,

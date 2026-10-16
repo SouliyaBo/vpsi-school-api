@@ -17,6 +17,8 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  CURRENT_ROLL_STUDENT_STATUSES,
+  CurrentRollStudentStatus,
   GENDERS,
   GUARDIAN_RELATIONSHIPS,
   Gender,
@@ -177,6 +179,16 @@ export class CreateStudentDto {
   @IsDateString()
   @IsOptional()
   suspendedAt?: string;
+  @ApiPropertyOptional({
+    enum: CURRENT_ROLL_STUDENT_STATUSES,
+    description:
+      'ກ່ອນໂຈະ — whether a suspended child still took the certificate (`active`) or had ' +
+      'declined it (`no_certificate`); the latter is left out of the district report. ' +
+      'Read off the previous status when omitted; kept only while `status` is `suspended`.',
+  })
+  @IsIn(CURRENT_ROLL_STUDENT_STATUSES)
+  @IsOptional()
+  statusBeforeSuspension?: CurrentRollStudentStatus;
   @ApiPropertyOptional() @IsString() @IsOptional() @MaxLength(1000) notes?: string;
 
   @ApiPropertyOptional({
@@ -280,6 +292,16 @@ export class UpdateStudentDto {
   @IsDateString()
   @IsOptional()
   suspendedAt?: string;
+  @ApiPropertyOptional({
+    enum: CURRENT_ROLL_STUDENT_STATUSES,
+    description:
+      'ກ່ອນໂຈະ — whether a suspended child still took the certificate (`active`) or had ' +
+      'declined it (`no_certificate`); the latter is left out of the district report. ' +
+      'Read off the previous status when omitted; kept only while `status` is `suspended`.',
+  })
+  @IsIn(CURRENT_ROLL_STUDENT_STATUSES)
+  @IsOptional()
+  statusBeforeSuspension?: CurrentRollStudentStatus;
 
   @ApiPropertyOptional({ enum: STUDENT_STATUSES })
   @IsIn(STUDENT_STATUSES)
