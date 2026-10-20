@@ -78,7 +78,11 @@ function sheetSvg(filled: Filled, blockDrift = { x: 0, y: 0 }, sheet = layout): 
   parts.push(
     `<rect x="160" y="${sheet.particularsTop}" width="220" height="110" fill="none" stroke="#000" stroke-width="0.8"/>`,
   );
-  const qr = QRCode.create(qrText(PAPER_ID, 'C', STUDENT_ID), { errorCorrectionLevel: 'M' });
+  // With the ຮອບ, as printed since 20 Oct 2026 — so every photo below also
+  // proves the five-field QR still reads.
+  const qr = QRCode.create(qrText(PAPER_ID, 'C', STUDENT_ID, '7F3K'), {
+    errorCorrectionLevel: 'M',
+  });
   const cell = sheet.qr.size / qr.modules.size;
   for (let r = 0; r < qr.modules.size; r += 1) {
     for (let c = 0; c < qr.modules.size; c += 1) {
@@ -153,7 +157,12 @@ describe('readAnswerSheet', () => {
 
     expect(result.codeFromBubbles).toBe('0807');
     expect(result.setFromBubbles).toBe(2);
-    expect(result.qr).toEqual({ paperId: PAPER_ID, set: 'C', studentId: STUDENT_ID });
+    expect(result.qr).toEqual({
+      paperId: PAPER_ID,
+      set: 'C',
+      studentId: STUDENT_ID,
+      stamp: '7F3K',
+    });
   }, 30000);
 
   it('reads the set from a sheet whose 25 sets run to three columns', async () => {

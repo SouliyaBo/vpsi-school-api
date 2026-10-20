@@ -187,6 +187,14 @@ export class ExamPaper extends SoftDeletableDocument {
   optionLabelStyle: ExamOptionLabelStyle;
 
   /**
+   * ຄຳຖາມຕົວໜາ — every question's text printed bold, its options not.
+   * On unless the teacher turns it off (the office's choice, 20 Oct 2026),
+   * papers uploaded before the field existed included.
+   */
+  @Prop({ type: Boolean, default: true })
+  boldQuestions: boolean;
+
+  /**
    * What the parser could not make sense of — a code and the question it is
    * about, worded by the client in the reader's language.
    *

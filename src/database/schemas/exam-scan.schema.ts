@@ -54,12 +54,20 @@ export class ExamScan extends SoftDeletableDocument {
   @Prop({ type: String, default: null })
   setLabel?: string | null;
 
-  /** What the QR said, verbatim. */
+  /**
+   * What the QR said, verbatim. `stamp` is the ຮອບ the sheet was printed from
+   * (see `drawStamp`); sheets printed before 20 Oct 2026 carry none.
+   */
   @Prop({
-    type: { paperId: String, set: String, studentId: String, _id: false },
+    type: { paperId: String, set: String, studentId: String, stamp: String, _id: false },
     default: null,
   })
-  qr?: { paperId: string; set: string | null; studentId: string | null } | null;
+  qr?: {
+    paperId: string;
+    set: string | null;
+    studentId: string | null;
+    stamp?: string | null;
+  } | null;
 
   @Prop({ type: String, default: null })
   codeFromBubbles?: string | null;

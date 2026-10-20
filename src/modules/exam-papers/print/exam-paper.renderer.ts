@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ExamOptionLabelStyle } from 'src/common/constants/enums';
 import { resolveLetterheadImages } from 'src/modules/reports/pdf/study-certificate-assets';
-import { answerFor, seatClass, Variant } from '../variants';
+import { answerFor, drawStamp, seatClass, Variant } from '../variants';
 import { IMAGE_TOKEN } from '../docx-exam.parser';
+import { splitVerse } from '../verse';
 import { isDrawable } from './image-check';
 import {
   contentBottom,
@@ -50,6 +51,8 @@ export interface PrintPaper {
   schoolNameLo: string;
   preamble: string;
   optionLabelStyle: ExamOptionLabelStyle;
+  /** ຄຳຖາມຕົວໜາ — every question's text bold; the options stay regular. */
+  boldQuestions?: boolean;
   questions: PrintQuestion[];
   variants: Variant[];
 }
@@ -85,6 +88,11 @@ const TWO_UP_SHARE = 0.48;
 const MAX_IMAGE_HEIGHT = 300;
 /** Options share a line only when their pictures are small — an equation, not a figure. */
 const TWO_UP_IMAGE_HEIGHT = 26;
+/** Air between the ວັກ of a ຄຳກອນ, after the widest one in its column. */
+const VERSE_GAP = 24;
+
+/** A question's stem in print order: running text, or a ຄຳກອນ set in columns. */
+type StemPart = { kind: 'text'; spans: Span[] } | { kind: 'verse'; rows: Span[][][] };
 
 /**
  * Text with its pictures set in where their `⟦n⟧` tokens stand, and its
@@ -137,32 +145,42 @@ export class ExamPaperRenderer {
     const { doc, finished } = openDocument(paper.title);
     const type = new Typesetter(doc);
     const variants = paper.variants.filter((variant) => labels.includes(variant.label));
+    const stamp = drawStamp(paper.variants);
 
     variants.forEach((variant, index) => {
       if (index > 0) doc.addPage();
       const firstPage = doc.bufferedPageRange().count - 1;
       this.drawHeader(doc, type, paper, variant.label);
       this.drawQuestions(doc, type, paper, variant);
-      this.drawFooters(doc, type, firstPage, `ຊຸດ ${variant.label}`);
+      // ຮອບ on every page, so a paper can be matched to its answer sheets.
+      this.drawFooters(doc, type, firstPage, `ຊຸດ ${variant.label} · ຮອບ ${stamp}`);
     });
 
     doc.end();
     return finished;
   }
 
-  /** ໃບເສີຍ — every set's answers side by side, then where each original question went. */
+  /** ຄະໜານຕອບ — every set's answers side by side, then where each original question went. */
   async renderAnswerKey(paper: PrintPaper): Promise<Buffer> {
-    const { doc, finished } = openDocument(`ເສີຍ ${paper.title}`);
+    const { doc, finished } = openDocument(`ຄະໜານຕອບ ${paper.title}`);
     const type = new Typesetter(doc);
     const letters = OPTION_LETTERS[paper.optionLabelStyle];
     const { left } = doc.page.margins;
     const width = contentWidth(doc);
 
     let y = doc.page.margins.top;
-    y += type.draw([{ text: 'ເສີຍຄຳຕອບ', bold: true }], left, y, width, TITLE_SIZE, {
+    y += type.draw([{ text: 'ຄະໜານຕອບ', bold: true }], left, y, width, TITLE_SIZE, {
       align: 'center',
     });
     y += type.draw([{ text: paper.title }], left, y, width, BODY_SIZE + 1, { align: 'center' });
+    y += type.draw(
+      [{ text: `${paper.variants.length} ຊຸດ · ຮອບ ${drawStamp(paper.variants)}` }],
+      left,
+      y,
+      width,
+      BODY_SIZE,
+      { align: 'center' },
+    );
     y += 12;
 
     // Table one: printed question number down, sets across.
@@ -221,7 +239,7 @@ export class ExamPaperRenderer {
     y += type.draw(
       [
         {
-          text: `ຫ້ອງ ${plan.classroomName} · ນັ່ງ ${plan.columns} ຄົນຕໍ່ແຖວ · ${plan.variants.length} ຊຸດ`,
+          text: `ຫ້ອງ ${plan.classroomName} · ນັ່ງ ${plan.columns} ຄົນຕໍ່ແຖວ · ${plan.variants.length} ຊຸດ · ຮອບ ${drawStamp(plan.variants)}`,
         },
       ],
       left,
@@ -361,7 +379,8 @@ export class ExamPaperRenderer {
         question.section !== lastSection && question.section
           ? this.measureSection(type, question.section, width)
           : 0;
-      const height = this.measureQuestion(type, question, optionOrder, letters, width);
+      const bold = paper.boldQuestions ?? true;
+      const height = this.measureQuestion(type, question, optionOrder, letters, width, bold);
 
       // Keep a question whole on a page where it can be; one taller than a
       // page has to flow, and does.
@@ -388,6 +407,7 @@ export class ExamPaperRenderer {
         left,
         y,
         width,
+        bold,
       );
       y += QUESTION_GAP;
     });
@@ -398,9 +418,67 @@ export class ExamPaperRenderer {
     return type.measure([{ text: section, bold: true }], width, BODY_SIZE + 1) + 4;
   }
 
-  private stemSpans(number: number, question: PrintQuestion, width: number) {
-    const { spans, unplaced } = spansWithImages(question.text, question.images, width - HANG);
-    return { spans: [{ text: `${number}. `, bold: true }, ...spans], unplaced };
+  /**
+   * The stem as prose and ຄຳກອນ, the number in front of the first line.
+   *
+   * Pictures are placed against the whole text, so one sitting in a verse is
+   * still counted as placed and is not drawn a second time below. `bold` is
+   * the paper's ຄຳຖາມຕົວໜາ.
+   */
+  private stemParts(
+    number: number,
+    question: PrintQuestion,
+    width: number,
+    bold: boolean,
+  ): { parts: StemPart[]; unplaced: PrintImage[] } {
+    const { unplaced } = spansWithImages(question.text, question.images, width - HANG);
+    // ຄຳຖາມຕົວໜາ: the words bold, formulas and pictures as they are.
+    const spansOf = (text: string) =>
+      spansWithImages(text, question.images, width - HANG, { bold }).spans;
+    const parts: StemPart[] = splitVerse(question.text).map((part) =>
+      part.kind === 'text'
+        ? { kind: 'text', spans: spansOf(part.text) }
+        : { kind: 'verse', rows: part.rows.map((row) => row.map(spansOf)) },
+    );
+    const label: Span = { text: `${number}. `, bold: true };
+    if (parts[0]?.kind === 'text') parts[0] = { kind: 'text', spans: [label, ...parts[0].spans] };
+    else parts.unshift({ kind: 'text', spans: [label] });
+    return { parts, unplaced };
+  }
+
+  /**
+   * Where each column of a ຄຳກອນ starts, from the question's text edge.
+   *
+   * Every column but the last is as wide as its widest ວັກ plus a gap, so the
+   * second ວັກ of every row starts at the same place; no column takes more
+   * than an equal share, and a ວັກ wider than that wraps inside its column.
+   */
+  private verseColumns(
+    type: Typesetter,
+    rows: Span[][][],
+    width: number,
+  ): { x: number[]; widths: number[] } {
+    const area = width - HANG;
+    const count = Math.max(...rows.map((row) => row.length));
+    const share = area / count;
+    const widths: number[] = [];
+    for (let c = 0; c < count - 1; c += 1) {
+      const widest = Math.max(
+        0,
+        ...rows.map((row) => (row[c] ? type.widthOf(row[c], BODY_SIZE) : 0)),
+      );
+      widths.push(Math.min(share, widest + VERSE_GAP));
+    }
+    widths.push(area - widths.reduce((sum, w) => sum + w, 0));
+    const x = widths.map((_, c) => widths.slice(0, c).reduce((sum, w) => sum + w, 0));
+    return { x, widths };
+  }
+
+  private verseRowHeights(type: Typesetter, rows: Span[][][], width: number): number[] {
+    const { widths } = this.verseColumns(type, rows, width);
+    return rows.map((row) =>
+      Math.max(...row.map((cell, c) => type.measure(cell, widths[c], BODY_SIZE))),
+    );
   }
 
   private optionSpans(letter: string, option: PrintOption, width: number) {
@@ -442,9 +520,16 @@ export class ExamPaperRenderer {
     optionOrder: number[],
     letters: string[],
     width: number,
+    bold: boolean,
   ): number {
-    const stem = this.stemSpans(99, question, width);
-    let height = type.measure(stem.spans, width, BODY_SIZE);
+    const stem = this.stemParts(99, question, width, bold);
+    let height = 0;
+    stem.parts.forEach((part, index) => {
+      height +=
+        part.kind === 'text'
+          ? type.measure(part.spans, index === 0 ? width : width - HANG, BODY_SIZE)
+          : this.verseRowHeights(type, part.rows, width).reduce((sum, h) => sum + h, 0);
+    });
     for (const image of stem.unplaced) height += this.imageBox(image, width - HANG).height + 4;
 
     const optionWidth = width - HANG;
@@ -514,10 +599,26 @@ export class ExamPaperRenderer {
     left: number,
     y: number,
     width: number,
+    bold: boolean,
   ): number {
     y = this.ensureRoom(doc, type, y);
-    const stem = this.stemSpans(number, question, width);
-    y += type.draw(stem.spans, left, y, width, BODY_SIZE);
+    const stem = this.stemParts(number, question, width, bold);
+    for (const [index, part] of stem.parts.entries()) {
+      if (part.kind === 'text') {
+        // The number's line starts at the margin; prose after a ຄຳກອນ lines up
+        // with the verse, under the question's text.
+        const indent = index === 0 ? 0 : HANG;
+        y += type.draw(part.spans, left + indent, y, width - indent, BODY_SIZE);
+        continue;
+      }
+      const { x, widths } = this.verseColumns(type, part.rows, width);
+      const heights = this.verseRowHeights(type, part.rows, width);
+      part.rows.forEach((row, r) => {
+        y = this.ensureRoom(doc, type, y);
+        row.forEach((cell, c) => type.draw(cell, left + HANG + x[c], y, widths[c], BODY_SIZE));
+        y += heights[r];
+      });
+    }
     for (const image of stem.unplaced) y = this.drawImage(doc, image, left + HANG, y, width - HANG);
 
     const optionLeft = left + HANG;

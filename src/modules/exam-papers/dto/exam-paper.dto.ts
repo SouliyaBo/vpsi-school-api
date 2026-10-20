@@ -183,6 +183,11 @@ export class UpdateExamPaperDto {
   @IsOptional()
   optionLabelStyle?: ExamOptionLabelStyle;
 
+  @ApiPropertyOptional({ description: 'ຄຳຖາມຕົວໜາ — print every question’s text bold' })
+  @IsBoolean()
+  @IsOptional()
+  boldQuestions?: boolean;
+
   @ApiPropertyOptional({
     nullable: true,
     description: 'What the paper is out of; every question is worth the same share',

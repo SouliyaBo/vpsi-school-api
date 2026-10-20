@@ -143,6 +143,36 @@ export function drawVariants(
   return variants;
 }
 
+/**
+ * ຮອບ — a short code for one drawing of the sets, printed on everything made
+ * from it: the papers, ຄະໜານຕອບ, ໃບແຈກຊຸດ and every ເຈ້ຍຕອບ (in its QR too).
+ *
+ * Pressing ສ້າງຊຸດ again re-draws every set — and with a different number of
+ * sets, re-seats the class — so a pile printed before it no longer matches one
+ * printed after (the office's case, 20 Oct 2026: papers in sets A–L, answer
+ * sheets still from the A–I drawing). Two documents with the same code belong
+ * together; a scanned sheet whose code is not the paper's is flagged.
+ *
+ * Taken from the sets themselves rather than from the seed, because a question
+ * edit re-draws from the same seed and can still move every set after it. Four
+ * characters of 0–9 A–Z, which the QR packs in its compact upper-case mode.
+ */
+export function drawStamp(variants: readonly Variant[]): string {
+  const fingerprint = variants
+    .map(
+      (v) =>
+        `${v.label}|${v.questionOrder.join(',')}|${v.optionOrders.map((o) => o.join('')).join(',')}`,
+    )
+    .join(';');
+  // FNV-1a, 32 bits — enough to tell two drawings of one paper apart.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < fingerprint.length; i += 1) {
+    hash ^= fingerprint.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return (hash % 36 ** 4).toString(36).toUpperCase().padStart(4, '0');
+}
+
 /** Indexes of the questions, grouped by consecutive runs of the same part. */
 function partGroups(questions: readonly VariantSource[]): number[][] {
   const groups: number[][] = [];
@@ -173,29 +203,6 @@ export function answerFor(
 
 // ── Seating ─────────────────────────────────────────────────────────────────
 
-/**
- * The set for the pupil in seat (`row`, `column`) of a room seated `columns`
- * across, so that no two pupils side by side or one behind the other hold the
- * same set.
- *
- * Each row is the label cycle shifted by half the number of sets from the row
- * above. For four sets that is
- *
- *     A B C D A B
- *     C D A B C D
- *     A B C D A B
- *
- * — left/right always differ because the cycle has no repeats, front/back
- * always differ because a shift of ⌈n/2⌉ is never a whole cycle, and with an
- * even number of sets the diagonals differ too. With two sets it is a
- * chessboard, which is the best two sets can do.
- */
-export function setForSeat(row: number, column: number, setCount: number): number {
-  if (setCount <= 1) return 0;
-  const shift = Math.ceil(setCount / 2);
-  return (column + row * shift) % setCount;
-}
-
 export interface SeatedStudent<T> {
   student: T;
   row: number;
@@ -208,6 +215,25 @@ export interface SeatedStudent<T> {
  * Seats a class roll in reading order — front row left to right, then the
  * next row — and hands each seat its set. The roll is in the order the class
  * actually sits, which for this school is the roll number.
+ *
+ * Each seat takes the set **handed out least so far** that differs from the
+ * pupil beside it, the one in front and the two diagonally in front; a tie goes
+ * to the earlier letter. So every set is used, no set is handed out more than
+ * once more than any other (twice, when there are no more sets than seats in a
+ * row plus one, and keeping neighbours apart has to come first), and a room
+ * with as many sets as pupils has no repeat:
+ *
+ *     17 pupils, 5 across, 17 sets      12 pupils, 4 across, 4 sets
+ *       A B C D E                         A B C D
+ *       F G H I J                         C D A B
+ *       K L M N O                         A B C D
+ *       P Q
+ *
+ * Replaced on 20 Oct 2026 a rule that shifted each row by half the sets: right
+ * for four, but with seventeen it alternated two bands of letters — A–E, J–N,
+ * A–E … — never handing out F–I or O–Q and repeating the rest (the office's
+ * test on ມ.4/ກ). With too few sets to keep every neighbour apart (two or
+ * three), the diagonals give way first, then the pupil in front.
  */
 export function seatClass<T>(
   roll: readonly T[],
@@ -215,9 +241,35 @@ export function seatClass<T>(
   setCount: number,
 ): SeatedStudent<T>[] {
   const across = Math.max(1, columns);
-  return roll.map((student, index) => {
+  const sets = Math.max(1, setCount);
+  const handedOut = Array.from({ length: sets }, () => 0);
+  const seated: SeatedStudent<T>[] = [];
+  const at = (row: number, column: number): number | null =>
+    row < 0 || column < 0 || column >= across
+      ? null
+      : (seated[row * across + column]?.setIndex ?? null);
+
+  roll.forEach((student, index) => {
     const row = Math.floor(index / across);
     const column = index % across;
-    return { student, row, column, setIndex: setForSeat(row, column, setCount) };
+    const beside = at(row, column - 1);
+    const front = at(row - 1, column);
+    // Strictest first; each later list gives up one kind of neighbour.
+    const avoidances = [
+      [beside, front, at(row - 1, column - 1), at(row - 1, column + 1)],
+      [beside, front],
+      [beside],
+      [],
+    ];
+    let setIndex = 0;
+    for (const avoid of avoidances) {
+      const allowed = handedOut.map((_, set) => set).filter((set) => !avoid.includes(set));
+      if (allowed.length === 0) continue;
+      setIndex = allowed.reduce((best, set) => (handedOut[set] < handedOut[best] ? set : best));
+      break;
+    }
+    handedOut[setIndex] += 1;
+    seated.push({ student, row, column, setIndex });
   });
+  return seated;
 }

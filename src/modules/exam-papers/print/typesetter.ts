@@ -2,6 +2,7 @@ import PDFDocument from 'pdfkit';
 import { resolveOfficialLaoFonts } from 'src/modules/reports/pdf/font-resolver';
 import SVGtoPDF from 'svg-to-pdfkit';
 import { splitMath } from '../math/latex-text';
+import { splitUnderline } from '../underline';
 import { texToSvg, TypesetMath } from '../math/mathjax';
 
 /**
@@ -39,6 +40,8 @@ export interface InlineImage {
 export interface Span {
   text: string;
   bold?: boolean;
+  /** ຂີດກ້ອງ — a line under the words, below the vowels written under the line. */
+  underline?: boolean;
   image?: InlineImage;
   /** A formula MathJax drew, as vector art on the baseline. */
   math?: TypesetMath;
@@ -51,6 +54,7 @@ interface Atom {
   isSpace: boolean;
   /** A `\n` in the source: the line ends here whatever its width. */
   isBreak: boolean;
+  underline?: boolean;
   /** An equation or figure sitting in the line, on the baseline with the words. */
   image?: InlineImage;
   math?: TypesetMath;
@@ -147,10 +151,50 @@ export class Typesetter {
         }
         cursor += atom.width;
       }
+      this.drawUnderlines(line, x + Math.max(0, offset), baseline, size);
       top += line.height;
     }
 
     return top - y;
+  }
+
+  /**
+   * ຂີດກ້ອງ: one stroke under each run of underlined atoms in the line, the
+   * spaces between underlined words included.
+   *
+   * Set below the Lao face's descender, so it passes under ຸ and ູ rather than
+   * through them — PDFKit's own underline sits just under the baseline, where
+   * those vowels are.
+   */
+  private drawUnderlines(line: Line, left: number, baseline: number, size: number): void {
+    const y = baseline + this.descender(size) + size * 0.04;
+    let cursor = left;
+    let start: number | null = null;
+    const stroke = (end: number) => {
+      if (start === null) return;
+      this.doc
+        .moveTo(start, y)
+        .lineTo(end, y)
+        .lineWidth(Math.max(0.5, size * 0.05))
+        .stroke('#000');
+      start = null;
+    };
+    line.atoms.forEach((atom, index) => {
+      const next = line.atoms[index + 1];
+      // A space is underlined only between two underlined words.
+      const on = atom.underline && (!atom.isSpace || (start !== null && next?.underline));
+      if (on && start === null) start = cursor;
+      if (!on) stroke(cursor);
+      cursor += atom.width;
+    });
+    stroke(cursor);
+  }
+
+  /** How far the Lao face reaches below the baseline, in points. */
+  private descender(size: number): number {
+    this.doc.font(LAO).fontSize(size);
+    const font = (this.doc as unknown as { _font?: { descender?: number } })._font;
+    return (Math.abs(font?.descender ?? 250) / 1000) * size;
   }
 
   // ── Layout ────────────────────────────────────────────────────────────────
@@ -213,6 +257,7 @@ export class Typesetter {
               width: this.doc.widthOfString(' '),
               isSpace: true,
               isBreak: false,
+              underline: span.underline,
             });
           }
           continue;
@@ -226,6 +271,7 @@ export class Typesetter {
             width: this.doc.widthOfString(run.text),
             isSpace: false,
             isBreak: false,
+            underline: span.underline,
           });
         }
       }
@@ -318,9 +364,21 @@ export class Typesetter {
 /**
  * Text with its `$…$` formulas typeset at `size`: the words as spans, each
  * formula as a math span. A formula MathJax cannot read stays as the TeX it
- * was written as, so the teacher sees what to fix.
+ * was written as, so the teacher sees what to fix. Words inside `[u]…[/u]`
+ * come out underlined.
  */
 export function spansWithMath(text: string, size: number, style: { bold?: boolean } = {}): Span[] {
+  // `[u]…[/u]` first: a formula inside an underlined run keeps its own look.
+  return splitUnderline(text).flatMap((piece) =>
+    mathSpans(piece.text, size, piece.underline ? { ...style, underline: true } : style),
+  );
+}
+
+function mathSpans(
+  text: string,
+  size: number,
+  style: { bold?: boolean; underline?: boolean },
+): Span[] {
   return splitMath(text).map((part) => {
     if (part.kind === 'text') return { text: part.text, ...style };
     // Display style throughout: a fraction at full size, limits over the

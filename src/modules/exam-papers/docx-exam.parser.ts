@@ -2,6 +2,8 @@ import { DOMParser, type Element, type Node } from '@xmldom/xmldom';
 import JSZip from 'jszip';
 import { ExamOptionLabelStyle } from 'src/common/constants/enums';
 import { hasMath, normaliseMathDelimiters, splitMath, stripTexComments } from './math/latex-text';
+import { underlineChars } from './underline';
+import { versifyTabs } from './verse';
 import { isValidTex } from './math/mathjax';
 import { ommlToLatex } from './math/omml-to-latex';
 import { isDrawable } from './print/image-check';
@@ -251,16 +253,17 @@ class ExamReader {
         this.appendOptions(options);
         return;
       }
-      const piece = slice(paragraph.chars, 0, paragraph.chars.length);
       if (this.current.options.length === 0) {
         // Still the stem: a second line of it, or its picture.
+        const line = slice(paragraph.chars, 0, paragraph.chars.length, true);
         this.current.text = joinLines(
           this.current.text,
-          shiftImageTokens(piece.text, this.current.imageIds.length),
+          shiftImageTokens(line.text, this.current.imageIds.length),
         );
-        this.current.imageIds.push(...piece.imageIds);
+        this.current.imageIds.push(...line.imageIds);
         return;
       }
+      const piece = slice(paragraph.chars, 0, paragraph.chars.length);
       const last = this.current.options[this.current.options.length - 1];
       if (!piece.text.replace(IMAGE_TOKEN, '').trim() && piece.imageIds.length > 0) {
         // A picture on its own line under the options belongs to the last one.
@@ -306,7 +309,7 @@ class ExamReader {
     }
     const options = this.readOptions(paragraph, stemStart, false);
     const stemEnd = options.length > 0 ? options[0].markerStart : paragraph.chars.length;
-    const stem = slice(paragraph.chars, stemStart, stemEnd);
+    const stem = slice(paragraph.chars, stemStart, stemEnd, true);
 
     this.current = {
       section: this.section,
@@ -412,7 +415,8 @@ class ExamReader {
 
     this.questions.push({
       section: question.section,
-      text: question.text,
+      // A Tab kept in the stem either divides the ວັກ of a ຄຳກອນ or was spacing.
+      text: versifyTabs(question.text),
       imageIds: question.imageIds,
       options: question.options,
       correctIndex: question.correctIndex,
@@ -471,20 +475,27 @@ function emphasisOf(chars: Char[]): Record<Emphasis, number> {
   return result;
 }
 
-/** Text and pictures of `chars[from, to)`, tabs collapsed to spaces. */
-function slice(chars: Char[], from: number, to: number): Piece {
+/**
+ * Text and pictures of `chars[from, to)`, tabs collapsed to spaces.
+ *
+ * `stem` is for a question's own text, which keeps two things an option's
+ * does not: a Tab, which may divide the two ວັກ of a ຄຳກອນ (`versifyTabs`
+ * turns it into verse when the question closes), and the underline on a word
+ * the question asks about (`[u]…[/u]`). In an option, an underline marks the
+ * answer and is read as that instead.
+ */
+function slice(chars: Char[], from: number, to: number, stem = false): Piece {
   const part = chars.slice(from, to);
   // Each picture stays in the text as its token, so an equation in the
   // middle of a sentence is printed in the middle of the sentence.
   const imageIds: string[] = [];
-  const text = part
-    .map((c) => {
-      if (!c.imageId) return c.ch;
-      imageIds.push(c.imageId);
-      return imageToken(imageIds.length - 1);
-    })
-    .join('')
-    .replace(/[\t ]+/g, ' ')
+  const marked = part.map((c) => {
+    if (!c.imageId) return { ch: c.ch, underline: stem && c.emphasis.has('underline') };
+    imageIds.push(c.imageId);
+    return { ch: imageToken(imageIds.length - 1), underline: false };
+  });
+  const text = (stem ? underlineChars(marked) : marked.map((c) => c.ch).join(''))
+    .replace(stem ? /[ ]+/g : /[\t ]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/ {2,}/g, ' ');
   return { text: normaliseMathDelimiters(text), imageIds, emphasis: emphasisOf(part) };

@@ -36,7 +36,7 @@ export interface SheetReading {
   ok: true;
   image: { width: number; height: number };
   corners: [Point, Point, Point, Point];
-  qr: { paperId: string; set: string | null; studentId: string | null } | null;
+  qr: ReturnType<typeof parseQrText>;
   /** The code read from the digit columns, or null if any column was undecidable. */
   codeFromBubbles: string | null;
   codeCentres: Point[][];

@@ -209,14 +209,40 @@ export function answerSheetLayout(input: {
 /** What the QR on a sheet says, and how it is read back. */
 export const QR_PREFIX = 'vpsi-exam';
 
-export function qrText(paperId: string, set: string | null, studentId: string | null): string {
-  return [QR_PREFIX, paperId, set ?? '', studentId ?? ''].join(':');
+/**
+ * `VPSI-EXAM:<paper>:<set>:<student>:<ຮອບ>`, all in upper case.
+ *
+ * Upper case because the QR then packs it in alphanumeric mode, where the
+ * fifth field — the drawing's code, see `drawStamp` — still fits the same
+ * version-4 symbol the four-field text did; in byte mode it would have grown a
+ * size and printed finer modules for a phone to resolve.
+ */
+export function qrText(
+  paperId: string,
+  set: string | null,
+  studentId: string | null,
+  stamp: string | null = null,
+): string {
+  return [QR_PREFIX, paperId, set ?? '', studentId ?? '', stamp ?? ''].join(':').toUpperCase();
 }
 
-export function parseQrText(
-  text: string,
-): { paperId: string; set: string | null; studentId: string | null } | null {
+/**
+ * Reads both shapes: the five upper-case fields printed since 20 Oct 2026, and
+ * the four lower-case ones on sheets printed before, which carry no ຮອບ.
+ */
+export function parseQrText(text: string): {
+  paperId: string;
+  set: string | null;
+  studentId: string | null;
+  stamp: string | null;
+} | null {
   const parts = text.split(':');
-  if (parts.length !== 4 || parts[0] !== QR_PREFIX || !parts[1]) return null;
-  return { paperId: parts[1], set: parts[2] || null, studentId: parts[3] || null };
+  if (parts.length !== 4 && parts.length !== 5) return null;
+  if (parts[0].toLowerCase() !== QR_PREFIX || !parts[1]) return null;
+  return {
+    paperId: parts[1].toLowerCase(),
+    set: parts[2] ? parts[2].toUpperCase() : null,
+    studentId: parts[3] ? parts[3].toLowerCase() : null,
+    stamp: parts[4] ? parts[4].toUpperCase() : null,
+  };
 }

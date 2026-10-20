@@ -10,11 +10,14 @@ import {
   Paragraph,
   TabStopType,
   TextRun,
+  UnderlineType,
 } from 'docx';
 import { IMAGE_TOKEN } from '../docx-exam.parser';
 import { splitMath } from '../math/latex-text';
 import { texToDocxMath } from '../math/mathml-to-docx';
-import { Variant } from '../variants';
+import { drawStamp, Variant } from '../variants';
+import { splitUnderline } from '../underline';
+import { splitVerse } from '../verse';
 import { OPTION_LETTERS, PrintImage, PrintOption, PrintPaper } from './exam-paper.renderer';
 
 /**
@@ -40,6 +43,10 @@ const LAO_PATTERN = /[຀-໿]/;
 const PX_PER_PT = 96 / 72;
 const CONTENT_WIDTH_PT = 595 - 2 * 60;
 const MAX_IMAGE_HEIGHT_PT = 300;
+/** Where the second ວັກ of a ຄຳກອນ starts, in twips from the margin, and any after it. */
+const VERSE_TAB_START = 4200;
+const VERSE_TAB_STEP = 3800;
+
 /** TeX that stacks — a fraction, a big operator, a matrix — and wants a line of its own. */
 const TALL_TEX = /\\(frac|dfrac|binom|sum|prod|int|begin)\b/;
 
@@ -93,6 +100,8 @@ export class ExamPaperDocxWriter {
               ? [
                   new TextRun({ children: ['\t'] }),
                   ...this.runs(`ຊຸດ ${label}`, { bold: true, size: 28 }),
+                  // ຮອບ, small, so a paper can be matched to its answer sheets.
+                  ...this.runs(` · ຮອບ ${drawStamp(paper.variants)}`, { size: 16 }),
                 ]
               : []),
           ],
@@ -125,16 +134,58 @@ export class ExamPaperDocxWriter {
       }
       lastSection = question.section;
 
-      const stem = this.runsWithImages(question.text, question.images);
-      blocks.push(
-        new Paragraph({
-          keepNext: true,
-          spacing: { before: 100 },
-          indent: { left: 400, hanging: 400 },
-          children: [...this.runs(`${position + 1}. `, { bold: true }), ...stem.runs],
-        }),
-      );
-      for (const image of stem.unplaced) blocks.push(this.picture(image, 400));
+      // ຄຳຖາມຕົວໜາ: the words bold, formulas and pictures as they are.
+      const bold = paper.boldQuestions ?? true;
+      // Placed against the whole text, so a picture inside a verse is not set
+      // a second time below the stem.
+      const { unplaced } = this.runsWithImages(question.text, question.images);
+      splitVerse(question.text).forEach((part, index) => {
+        const first = index === 0;
+        const number = first ? this.runs(`${position + 1}. `, { bold: true }) : [];
+        if (part.kind === 'text') {
+          blocks.push(
+            new Paragraph({
+              keepNext: true,
+              spacing: { before: first ? 100 : 0 },
+              indent: { left: 400, hanging: first ? 400 : 0 },
+              children: [
+                ...number,
+                ...this.runsWithImages(part.text, question.images, { bold }).runs,
+              ],
+            }),
+          );
+          return;
+        }
+        if (first) {
+          blocks.push(
+            new Paragraph({
+              keepNext: true,
+              spacing: { before: 100 },
+              indent: { left: 400, hanging: 400 },
+              children: number,
+            }),
+          );
+        }
+        // ຄຳກອນ: one paragraph a row, the ວັກ at fixed tab stops so the second
+        // column starts at the same place on every row.
+        for (const row of part.rows) {
+          blocks.push(
+            new Paragraph({
+              keepNext: true,
+              indent: { left: 400 },
+              tabStops: row.slice(1).map((_, c) => ({
+                type: TabStopType.LEFT,
+                position: VERSE_TAB_START + c * VERSE_TAB_STEP,
+              })),
+              children: row.flatMap((cell, c) => [
+                ...(c > 0 ? [new TextRun({ children: ['\t'] })] : []),
+                ...this.runsWithImages(cell, question.images, { bold }).runs,
+              ]),
+            }),
+          );
+        }
+      });
+      for (const image of unplaced) blocks.push(this.picture(image, 400));
 
       const options = variant.optionOrders[position].map((originalIndex, printed) => ({
         letter: letters[printed],
@@ -201,13 +252,16 @@ export class ExamPaperDocxWriter {
   private runsWithImages(
     text: string,
     images: PrintImage[],
+    style: { bold?: boolean } = {},
   ): { runs: (TextRun | ImageRun | DocxMath)[]; unplaced: PrintImage[] } {
     const runs: (TextRun | ImageRun | DocxMath)[] = [];
     const placed = new Set<number>();
     let last = 0;
     for (const match of text.matchAll(IMAGE_TOKEN)) {
       const index = Number(match[1]) - 1;
-      if (match.index! > last) runs.push(...this.runsWithMath(text.slice(last, match.index)));
+      if (match.index! > last) {
+        runs.push(...this.runsWithMath(text.slice(last, match.index), style));
+      }
       const image = images[index];
       if (image) {
         runs.push(this.imageRun(image));
@@ -215,15 +269,19 @@ export class ExamPaperDocxWriter {
       }
       last = match.index! + match[0].length;
     }
-    if (last < text.length) runs.push(...this.runsWithMath(text.slice(last)));
+    if (last < text.length) runs.push(...this.runsWithMath(text.slice(last), style));
     return { runs, unplaced: images.filter((_, i) => !placed.has(i)) };
   }
 
   /** Words as runs, each `$…$` formula as a Word equation — or as its TeX when it does not parse. */
-  private runsWithMath(text: string): (TextRun | DocxMath)[] {
-    return splitMath(text).flatMap((part) => {
-      if (part.kind === 'text') return this.runs(part.text);
-      return texToDocxMath(part.tex, part.display) ?? this.runs(part.source);
+  private runsWithMath(text: string, style: { bold?: boolean } = {}): (TextRun | DocxMath)[] {
+    // `[u]…[/u]` — ຂີດກ້ອງ — as Word's own underline on those words.
+    return splitUnderline(text).flatMap((piece) => {
+      const look = piece.underline ? { ...style, underline: true } : style;
+      return splitMath(piece.text).flatMap((part) => {
+        if (part.kind === 'text') return this.runs(part.text, look);
+        return texToDocxMath(part.tex, part.display) ?? this.runs(part.source, look);
+      });
     });
   }
 
@@ -251,7 +309,10 @@ export class ExamPaperDocxWriter {
    * One run per script, so a figure inside a Lao sentence is set in Times as
    * the house style asks, and a line break in the source stays a line break.
    */
-  private runs(text: string, style: { bold?: boolean; size?: number } = {}): TextRun[] {
+  private runs(
+    text: string,
+    style: { bold?: boolean; size?: number; underline?: boolean } = {},
+  ): TextRun[] {
     const runs: TextRun[] = [];
     const lines = text.split('\n');
     lines.forEach((line, lineIndex) => {
@@ -265,6 +326,7 @@ export class ExamPaperDocxWriter {
             font: currentIsLao ? LAO_FONT : LATIN_FONT,
             bold: style.bold,
             size: style.size,
+            ...(style.underline ? { underline: { type: UnderlineType.SINGLE } } : {}),
           }),
         );
         current = '';

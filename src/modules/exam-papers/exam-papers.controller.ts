@@ -168,7 +168,7 @@ export class ExamPapersController {
 
   @Get(':id/answer-key')
   @RequirePermissions({ resource: 'exam-papers', action: 'read' })
-  @ApiOperation({ summary: 'ເສີຍ — every set’s answers side by side, as PDF' })
+  @ApiOperation({ summary: 'ຄະໜານຕອບ — every set’s answers side by side, as PDF' })
   async answerKey(
     @Param('id') id: string,
     @CurrentUser() actor: AuthenticatedUser,

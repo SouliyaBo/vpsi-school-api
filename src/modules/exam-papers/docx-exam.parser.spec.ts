@@ -47,6 +47,54 @@ async function build(
 }
 
 describe('parseExamDocx', () => {
+  it('keeps the underline on a question’s words, and still reads one in the options as the answer', async () => {
+    const underlined = (text: string) => new TextRun({ text, underline: {} });
+    const file = await build([
+      line('13. ປະໂຫຍກ “ປ້າຂອງຂ້ອຍ', underlined('ພວມ'), 'ໄປຕະຫຼາດ” ສ່ວນທີ່ຂີດກ້ອງແມ່ນພາກສ່ວນໃດ?'),
+      line('ກ. ຄຳກຳມະ', tab(), 'ຂ. ຄຳຕົວຕັ້ງ'),
+      line('ຄ. ຄຳປະກອບ', tab(), underlined('ງ. ຄຳຂະຫຍາຍ')),
+    ]);
+
+    const [question] = (await parseExamDocx(file)).questions;
+
+    expect(question.text).toBe(
+      'ປະໂຫຍກ “ປ້າຂອງຂ້ອຍ[u]ພວມ[/u]ໄປຕະຫຼາດ” ສ່ວນທີ່ຂີດກ້ອງແມ່ນພາກສ່ວນໃດ?',
+    );
+    expect(question.options.map((o) => o.text)).toEqual([
+      'ຄຳກຳມະ',
+      'ຄຳຕົວຕັ້ງ',
+      'ຄຳປະກອບ',
+      'ຄຳຂະຫຍາຍ',
+    ]);
+    expect(question.correctIndex).toBe(3);
+  });
+
+  it('sets a ຄຳກອນ whose ວັກ the teacher divided with a Tab as verse', async () => {
+    // The ມ.5 ພາສາລາວ question the office sent, 20 Oct 2026.
+    const file = await build([
+      line('1. ຄຳຜະຫຍາທີ່ວ່າ:'),
+      line('“ສາວບໍ່ມັກອ້າຍ', tab(), 'ບໍ່ມັກຕາຍກໍຕາມຊ່າງ'),
+      line('ບໍ່ໄດ້ຫໍ່ຂີ້ຈ້າງ', tab(), tab(), 'ໃຫ້ຕາມກົ້ນແລ່ນນຳ”'),
+      line('ໃຊ້ສິລະປະການປະດິດແຕ່ງແບບໃດ?'),
+      line(bold('A. ການປຽບທຽບ'), tab(), 'B. ການຊ້ຳຄຳ'),
+      line('C. ການສົມມຸດ', tab(), 'D. ການເວົ້າເກີນຈິງ'),
+    ]);
+
+    const [question] = (await parseExamDocx(file)).questions;
+
+    expect(question.text).toBe(
+      'ຄຳຜະຫຍາທີ່ວ່າ:\n⟪“ສາວບໍ່ມັກອ້າຍ | ບໍ່ມັກຕາຍກໍຕາມຊ່າງ\nບໍ່ໄດ້ຫໍ່ຂີ້ຈ້າງ | ໃຫ້ຕາມກົ້ນແລ່ນນຳ”⟫\nໃຊ້ສິລະປະການປະດິດແຕ່ງແບບໃດ?',
+    );
+    // The options on Tab-divided lines are still options, not verse.
+    expect(question.options.map((o) => o.text)).toEqual([
+      'ການປຽບທຽບ',
+      'ການຊ້ຳຄຳ',
+      'ການສົມມຸດ',
+      'ການເວົ້າເກີນຈິງ',
+    ]);
+    expect(question.correctIndex).toBe(0);
+  });
+
   it('reads the sample sheet: two options per line, the bold one is the answer', async () => {
     const file = await build([
       line('ໂຮງຮຽນ ມ.ສ ນານາຊາດ ວຽງຈັນພັດທະນາ'),

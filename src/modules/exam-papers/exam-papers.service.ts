@@ -58,7 +58,7 @@ import {
   PrintPaper,
   SeatPlanStudent,
 } from './print/exam-paper.renderer';
-import { drawVariants, newSeed, seatClass } from './variants';
+import { drawStamp, drawVariants, newSeed, seatClass } from './variants';
 
 const SORTABLE = ['createdAt', 'updatedAt', 'title', 'generatedAt'] as const;
 
@@ -170,7 +170,8 @@ export class ExamPapersService {
         ),
       })),
     );
-    return json;
+    // ຮອບ — the code printed on everything made from these sets.
+    return { ...json, drawStamp: paper.variants.length > 0 ? drawStamp(paper.variants) : null };
   }
 
   /** A short-lived link to the file the teacher uploaded. */
@@ -305,6 +306,7 @@ export class ExamPapersService {
     }
     if (dto.preamble !== undefined) paper.preamble = dto.preamble;
     if (dto.optionLabelStyle !== undefined) paper.optionLabelStyle = dto.optionLabelStyle;
+    if (dto.boldQuestions !== undefined) paper.boldQuestions = dto.boldQuestions;
     if (dto.totalPoints !== undefined) paper.totalPoints = dto.totalPoints;
 
     if (dto.questions !== undefined) {
@@ -467,7 +469,7 @@ export class ExamPapersService {
     const printable = await this.toPrintPaper(paper, { withImages: false });
     return {
       buffer: await this.renderer.renderAnswerKey(printable),
-      filename: `${fileSafe(paper.title)}／ເສີຍ.pdf`,
+      filename: `${fileSafe(paper.title)}／ຄະໜານຕອບ.pdf`,
       contentType: CONTENT_TYPES.pdf,
     };
   }
@@ -592,6 +594,7 @@ export class ExamPapersService {
       schoolNameLo,
       preamble: paper.preamble,
       optionLabelStyle: paper.optionLabelStyle,
+      boldQuestions: paper.boldQuestions ?? true,
       variants: paper.variants.map((variant) => ({
         label: variant.label,
         questionOrder: [...variant.questionOrder],
@@ -660,6 +663,7 @@ export class ExamPapersService {
       ),
       optionLabelStyle: paper.optionLabelStyle,
       sets: paper.variants.map((variant) => variant.label),
+      drawStamp: drawStamp(paper.variants),
       pupils,
     });
     return {
@@ -1080,7 +1084,7 @@ export class ExamPapersService {
       ip,
     });
 
-    return Promise.all(created.map((scan) => this.scanView(scan)));
+    return Promise.all(created.map((scan) => this.scanView(scan, paper)));
   }
 
   async scans(id: string, query: ScansQueryDto, actor: AuthenticatedUser) {
@@ -1088,7 +1092,7 @@ export class ExamPapersService {
     const filter: FilterQuery<ExamScanDocument> = { paperId: paper._id, deletedAt: null };
     if (query.status) filter.status = query.status;
     const rows = await this.scanModel.find(filter).sort({ createdAt: -1 }).limit(300).exec();
-    return Promise.all(rows.map((scan) => this.scanView(scan)));
+    return Promise.all(rows.map((scan) => this.scanView(scan, paper)));
   }
 
   /**
@@ -1160,7 +1164,7 @@ export class ExamPapersService {
     }
 
     await scan.save();
-    return this.scanView(scan);
+    return this.scanView(scan, paper);
   }
 
   async deleteScan(id: string, scanId: string, actor: AuthenticatedUser): Promise<void> {
@@ -1194,7 +1198,7 @@ export class ExamPapersService {
    */
   private async identifyPupil(
     paper: ExamPaperDocument,
-    qr: { paperId: string; set: string | null; studentId: string | null } | null,
+    qr: { paperId: string; studentId: string | null } | null,
     code: string | null,
   ): Promise<{ studentId: string; studentCode: string; studentNameLo: string } | null> {
     const pick = (
@@ -1246,10 +1250,18 @@ export class ExamPapersService {
     return null;
   }
 
-  private async scanView(scan: ExamScanDocument) {
+  private async scanView(scan: ExamScanDocument, paper: ExamPaperDocument) {
+    const stamp = scan.qr?.paperId === String(paper._id) ? (scan.qr.stamp ?? null) : null;
     return {
       ...(scan.toJSON() as Record<string, unknown>),
       imageUrl: await this.storage.getSignedUrl(scan.imageKey),
+      /**
+       * The sheet was printed from an earlier drawing of the sets (its ຮອບ is not
+       * the paper's): its set bubbles, its pre-filled set and the order its
+       * answers are in may all belong to sets that no longer exist. Sheets
+       * printed before the ຮອບ was introduced carry none and are not flagged.
+       */
+      staleDraw: stamp !== null && stamp !== drawStamp(paper.variants),
     };
   }
 

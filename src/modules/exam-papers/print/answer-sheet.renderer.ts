@@ -46,6 +46,8 @@ export interface AnswerSheetData {
   optionLabelStyle: ExamOptionLabelStyle;
   /** The sets the paper has — one bubble each. */
   sets: string[];
+  /** ຮອບ — the drawing these sets come from, printed in the foot and the QR. */
+  drawStamp: string;
   /** Named sheets; a blank sheet is `null`. */
   pupils: (AnswerSheetPupil | null)[];
 }
@@ -289,12 +291,17 @@ export class AnswerSheetRenderer {
       width / 2,
       8,
     );
-    type.draw([{ text: VERSION }], right - layout.fiducialSize - 120, footY + 2, 100, 7, {
-      align: 'right',
-    });
+    type.draw(
+      [{ text: `ຮອບ ${data.drawStamp} · ${VERSION}` }],
+      right - layout.fiducialSize - 120,
+      footY + 2,
+      100,
+      7,
+      { align: 'right' },
+    );
     await this.qr(
       doc,
-      qrText(data.paperId, pupil?.set ?? null, pupil?.studentId ?? null),
+      qrText(data.paperId, pupil?.set ?? null, pupil?.studentId ?? null, data.drawStamp),
       layout.qr.x,
       layout.qr.y,
       layout.qr.size,
