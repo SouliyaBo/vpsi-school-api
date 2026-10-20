@@ -768,8 +768,8 @@ export class MonthlyMarksService {
    * The per-subject sheets can each answer "how did this class do in ຄະນິດສາດ in
    * ຕຸລາ"; none of them can answer "how did this student do in ຕຸລາ", which is
    * the question the school asks at the end of every month and the one it ranks
-   * on. The columns are the subjects the *grade* is marked in — seven at ມ.1–ມ.3,
-   * eight at ມ.4 and ມ.7, seven at ມ.5 and ມ.6 — read from the register rather
+   * on. The columns are the subjects the *grade* is marked in — eight at ມ.1–ມ.4
+   * and ມ.7, seven at ມ.5 and ມ.6 — read from the register rather
    * than from whichever subjects happen to have marks, so a subject nobody has
    * filled in yet shows as an empty column instead of vanishing.
    *

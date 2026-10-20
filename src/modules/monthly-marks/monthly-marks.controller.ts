@@ -75,7 +75,7 @@ export class MonthlyMarksController {
     description:
       "The columns are the subjects the class's grade is marked in, so a subject nobody has " +
       'filled in yet is an empty column rather than a missing one. ສະເລ່ຍ divides the marks ' +
-      'by that number of subjects — 7 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and ມ.6.',
+      'by that number of subjects — 8 at ມ.1–ມ.4 and ມ.7, 7 at ມ.5 and ມ.6.',
   })
   classMonth(@Query() query: ClassMonthQueryDto) {
     return this.service.getClassMonth(query);

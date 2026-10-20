@@ -249,7 +249,7 @@ export class TermResultsService {
      * How many subjects this grade is marked in — the divisor for the average.
      *
      * The school adds the subject marks up and divides by the number of subjects
-     * the grade sits: 7 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and ມ.6. Read from
+     * the grade sits: 8 at ມ.1–ມ.4 and ມ.7, 7 at ມ.5 and ມ.6. Read from
      * the register once for the class rather than inferred per student, so a
      * student missing a subject reads as short of it rather than as complete.
      */

@@ -51,11 +51,13 @@ export const COLUMN_MAX: Readonly<Record<MonthlyColumn, number>> = {
  *   ພາສາລາວ, every grade                                 1 / 1 / 2 / 5  → 9
  *   ປະຫວັດສາດ · ສຶກສາພົນລະເມືອງ · ພູມສາດ, ມ.1–ມ.3, ມ.5, ມ.6  1 / 0 / 3 / 5  → 9  (no ປື້ມ)
  *   the same three at ມ.4, ມ.7                           1 / 1 / 2 / 5  → 9
+ *   ຟີຊິກສາດ · ເຄມີສາດ · ຊີວະສາດ, ມ.1–ມ.3 only               1 / 0 / 3 / 6  → 10 (no ປື້ມ)
  *   everything else                                     1 / 1 / 2 / 6  → 10
  *
  * ພູມສາດ, ສຶກສາພົນລະເມືອງ and ປະຫວັດສາດ were split out of ສັງຄົມ at ມ.1–ມ.3 on the
- * same day, and ຟີຊິກສາດ and ເຄມີສາດ out of ທຳມະຊາດ (on the standard 1 / 1 / 2 / 6);
- * until then both ສາຍວິຊາ were marked as one subject there.
+ * same day, and ຟີຊິກສາດ, ເຄມີສາດ and ຊີວະສາດ out of ທຳມະຊາດ — out of 10, but on
+ * 1 / 0 / 3 / 6 at ມ.1–ມ.3 only (no ປື້ມ); until then both ສາຍວິຊາ were marked as
+ * one subject there.
  *
  * Held per subject rather than as a rule about names and grades, because the
  * subject rows already exist one per grade — which is the only reason the same
@@ -288,7 +290,7 @@ export function monthScore(strandTotals: (number | null)[], expectedStrands: num
  * ສະເລ່ຍ across a month's **subjects** — the class summary's average.
  *
  * The school's rule in its own words: add the subject marks up and divide by the
- * number of subjects the grade sits — 7 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and
+ * number of subjects the grade sits — 8 at ມ.1–ມ.4 and ມ.7, 7 at ມ.5 and
  * ມ.6. Not `meanOf`, which divides by what has been written: a student marked in
  * three of eight subjects has three eighths of a month, and showing the mean of
  * the three would read as a finished month five subjects short.

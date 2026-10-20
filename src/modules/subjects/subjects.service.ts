@@ -112,9 +112,9 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
    * and either the two composite ສາຍວິຊາ or, from ມ.4 up, the subjects they split
    * into.
    *
-   * This is the divisor the school averages by: ມ.1–ມ.3 return seven (ສັງຄົມ and
-   * ທຳມະຊາດ are split there too since 20 Oct 2026, as at ມ.5–ມ.6), ມ.4 and ມ.7
-   * eight, ມ.5 and ມ.6 seven. Derived from the register rather than hard-coded
+   * This is the divisor the school averages by: ມ.1–ມ.3 return eight (ສັງຄົມ and
+   * ທຳມະຊາດ are split there too since 20 Oct 2026), ມ.4 and ມ.7 eight, ມ.5 and
+   * ມ.6 seven. Derived from the register rather than hard-coded
    * so a grade whose curriculum changes needs a subject row, not a release.
    */
   async findMarkedForGradeLevel(

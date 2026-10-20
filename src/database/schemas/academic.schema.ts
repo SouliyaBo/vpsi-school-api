@@ -268,7 +268,8 @@ SubjectGroupSchema.index({ sortOrder: 1, isActive: 1 });
  * Since 20 Oct 2026 ພາສາລາວ is marked 1 · 1 · 2 · 5, and ພູມສາດ /
  * ສຶກສາພົນລະເມືອງ / ປະຫວັດສາດ 1 · 0 · 3 · 5 at ມ.1–ມ.3, ມ.5 and ມ.6 (no ປື້ມ)
  * and 1 · 1 · 2 · 5 at ມ.4 and ມ.7 — those four subjects are out of 9, which
- * becomes their full mark everywhere (see `fullMarkOf`). A column at 0 means the
+ * becomes their full mark everywhere (see `fullMarkOf`). ຟີຊິກສາດ / ເຄມີສາດ /
+ * ຊີວະສາດ are 1 · 0 · 3 · 6 at ມ.1–ມ.3 only (no ປື້ມ). A column at 0 means the
  * subject is not marked on it,
  * which is not a mark of zero: the form drops the cell and a value sent for it
  * is refused.

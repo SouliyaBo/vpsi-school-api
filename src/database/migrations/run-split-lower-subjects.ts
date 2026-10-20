@@ -3,27 +3,30 @@ import { connect, connection, Types } from 'mongoose';
 
 /**
  * Splits ສັງຄົມ and ທຳມະຊາດ at ມ.1–ມ.3 into the subjects the mark sheet grades,
- * the way they are split at ມ.5 and ມ.6 — and moves the marks already written.
+ * the way they are split at ມ.4 — and moves the marks already written.
  *
  *   npm run migrate:split-lower-subjects -- --dry-run
  *   npm run migrate:split-lower-subjects
  *
- * Asked for by the office on 20 Oct 2026: ສັງຄົມ first, then ທຳມະຊາດ "like ມ.5
- * and ມ.6", which split it into ຟີຊິກສາດ and ເຄມີສາດ with no ຊີວະສາດ. As from
+ * Asked for by the office on 20 Oct 2026: ສັງຄົມ first, then ທຳມະຊາດ into
+ * ຟີຊິກສາດ, ເຄມີສາດ and ຊີວະສາດ (confirmed by the user the same day). As from
  * ມ.4 up it is a split for **marking only**: the two ສາຍວິຊາ stay the subjects
  * that are taught, so teaching assignments, roll call, behaviour notes and the
  * timetable all keep pointing at them, and their teacher is who may mark the
  * subjects under them (see `SubjectsService.markingParentOf`).
  *
  *   before   ມ.1–ມ.3   4 subjects   ພາສາລາວ-ວັນນະຄະດີ · ຄະນິດສາດ · ສັງຄົມ · ທຳມະຊາດ
- *   after    ມ.1–ມ.3   7 subjects   ພາສາລາວ-ວັນນະຄະດີ · ຄະນິດສາດ · ສຶກສາພົນລະເມືອງ ·
- *                                   ຟີຊິກສາດ · ເຄມີສາດ · ພູມສາດ · ປະຫວັດສາດ — ÷ 7
+ *   after    ມ.1–ມ.3   8 subjects   ພາສາລາວ-ວັນນະຄະດີ · ຄະນິດສາດ · ສຶກສາພົນລະເມືອງ ·
+ *                                   ຟີຊິກສາດ · ເຄມີສາດ · ຊີວະສາດ · ພູມສາດ ·
+ *                                   ປະຫວັດສາດ — ÷ 8
  *
  * Each is a full subject — its own ສອບເສັງ, its own ພາກຮຽນ, its own line on the
- * report card — and is marked on the columns its ສາຍວິຊາ was marked on, copied
- * from the parent: ສັງຄົມ's 1 · 0 · 3 · 6, ທຳມະຊາດ's standard 1 · 1 · 2 · 6.
- * `migrate:nine-point-subjects`, run after this, then puts the three social
- * subjects on 9; ຟີຊິກ and ເຄມີ stay out of 10.
+ * report card. The social three are marked on ສັງຄົມ's columns (1 · 0 · 3 · 6,
+ * copied from the parent); `migrate:nine-point-subjects`, run after this, then
+ * puts them on 9. The science three are out of 10 but, **at ມ.1–ມ.3 only**, keep
+ * no ປື້ມ mark: 1 · 0 · 3 · 6 (the office's ruling). ທຳມະຊາດ itself was on the
+ * standard 1 · 1 · 2 · 6, so a ປື້ມ mark already written under it is folded into
+ * ກິດຈະກຳ on the copies — lossless, 2 + 1 = 3, and ລວມ does not move.
  *
  * **The marks already written are copied into every subject of the split, then
  * retired from the ສາຍວິຊາ** (the office's choice: no blank months, teachers
@@ -51,6 +54,8 @@ interface Split {
   children: { code: string; nameLo: string; nameEn: string; sortOrder: number }[];
   /** What the children are marked on should the parent carry no scheme of its own. */
   fallbackColumns: Columns | null;
+  /** What the children are marked on whatever the parent carried. */
+  columns?: Columns;
 }
 
 const SPLITS: Split[] = [
@@ -65,14 +70,15 @@ const SPLITS: Split[] = [
     fallbackColumns: { attendance: 1, notebook: 0, activity: 3, test: 6 },
   },
   {
-    // As at ມ.5 and ມ.6: no ຊີວະສາດ.
     parent: 'N',
     children: [
       { code: 'PHYS', nameLo: 'ຟີຊິກສາດ', nameEn: 'Physics', sortOrder: 4 },
       { code: 'CHEM', nameLo: 'ເຄມີສາດ', nameEn: 'Chemistry', sortOrder: 5 },
+      { code: 'BIO', nameLo: 'ຊີວະສາດ', nameEn: 'Biology', sortOrder: 6 },
     ],
-    // The standard columns, which a subject carries as no override at all.
     fallbackColumns: null,
+    // No ປື້ມ at ມ.1–ມ.3, unlike ທຳມະຊາດ itself and unlike the same subjects at ມ.4 up.
+    columns: { attendance: 1, notebook: 0, activity: 3, test: 6 },
   },
 ];
 
@@ -131,7 +137,7 @@ async function main(): Promise<void> {
         logger.warn(`${parentCode} not found — nothing to split for ${gradeCode}`);
         continue;
       }
-      const columns = parent.monthlyColumnMax ?? split.fallbackColumns;
+      const columns = split.columns ?? parent.monthlyColumnMax ?? split.fallbackColumns;
 
       // ── The subject rows ───────────────────────────────────────────────────
       const childIds: Types.ObjectId[] = [];
@@ -207,6 +213,7 @@ async function main(): Promise<void> {
         let copied = 0;
         let locked = 0;
         let withRemark = 0;
+        let folded = 0;
 
         for (const row of rows) {
           for (const childId of childIds) {
@@ -218,9 +225,12 @@ async function main(): Promise<void> {
               deletedAt: null,
             });
             if (present) continue;
+            const cells = foldNotebook(row, columns);
+            if (cells !== null) folded += 1;
             if (!dryRun) {
               await marks.insertOne({
                 ...row,
+                ...(cells ?? {}),
                 _id: new Types.ObjectId(),
                 subjectId: childId,
                 updatedAt: new Date(),
@@ -246,7 +256,8 @@ async function main(): Promise<void> {
         if (rows.length > 0) {
           logger.log(
             `  ${parentCode} ${collection}: ${rows.length} row(s) → ${copied} copies ` +
-              `(${locked} in a submitted month, ${withRemark} with ເຫດຜົນ), originals retired`,
+              `(${locked} in a submitted month, ${withRemark} with ເຫດຜົນ, ` +
+              `${folded} with ປື້ມ folded into ກິດຈະກຳ), originals retired`,
           );
         }
       }
@@ -293,6 +304,23 @@ async function main(): Promise<void> {
   }
 
   await connection.close();
+}
+
+/**
+ * A monthly row's ປື້ມ moved into ກິດຈະກຳ, for a subject that keeps no ປື້ມ.
+ *
+ * `null` when there is nothing to move: a term-mark row, a subject that keeps
+ * ປື້ມ, or a row with no ປື້ມ written. A row with ປື້ມ but no ກິດຈະກຳ gets a
+ * ກິດຈະກຳ mark — the blank was already counting as zero in ລວມ.
+ */
+function foldNotebook(
+  row: MarkRow,
+  columns: Columns | null,
+): { notebook: null; activity: number } | null {
+  const notebook = row.notebook;
+  if (!columns || columns.notebook !== 0 || typeof notebook !== 'number') return null;
+  const activity = typeof row.activity === 'number' ? row.activity : 0;
+  return { notebook: null, activity: Math.min(columns.activity, activity + notebook) };
 }
 
 main().catch((error: unknown) => {
