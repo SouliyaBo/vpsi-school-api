@@ -18,6 +18,9 @@ import { connect, connection, Types } from 'mongoose';
  *   ມ.4, ມ.7  8 subjects   + ຟີຊິກ · ເຄມີ · ຊີວະ · ສຶກສາພົນລະເມືອງ · ພູມ · ປະຫວັດ
  *   ມ.5, ມ.6  7 subjects   the same without ຊີວະສາດ
  *
+ * (ມ.1–ມ.3 have since been split like ມ.5 and ມ.6, by `migrate:split-lower-subjects`,
+ * and now mark 7 — that script also moves the marks already written.)
+ *
  * The parents are kept, not deleted: 79 teaching assignments, every attendance
  * row and every behaviour note point at them, and they are still the four
  * subjects the timetable runs on. `parentSubjectId` is what marks them as

@@ -14,6 +14,7 @@ import {
 } from 'src/database/schemas';
 import { MonthlyMarksModule } from '../monthly-marks/monthly-marks.module';
 import { SemestersModule } from '../semesters/semesters.module';
+import { SubjectsModule } from '../subjects/subjects.module';
 import { ExamPapersController } from './exam-papers.controller';
 import { ExamPapersService } from './exam-papers.service';
 import { AnswerSheetRenderer } from './print/answer-sheet.renderer';
@@ -40,6 +41,8 @@ import { ExamPaperRenderer } from './print/exam-paper.renderer';
     // ExamPapersService.pushToMonthlyMarks — so its module comes along.
     MonthlyMarksModule,
     SemestersModule,
+    // Which marked subject a paper for a split ສາຍວິຊາ sends its points to.
+    SubjectsModule,
   ],
   controllers: [ExamPapersController],
   providers: [ExamPapersService, ExamPaperRenderer, ExamPaperDocxWriter, AnswerSheetRenderer],

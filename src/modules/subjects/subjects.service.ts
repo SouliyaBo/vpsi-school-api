@@ -112,9 +112,10 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
    * and either the two composite ສາຍວິຊາ or, from ມ.4 up, the subjects they split
    * into.
    *
-   * This is the divisor the school averages by: ມ.1–ມ.3 return four, ມ.4 and ມ.7
-   * eight, ມ.5 and ມ.6 seven. Derived from the register rather than hard-coded so
-   * a grade whose curriculum changes needs a subject row, not a release.
+   * This is the divisor the school averages by: ມ.1–ມ.3 return seven (ສັງຄົມ and
+   * ທຳມະຊາດ are split there too since 20 Oct 2026, as at ມ.5–ມ.6), ມ.4 and ມ.7
+   * eight, ມ.5 and ມ.6 seven. Derived from the register rather than hard-coded
+   * so a grade whose curriculum changes needs a subject row, not a release.
    */
   async findMarkedForGradeLevel(
     gradeLevelId: string | Types.ObjectId,
@@ -131,6 +132,23 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
       .sort({ sortOrder: 1, code: 1 })
       .session(session ?? null)
       .exec();
+  }
+
+  /**
+   * What a mark filed under this subject can be recorded against: the subjects
+   * it splits into, in sheet order, or the subject itself when it is not split.
+   *
+   * For whatever is kept against the *taught* subject but ends up as a mark — an
+   * exam paper is written for ສັງຄົມ, its points go to ພູມສາດ or ປະຫວັດສາດ.
+   */
+  async findMarkedUnder(subject: Pick<SubjectDocument, '_id'>): Promise<SubjectDocument[]> {
+    const children = await this.model
+      .find({ parentSubjectId: subject._id, isActive: true, deletedAt: null })
+      .sort({ sortOrder: 1, code: 1 })
+      .exec();
+    if (children.length > 0) return children;
+    const self = await this.model.findOne({ _id: subject._id, deletedAt: null }).exec();
+    return self ? [self] : [];
   }
 
   /**
@@ -200,11 +218,11 @@ export class SubjectsService extends BaseCrudService<SubjectDocument> {
   /**
    * A subject's own monthly maxima have to be a whole, usable scheme.
    *
-   * The four columns must still total 10, because ສະເລ່ຍ, 3 ເດືອນ, ພາກຮຽນ, the
-   * class summary's average and every band and letter above them read a month on
-   * that scale — ພູມສາດ out of 9 would sit on the report card beside ຄະນິດສາດ as
-   * a subject its whole class had done worse at. Refused rather than corrected:
-   * a scheme the office half-typed is not one it meant.
+   * The four columns must total more than 0 and at most 10. Their sum is the
+   * subject's full mark (10, or 9 for ພາສາລາວ and the social subjects since
+   * 20 Oct 2026), which its exam, its term cap, its grade and its pass line all
+   * follow. Refused rather than corrected: a scheme the office half-typed is not
+   * one it meant.
    */
   private assertColumnMaxUsable(columnMax: CreateSubjectDto['monthlyColumnMax']): void {
     if (columnMax && !isColumnMaxUsable(columnMax)) {

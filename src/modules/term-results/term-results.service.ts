@@ -19,7 +19,7 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { AttendancesService } from '../attendances/attendances.service';
 import { ConductScoresService } from '../conduct-scores/conduct-scores.service';
-import { LAO_MONTHS, MARK_MAX as MONTHLY_MARK_MAX } from '../monthly-marks/monthly-grading';
+import { LAO_MONTHS } from '../monthly-marks/monthly-grading';
 import {
   MonthlyMarksService,
   type MonthlySubjectMark,
@@ -249,7 +249,7 @@ export class TermResultsService {
      * How many subjects this grade is marked in — the divisor for the average.
      *
      * The school adds the subject marks up and divides by the number of subjects
-     * the grade sits: 4 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and ມ.6. Read from
+     * the grade sits: 7 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and ມ.6. Read from
      * the register once for the class rather than inferred per student, so a
      * student missing a subject reads as short of it rather than as complete.
      */
@@ -651,7 +651,11 @@ export class TermResultsService {
     const outcome = computeSubjectFromMark(mark.mark, mark.isComplete, {
       scale,
       passingPercentage: subject.passingPercentage ?? defaultPassing,
+      fullMark: mark.fullMark,
     });
+    // Each month and the exam are out of what the subject is — 9 for the
+    // subjects whose ກວດກາ is out of 5.
+    const outOf = mark.fullMark;
 
     const monthWeight = mark.monthScores.length > 0 ? round2(50 / mark.monthScores.length) : 0;
     const components = [
@@ -659,17 +663,17 @@ export class TermResultsService {
         componentId: null,
         nameLo: LAO_MONTHS[month.month] ?? String(month.month),
         score: month.score,
-        maxScore: MONTHLY_MARK_MAX,
+        maxScore: outOf,
         weight: monthWeight,
-        weightedScore: round2(((month.score ?? 0) / MONTHLY_MARK_MAX) * monthWeight),
+        weightedScore: round2(((month.score ?? 0) / outOf) * monthWeight),
       })),
       {
         componentId: null,
         nameLo: EXAM_LABEL_LO,
         score: mark.examScore,
-        maxScore: MONTHLY_MARK_MAX,
+        maxScore: outOf,
         weight: 50,
-        weightedScore: round2(((mark.examScore ?? 0) / MONTHLY_MARK_MAX) * 50),
+        weightedScore: round2(((mark.examScore ?? 0) / outOf) * 50),
       },
       ...(mark.bonus
         ? [
@@ -677,7 +681,7 @@ export class TermResultsService {
               componentId: null,
               nameLo: BONUS_LABEL_LO,
               score: mark.bonus,
-              maxScore: MONTHLY_MARK_MAX,
+              maxScore: outOf,
               weight: 0,
               weightedScore: round2(mark.bonus * 10),
             },

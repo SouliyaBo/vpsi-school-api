@@ -20,7 +20,15 @@ import { round2 } from '../term-results/grading';
  *     the three-month average; rounding is a display decision only. The other
  *     variant (round `ລວມ` to a whole number first) cost ສີວິໄຊ the pass mark —
  *     5.67 instead of 5.98 — which is the difference between ຕົກ and ຜ່ານ.
- *  2. **`ເພີ່ມ` is added to ພາກຮຽນ and the result is capped at 10.**
+ *  2. **`ເພີ່ມ` is added to ພາກຮຽນ and the result is capped at the subject's full
+ *     mark** — 10, or 9 for the subjects whose ກວດກາ is out of 5.
+ *
+ * Most subjects are out of 10. Since 20 Oct 2026 ພາສາລາວ, ປະຫວັດສາດ,
+ * ສຶກສາພົນລະເມືອງ and ພູມສາດ are out of **9** (ກວດກາ 5), and so is their
+ * ສອບເສັງ: the office's ruling is that these subjects never reach 10. Their
+ * marks are kept as they are — a 9/9 reads 9, not 10 — but their ເກຣດ and
+ * ຜ່ານ/ຕົກ are judged on the share of 9 (pass at 4.5, A from 7.65). See
+ * `fullMarkOf`, `passingMarkFor` and `shareOf`.
  */
 
 /** The four columns of the monthly form, with the marks each is out of. */
@@ -38,11 +46,16 @@ export const COLUMN_MAX: Readonly<Record<MonthlyColumn, number>> = {
 /**
  * One subject's own column maxima, where the school marks it differently.
  *
- * ສັງຄົມ takes no ປື້ມ mark: the notebook column is not kept at all and its point
- * goes to ກິດຈະກຳ — ຂື້ນຫ້ອງ 1 · ກິດຈະກຳ 3 · ກວດກາ 6. That is the ສາຍວິຊາ itself
- * at ມ.1–ມ.3, where it is marked as one subject, and ພູມສາດ, ສຶກສາພົນລະເມືອງ and
- * ປະຫວັດສາດ each on their own at ມ.5 and ມ.6; at ມ.4 and ມ.7 the school marks the
- * three like everything else, on 1 / 1 / 2 / 6.
+ * Since 20 Oct 2026 (office's ruling):
+ *
+ *   ພາສາລາວ, every grade                                 1 / 1 / 2 / 5  → 9
+ *   ປະຫວັດສາດ · ສຶກສາພົນລະເມືອງ · ພູມສາດ, ມ.1–ມ.3, ມ.5, ມ.6  1 / 0 / 3 / 5  → 9  (no ປື້ມ)
+ *   the same three at ມ.4, ມ.7                           1 / 1 / 2 / 5  → 9
+ *   everything else                                     1 / 1 / 2 / 6  → 10
+ *
+ * ພູມສາດ, ສຶກສາພົນລະເມືອງ and ປະຫວັດສາດ were split out of ສັງຄົມ at ມ.1–ມ.3 on the
+ * same day, and ຟີຊິກສາດ and ເຄມີສາດ out of ທຳມະຊາດ (on the standard 1 / 1 / 2 / 6);
+ * until then both ສາຍວິຊາ were marked as one subject there.
  *
  * Held per subject rather than as a rule about names and grades, because the
  * subject rows already exist one per grade — which is the only reason the same
@@ -58,11 +71,11 @@ export type ColumnMaxOverride = Partial<Record<MonthlyColumn, number>>;
 /**
  * Whether an override may be stored against a subject.
  *
- * The four columns must still total 10. Everything above a month — ສະເລ່ຍ,
- * 3 ເດືອນ, ພາກຮຽນ, ໝົດປີ, the class summary's average, every band and letter —
- * reads a month on that scale, and a subject marked out of 9 would sit beside
- * the others as one its whole class had done worse at. Refused whole rather than
- * partly applied, for the reason the band cuts are.
+ * The four columns may total anything above 0 up to 10. Until 20 Oct 2026 they
+ * had to come to exactly 10; the office then put four subjects on 9, which is
+ * now carried through as the subject's full mark (`fullMarkOf`) — its exam, the
+ * cap on its term mark, and the share its grade and pass are judged on. Refused
+ * whole rather than partly applied, for the reason the band cuts are.
  */
 export function isColumnMaxUsable(override: ColumnMaxOverride | null | undefined): boolean {
   if (!override) return false;
@@ -73,7 +86,31 @@ export function isColumnMaxUsable(override: ColumnMaxOverride | null | undefined
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return false;
     values.push(value);
   }
-  return round2(values.reduce((sum, value) => sum + value, 0)) === MARK_MAX;
+  const total = round2(values.reduce((sum, value) => sum + value, 0));
+  return total > 0 && total <= MARK_MAX;
+}
+
+/**
+ * What a subject is out of — a month, its ສອບເສັງ, its term and its year alike:
+ * the sum of its columns, so 10 for most subjects and 9 where ກວດກາ is out of 5.
+ */
+export function fullMarkOf(max: Readonly<Record<MonthlyColumn, number>>): number {
+  return round2(MONTHLY_COLUMNS.reduce((sum, column) => sum + max[column], 0));
+}
+
+/**
+ * ຜ່ານ for a subject out of `fullMark`: the same half of it — 5 of 10, 4.5 of 9.
+ *
+ * The office's ruling for the 9-point subjects (20 Oct 2026) is that pass and
+ * grade are a share of 9, not a mark out of 10 they could never fully reach.
+ */
+export function passingMarkFor(fullMark: number = MARK_MAX): number {
+  return round2((fullMark * PASSING_MARK) / MARK_MAX);
+}
+
+/** A mark as a percentage of what its subject is out of — what a ເກຣດ is banded on. */
+export function shareOf(mark: number, fullMark: number = MARK_MAX): number {
+  return fullMark <= 0 ? 0 : round2((mark / fullMark) * 100);
 }
 
 /** The maxima to mark a subject on: its own where it has usable ones, else the school's. */
@@ -186,7 +223,7 @@ export interface Derived {
 }
 
 /**
- * `ລວມ` — the month's total out of 10.
+ * `ລວມ` — the month's total, out of the subject's full mark (10, or 9).
  *
  * A blank cell counts as zero, matching the paper: a student with no ປື້ມ mark
  * scored nothing for their notebook that month. A month with all four cells
@@ -251,7 +288,7 @@ export function monthScore(strandTotals: (number | null)[], expectedStrands: num
  * ສະເລ່ຍ across a month's **subjects** — the class summary's average.
  *
  * The school's rule in its own words: add the subject marks up and divide by the
- * number of subjects the grade sits — 4 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and
+ * number of subjects the grade sits — 7 at ມ.1–ມ.3, 8 at ມ.4 and ມ.7, 7 at ມ.5 and
  * ມ.6. Not `meanOf`, which divides by what has been written: a student marked in
  * three of eight subjects has three eighths of a month, and showing the mean of
  * the three would read as a finished month five subjects short.
@@ -279,8 +316,8 @@ export function threeMonthAverage(monthScores: (number | null)[], expectedMonths
  * `ພາກຮຽນ` — the term mark.
  *
  * Monthly work and the semester exam count half each, then `ເພີ່ມ` is added on
- * top and the whole thing is capped at 10: a bonus can lift a mark to full but
- * not past it.
+ * top and the whole thing is capped at the subject's full mark (10, or 9): a
+ * bonus can lift a mark to full but not past it.
  *
  * Both halves are required. Showing a term mark before the exam is sat would
  * publish a number that is going to move, so it stays `null` and the sheet shows
@@ -290,10 +327,11 @@ export function semesterScore(
   threeMonth: number | null,
   exam: number | null,
   bonus: number | null = null,
+  fullMark: number = MARK_MAX,
 ): Derived {
   if (threeMonth === null || exam === null) return { value: null, isComplete: false };
   return {
-    value: round2(Math.min(MARK_MAX, (threeMonth + exam) / 2 + (bonus ?? 0))),
+    value: round2(Math.min(fullMark, (threeMonth + exam) / 2 + (bonus ?? 0))),
     isComplete: true,
   };
 }
@@ -304,9 +342,14 @@ export function annualScore(first: number | null, second: number | null): Derive
   return { value: round2((first + second) / 2), isComplete: true };
 }
 
-/** ຜ່ານ / ຕົກ. An unmarked figure is neither, so it is not a failure. */
-export function isPassing(value: number | null): boolean | null {
-  return value === null ? null : value >= PASSING_MARK;
+/**
+ * ຜ່ານ / ຕົກ. An unmarked figure is neither, so it is not a failure.
+ *
+ * `fullMark` is the subject's, for a subject mark; an average across subjects is
+ * judged on 10, the school's own rule for the month and the term.
+ */
+export function isPassing(value: number | null, fullMark: number = MARK_MAX): boolean | null {
+  return value === null ? null : value >= passingMarkFor(fullMark);
 }
 
 /** The months a semester collects, honouring an override from settings. */

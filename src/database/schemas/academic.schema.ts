@@ -265,17 +265,18 @@ SubjectGroupSchema.index({ sortOrder: 1, isActive: 1 });
  * One subject's own maxima on the monthly mark sheet, where the school marks it
  * differently from the standard ຂື້ນຫ້ອງ 1 · ປື້ມ 1 · ກິດຈະກຳ 2 · ກວດກາ 6.
  *
- * ສັງຄົມ keeps no ປື້ມ — that column is not taken at all and its point goes to
- * ກິດຈະກຳ, so it is marked 1 · 0 · 3 · 6. That is the ສາຍວິຊາ itself at ມ.1–ມ.3,
- * and ພູມສາດ / ສຶກສາພົນລະເມືອງ / ປະຫວັດສາດ each on their own at ມ.5 and ມ.6; at
- * ມ.4 and ມ.7 they are marked like every other subject. A column at 0 means the
+ * Since 20 Oct 2026 ພາສາລາວ is marked 1 · 1 · 2 · 5, and ພູມສາດ /
+ * ສຶກສາພົນລະເມືອງ / ປະຫວັດສາດ 1 · 0 · 3 · 5 at ມ.1–ມ.3, ມ.5 and ມ.6 (no ປື້ມ)
+ * and 1 · 1 · 2 · 5 at ມ.4 and ມ.7 — those four subjects are out of 9, which
+ * becomes their full mark everywhere (see `fullMarkOf`). A column at 0 means the
  * subject is not marked on it,
  * which is not a mark of zero: the form drops the cell and a value sent for it
  * is refused.
  *
  * All four are required so a stored override is always a whole scheme, and they
- * must total 10 — `isColumnMaxUsable` in `monthly-marks/monthly-grading.ts` is
- * the rule, and the subjects service refuses a save that breaks it.
+ * must total more than 0 and at most 10 — `isColumnMaxUsable` in
+ * `monthly-marks/monthly-grading.ts` is the rule, and the subjects service
+ * refuses a save that breaks it.
  */
 @Schema({ _id: false })
 export class MonthlyColumnMax {
@@ -338,7 +339,7 @@ export class Subject extends SoftDeletableDocument {
    * So a subject is one of two things, and this field is what tells them apart:
    *
    *  - `null` and nothing points at it — an ordinary subject: taught *and*
-   *    marked (ພາສາລາວ, ຄະນິດສາດ at every grade; all four at ມ.1–ມ.3).
+   *    marked (ພາສາລາວ and ຄະນິດສາດ, at every grade).
    *  - `null` but children point at it — a **split parent**: taught, assigned
    *    and registered against, but never marked. Its children carry the marks.
    *  - set — a **marked subject**: it appears on the mark sheet and the report

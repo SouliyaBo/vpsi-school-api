@@ -7,10 +7,12 @@ import { ConductGrade, Grade } from 'src/common/constants/enums';
  * result can always be traced to the rules that produced it. Without it, a
  * change to the grade boundaries would silently make old records unexplainable.
  */
-export const COMPUTATION_VERSION = 3;
+export const COMPUTATION_VERSION = 4;
 // 2 — the term average became an equal-weight mean over the subjects the grade
 //     sits, replacing the credit-weighted mean. See `computeTermResult`.
 // 3 — the grade scale became the school's own A–F, with an E and no `+` bands.
+// 4 — a subject out of 9 (ພາສາລາວ, ປະຫວັດສາດ, ສຶກສາພົນລະເມືອງ, ພູມສາດ) is
+//     graded and passed on its share of 9. See `computeSubjectFromMark`.
 
 export interface GradeBand {
   grade: Grade;
@@ -161,24 +163,38 @@ export function computeSubjectResult(
  * A subject still waiting on a month or on the exam has no mark yet. It comes back
  * as zero *and* incomplete — never as a fail — which is what holds the whole term
  * result back from publication.
+ *
+ * `fullMark` is what the subject itself is out of, when that is less than the
+ * sheet's 10: ພາສາລາວ and the three social subjects are out of 9. The stored
+ * percentage stays on the sheet's scale — a 9 is 90, so the report card prints
+ * the 9 the teacher wrote and the term average is the plain mean of the marks the
+ * school adds up — while the letter and the pass are read off the share of 9, as
+ * the office ruled (20 Oct 2026): 4.5 of 9 passes, 7.65 of 9 is an A.
  */
 export function computeSubjectFromMark(
   mark: number | null,
   isComplete: boolean,
-  options: { scale?: readonly GradeBand[]; passingPercentage?: number; markMax?: number } = {},
+  options: {
+    scale?: readonly GradeBand[];
+    passingPercentage?: number;
+    markMax?: number;
+    fullMark?: number;
+  } = {},
 ): Omit<SubjectComputation, 'components'> {
   const scale = options.scale ?? DEFAULT_GRADE_SCALE;
   const passingPercentage = options.passingPercentage ?? DEFAULT_PASSING_PERCENTAGE;
   const markMax = options.markMax ?? 10;
+  const fullMark = options.fullMark ?? markMax;
 
   const percentage = mark === null || markMax <= 0 ? 0 : round2((mark / markMax) * 100);
-  const band = gradeFor(percentage, scale);
+  const share = mark === null || fullMark <= 0 ? 0 : round2((mark / fullMark) * 100);
+  const band = gradeFor(share, scale);
 
   return {
     percentage,
     grade: band.grade,
     gradePoint: band.gradePoint,
-    isPassed: mark !== null && percentage >= passingPercentage,
+    isPassed: mark !== null && share >= passingPercentage,
     isIncomplete: !isComplete || mark === null,
   };
 }

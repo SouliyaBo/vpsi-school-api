@@ -21,13 +21,15 @@ import {
   ExamScan,
   ExamScanDocument,
   SemesterDocument,
+  SubjectDocument,
 } from 'src/database/schemas';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
-import { COLUMN_MAX, monthsForSemester } from '../monthly-marks/monthly-grading';
+import { columnMaxFor, monthsForSemester } from '../monthly-marks/monthly-grading';
 import { MonthlyMarksService } from '../monthly-marks/monthly-marks.service';
 import { SemestersService } from '../semesters/semesters.service';
 import { SettingsService } from '../settings/settings.service';
 import { StorageService } from '../storage/storage.service';
+import { SubjectsService } from '../subjects/subjects.service';
 import { DocxNotAWordFileError, ParsedExam, parseExamDocx } from './docx-exam.parser';
 import {
   AnswerSheetsQueryDto,
@@ -116,6 +118,7 @@ export class ExamPapersService {
     private readonly answerSheets: AnswerSheetRenderer,
     private readonly monthlyMarks: MonthlyMarksService,
     private readonly semesters: SemestersService,
+    private readonly subjects: SubjectsService,
   ) {}
 
   // ── Reads ─────────────────────────────────────────────────────────────────
@@ -727,6 +730,7 @@ export class ExamPapersService {
 
     const semester = await this.semesterOf(paper);
     const subject = paper.subjectId as unknown as { _id: Types.ObjectId; nameLo: string } | null;
+    const markedSubjects = subject ? await this.subjects.findMarkedUnder(subject) : [];
 
     return {
       classroom: { id: String(classroom._id), name: classroom.name },
@@ -734,6 +738,14 @@ export class ExamPapersService {
       // Where the points can go: the ກວດກາ column of one of this term's months.
       monthly: {
         subject: subject ? { id: String(subject._id), nameLo: subject.nameLo } : null,
+        // The subjects the points can be sent to: more than one where the
+        // paper's subject is split, and then the teacher picks.
+        markedSubjects: markedSubjects.map((marked) => ({
+          id: String(marked._id),
+          nameLo: marked.nameLo,
+          // ກວດກາ is out of 5 for the 9-point subjects, 6 for the rest.
+          testMax: columnMaxFor(marked.monthlyColumnMax).test,
+        })),
         semester: semester
           ? { id: String(semester._id), nameLo: semester.nameLo, number: semester.number }
           : null,
@@ -743,7 +755,11 @@ export class ExamPapersService {
               await this.settings.getValue<Record<string, number[]>>('grading.semesterMonths'),
             )
           : [],
-        testMax: COLUMN_MAX.test,
+        // The most any of them takes; the card checks the one picked.
+        testMax: Math.max(
+          ...markedSubjects.map((marked) => columnMaxFor(marked.monthlyColumnMax).test),
+          0,
+        ),
       },
       questionCount: paper.questions.length,
       optionLabelStyle: paper.optionLabelStyle,
@@ -895,8 +911,12 @@ export class ExamPapersService {
     const paper = await this.load(id, actor);
     const subject = paper.subjectId as unknown as { _id: Types.ObjectId } | null;
     if (!subject) throw AppException.badRequest('examPaper.subjectRequired');
-    if ((paper.totalPoints ?? 0) > COLUMN_MAX.test) {
-      throw AppException.badRequest('examPaper.pointsExceedTest', { max: COLUMN_MAX.test });
+    const target = await this.markedTarget(subject, dto.subjectId);
+    // What ກວດກາ is out of in the subject the points go to — 5 for ພາສາລາວ and
+    // the social subjects, 6 for the rest.
+    const testMax = columnMaxFor(target.monthlyColumnMax).test;
+    if ((paper.totalPoints ?? 0) > testMax) {
+      throw AppException.badRequest('examPaper.pointsExceedTest', { max: testMax });
     }
     const classroomId =
       dto.classroomId ?? (paper.classroomId ? String(refIdOf(paper.classroomId)) : null);
@@ -918,19 +938,48 @@ export class ExamPapersService {
 
     return this.monthlyMarks.saveMonthGrid(
       {
-        subjectId: String(subject._id),
+        subjectId: String(target._id),
         classroomId,
         semesterId: String(semester._id),
         month: dto.month,
         overrideReason: dto.overrideReason,
         entries: sheets.map((sheet) => ({
           studentId: String(sheet.studentId),
-          test: Math.min(COLUMN_MAX.test, sheet.points ?? 0),
+          test: Math.min(testMax, sheet.points ?? 0),
         })),
       },
       actor,
       ip,
     );
+  }
+
+  /**
+   * Which subject's ກວດກາ column the points go to.
+   *
+   * A paper is written for the subject taught — ສັງຄົມ, ທຳມະຊາດ — but where that
+   * subject is split, the marks are kept against the subjects it splits into, so
+   * the teacher names one. Unsplit, the paper's own subject is the only choice
+   * and needs no naming.
+   */
+  private async markedTarget(
+    subject: { _id: Types.ObjectId },
+    requested: string | undefined,
+  ): Promise<Pick<SubjectDocument, '_id' | 'monthlyColumnMax'>> {
+    const choices = await this.subjects.findMarkedUnder(subject);
+    if (requested) {
+      const chosen = choices.find((choice) => String(choice._id) === requested);
+      if (!chosen) {
+        throw AppException.badRequest('common.validationFailed', {
+          field: 'subjectId',
+          reason: 'not the paper’s subject nor one marked under it',
+        });
+      }
+      return chosen;
+    }
+    if (choices.length > 1) throw AppException.badRequest('examPaper.markedSubjectRequired');
+    const only = choices[0];
+    if (!only) throw AppException.notFound();
+    return only;
   }
 
   /** The paper's term, or the one running. */

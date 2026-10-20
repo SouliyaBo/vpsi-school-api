@@ -16,6 +16,13 @@ import {
 } from 'class-validator';
 import { MARK_MAX } from '../monthly-grading';
 
+/**
+ * A mark is typed to two decimal places at most — the office's rule since 20 Oct
+ * 2026 (it was one). The admin's input stops at the second digit; this is the
+ * same bound for anything else that writes a sheet.
+ */
+const TYPED_TO = { maxDecimalPlaces: 2 };
+
 /** Which sheet is being looked at: one subject, in one class, for one term. */
 export class SheetQueryDto {
   @ApiProperty()
@@ -121,28 +128,28 @@ export class MonthlyMarkEntryDto {
   studentId: string;
 
   @ApiPropertyOptional({ description: 'ຂື້ນຫ້ອງ — out of 1 under the usual scheme', example: 1 })
-  @IsNumber()
+  @IsNumber(TYPED_TO)
   @Min(0)
   @Max(MARK_MAX)
   @IsOptional()
   attendance?: number | null;
 
   @ApiPropertyOptional({ description: 'ປື້ມ — out of 1, and not marked at all for ສັງຄົມ' })
-  @IsNumber()
+  @IsNumber(TYPED_TO)
   @Min(0)
   @Max(MARK_MAX)
   @IsOptional()
   notebook?: number | null;
 
   @ApiPropertyOptional({ description: 'ກິດຈະກຳ — out of 2, or 3 where ປື້ມ is not marked' })
-  @IsNumber()
+  @IsNumber(TYPED_TO)
   @Min(0)
   @Max(MARK_MAX)
   @IsOptional()
   activity?: number | null;
 
   @ApiPropertyOptional({ description: 'ກວດກາ — out of 6' })
-  @IsNumber()
+  @IsNumber(TYPED_TO)
   @Min(0)
   @Max(MARK_MAX)
   @IsOptional()
@@ -204,14 +211,14 @@ export class TermMarkEntryDto {
   studentId: string;
 
   @ApiPropertyOptional({ description: 'ສອບເສັງພາກ, out of 10. Zero is a mark; null is unsat.' })
-  @IsNumber()
+  @IsNumber(TYPED_TO)
   @Min(0)
   @Max(10)
   @IsOptional()
   examScore?: number | null;
 
   @ApiPropertyOptional({ description: 'ເພີ່ມ — added to the term mark, which caps at 10' })
-  @IsNumber()
+  @IsNumber(TYPED_TO)
   @Min(0)
   @Max(10)
   @IsOptional()

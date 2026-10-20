@@ -192,8 +192,8 @@ export const MESSAGES = {
     en: 'This subject is not marked on that column',
   },
   'score.columnMaxInvalid': {
-    lo: 'ຄະແນນເຕັມທັງ 4 ຊ່ອງຕ້ອງລວມກັນເທົ່າກັບ 10',
-    en: "The four monthly columns' maximum marks must total 10",
+    lo: 'ຄະແນນເຕັມທັງ 4 ຊ່ອງຕ້ອງລວມກັນບໍ່ເກີນ 10',
+    en: "The four monthly columns' maximum marks must total no more than 10",
   },
 
   // ── Teacher departure (ການສົ່ງມອບການສອນ) ───────────────────────────────────
@@ -452,6 +452,10 @@ export const MESSAGES = {
   'examPaper.subjectRequired': {
     lo: 'ກະລຸນາລະບຸວິຊາຂອງບົດສອບກ່ອນ ຈຶ່ງສົ່ງຄະແນນເຂົ້າຄະແນນປະຈຳເດືອນໄດ້',
     en: 'Set the paper’s subject before sending marks to the monthly sheet',
+  },
+  'examPaper.markedSubjectRequired': {
+    lo: 'ວິຊາຂອງບົດສອບນີ້ໃຫ້ຄະແນນແຍກເປັນຫຼາຍວິຊາ — ກະລຸນາເລືອກວິຊາທີ່ຈະສົ່ງຄະແນນເຂົ້າ',
+    en: 'This paper’s subject is marked as several subjects — choose which one the marks go to',
   },
   'examPaper.pointsExceedTest': {
     lo: 'ຄະແນນເຕັມຂອງບົດສອບເກີນຊ່ອງ ກວດກາ ({{max}} ຄະແນນ) — ຕັ້ງຄະແນນເຕັມບໍ່ເກີນ {{max}}',

@@ -43,8 +43,8 @@ import {
   annualScore,
   classifyMonth,
   columnMaxFor,
+  fullMarkOf,
   markedColumns,
-  MARK_MAX,
   EMPTY_CELLS,
   isPassing,
   isWithinMax,
@@ -54,6 +54,7 @@ import {
   monthsForSemester,
   monthTotal,
   semesterScore,
+  shareOf,
   threeMonthAverage,
   type MonthCells,
   type MonthlyBandCuts,
@@ -108,6 +109,8 @@ export interface MonthlySubjectMark {
   bonus: number | null;
   /** ພາກຮຽນ — `null` until the months and the exam are both in. */
   mark: number | null;
+  /** What the subject is out of — 10, or 9 where ກວດກາ is out of 5. */
+  fullMark: number;
   isComplete: boolean;
 }
 
@@ -288,6 +291,7 @@ export class MonthlyMarksService {
     const { subject, classroom, semester } = await this.resolveContext(query);
     const strands = this.strandsOf(subject);
     const months = await this.monthsFor(semester.number);
+    const fullMark = fullMarkFor(subject);
 
     const [roster, marks, termMarks] = await Promise.all([
       this.loadRoster(classroom._id, [subject._id], semester._id),
@@ -336,7 +340,12 @@ export class MonthlyMarksService {
         months.length,
       );
       const term = termByStudent.get(student.studentId);
-      const mark = semesterScore(threeMonth.value, term?.examScore ?? null, term?.bonus ?? null);
+      const mark = semesterScore(
+        threeMonth.value,
+        term?.examScore ?? null,
+        term?.bonus ?? null,
+        fullMark,
+      );
 
       return {
         ...student,
@@ -346,7 +355,7 @@ export class MonthlyMarksService {
         examScore: term?.examScore ?? null,
         bonus: term?.bonus ?? null,
         semesterMark: mark.value,
-        isPassing: isPassing(mark.value),
+        isPassing: isPassing(mark.value, fullMark),
       };
     });
 
@@ -373,6 +382,7 @@ export class MonthlyMarksService {
     await this.assertCanEdit(actor, subject, classroom._id, semester._id);
 
     const enrolled = await this.enrolledIds(classroom._id);
+    const fullMark = fullMarkFor(subject);
     const result: SaveMarksResultDto = { saved: 0, skipped: 0, errors: [] };
     const touched: string[] = [];
 
@@ -387,6 +397,17 @@ export class MonthlyMarksService {
         const patch: Record<string, number | null> = {};
         if ('examScore' in entry) patch.examScore = entry.examScore ?? null;
         if ('bonus' in entry) patch.bonus = entry.bonus ?? null;
+        // ສອບເສັງ is out of what the subject is — 9 for the subjects whose
+        // months are, which the DTO's bound of 10 cannot know.
+        for (const [column, value] of Object.entries(patch)) {
+          if (value !== null && value > fullMark) {
+            throw AppException.badRequest('score.exceedsMax', {
+              column,
+              value,
+              maxScore: fullMark,
+            });
+          }
+        }
         if (Object.keys(patch).length === 0) {
           result.skipped += 1;
           continue;
@@ -521,6 +542,7 @@ export class MonthlyMarksService {
       }
     });
 
+    const fullMark = fullMarkFor(subject as SubjectDocument);
     const rows = [...byStudent.entries()].map(([studentId, entry]) => {
       const annual = annualScore(entry.marks[0] ?? null, entry.marks[1] ?? null);
       return {
@@ -532,7 +554,7 @@ export class MonthlyMarksService {
         isEnrolled: entry.isEnrolled,
         semesterMarks: entry.marks,
         annual: annual.value,
-        isPassing: isPassing(annual.value),
+        isPassing: isPassing(annual.value, fullMark),
       };
     });
 
@@ -655,6 +677,9 @@ export class MonthlyMarksService {
         this.strandsOf(subject as SubjectDocument),
       ]),
     );
+    const fullMarkBySubject = new Map(
+      subjects.map((subject) => [subject._id.toString(), fullMarkFor(subject as SubjectDocument)]),
+    );
 
     /** studentId → subjectId → month → strand → cells. */
     const cells = new Map<string, Map<string, Map<number, Map<string, MonthCells>>>>();
@@ -708,7 +733,13 @@ export class MonthlyMarksService {
           months.length,
         );
         const term = termByKey.get(`${student}|${subjectId}`);
-        const mark = semesterScore(threeMonth.value, term?.examScore ?? null, term?.bonus ?? null);
+        const fullMark = fullMarkBySubject.get(subjectId) ?? fullMarkOf(columnMaxFor(null));
+        const mark = semesterScore(
+          threeMonth.value,
+          term?.examScore ?? null,
+          term?.bonus ?? null,
+          fullMark,
+        );
 
         rows.push({
           subjectId,
@@ -718,6 +749,7 @@ export class MonthlyMarksService {
           examScore: term?.examScore ?? null,
           bonus: term?.bonus ?? null,
           mark: mark.value,
+          fullMark,
           // Complete means every month is in *and* the exam has been sat: the
           // term mark is half the exam, so a missing one is not a detail.
           isComplete: threeMonth.isComplete && mark.isComplete,
@@ -736,7 +768,7 @@ export class MonthlyMarksService {
    * The per-subject sheets can each answer "how did this class do in ຄະນິດສາດ in
    * ຕຸລາ"; none of them can answer "how did this student do in ຕຸລາ", which is
    * the question the school asks at the end of every month and the one it ranks
-   * on. The columns are the subjects the *grade* is marked in — four at ມ.1–ມ.3,
+   * on. The columns are the subjects the *grade* is marked in — seven at ມ.1–ມ.3,
    * eight at ມ.4 and ມ.7, seven at ມ.5 and ມ.6 — read from the register rather
    * than from whichever subjects happen to have marks, so a subject nobody has
    * filled in yet shows as an empty column instead of vanishing.
@@ -802,13 +834,13 @@ export class MonthlyMarksService {
     }
 
     /**
-     * A mark out of 10 banded on a scale held as percentages.
-     *
-     * Every mark in the system is a 0–100 figure and the sheet shows it out of
-     * 10, so the monthly average is scaled back up before it is banded rather
-     * than the scale being kept twice in two units.
+     * A mark banded on a scale held as percentages — of the subject's full mark
+     * for a subject (a 9-point subject is banded on its share of 9), of 10 for
+     * the month's average across subjects.
      */
-    const gradeOf = (value: number) => gradeFor((value / MARK_MAX) * 100, scale).grade;
+    const gradeOf = (value: number, fullMark?: number) =>
+      gradeFor(shareOf(value, fullMark), scale).grade;
+    const fullMarks = subjects.map(fullMarkFor);
 
     const rows = roster.map((student) => {
       const byStudent = cells.get(student.studentId);
@@ -869,7 +901,9 @@ export class MonthlyMarksService {
          * scale as the average's, so the parent report cannot band a subject on
          * one rule and the month on another.
          */
-        subjectGrades: scores.map((score) => (score === null ? null : gradeOf(score))),
+        subjectGrades: scores.map((score, index) =>
+          score === null ? null : gradeOf(score, fullMarks[index]),
+        ),
         /** ລວມ — the marks as written, before they are divided. */
         total: recorded.length > 0 ? round2(recorded.reduce((sum, score) => sum + score, 0)) : null,
         average: average.value,
@@ -935,6 +969,8 @@ export class MonthlyMarksService {
         nameEn: subject.nameEn ?? null,
         // What ກວດກາ is out of, so a reader can judge a test mark without the subject row.
         testMax: columnMaxFor(subject.monthlyColumnMax).test,
+        // What the subject is out of — 10, or 9 — which its pass line is half of.
+        fullMark: fullMarkFor(subject),
       })),
       rows,
       summary: {
@@ -1109,7 +1145,10 @@ export class MonthlyMarksService {
       });
     };
 
-    const gradeOf = (value: number) => gradeFor((value / MARK_MAX) * 100, scale).grade;
+    // On the subject's share of its full mark for a subject, on 10 for an average.
+    const gradeOf = (value: number, fullMark?: number) =>
+      gradeFor(shareOf(value, fullMark), scale).grade;
+    const fullMarks = subjects.map(fullMarkFor);
 
     const monthly = months.map((month) => {
       // ລຳດັບ is decided over the class, so every roster row's average for this
@@ -1131,8 +1170,10 @@ export class MonthlyMarksService {
         month,
         scores,
         testScores: testScoresOf(query.studentId, month),
-        /** The letter for each subject's ລວມ, on the same scale as the average's. */
-        subjectGrades: scores.map((score) => (score === null ? null : gradeOf(score))),
+        /** The letter for each subject's ລວມ, on its share of the subject's full mark. */
+        subjectGrades: scores.map((score, index) =>
+          score === null ? null : gradeOf(score, fullMarks[index]),
+        ),
         /** ລວມ — the marks as written, before they are divided. */
         total: recorded.length > 0 ? round2(recorded.reduce((sum, score) => sum + score, 0)) : null,
         average: average.value,
@@ -1157,7 +1198,13 @@ export class MonthlyMarksService {
       const monthScores = monthly.map((entry) => entry.scores[index]);
       const threeMonth = threeMonthAverage(monthScores, months.length);
       const term = termBySubject.get(subject._id.toString());
-      const mark = semesterScore(threeMonth.value, term?.examScore ?? null, term?.bonus ?? null);
+      const fullMark = fullMarks[index];
+      const mark = semesterScore(
+        threeMonth.value,
+        term?.examScore ?? null,
+        term?.bonus ?? null,
+        fullMark,
+      );
 
       return {
         subject: {
@@ -1165,6 +1212,8 @@ export class MonthlyMarksService {
           code: subject.code,
           nameLo: subject.nameLo,
           nameEn: subject.nameEn ?? null,
+          fullMark,
+          testMax: columnMaxFor(subject.monthlyColumnMax).test,
         },
         monthScores,
         threeMonth: threeMonth.value,
@@ -1173,8 +1222,8 @@ export class MonthlyMarksService {
         bonus: term?.bonus ?? null,
         semesterMark: mark.value,
         /** The letter for ພາກຮຽນ, banded as a month's ລວມ is. */
-        semesterGrade: mark.value === null ? null : gradeOf(mark.value),
-        isPassing: isPassing(mark.value),
+        semesterGrade: mark.value === null ? null : gradeOf(mark.value, fullMark),
+        isPassing: isPassing(mark.value, fullMark),
       };
     });
 
@@ -1196,11 +1245,14 @@ export class MonthlyMarksService {
       rollNumber: placement.rollNumber ?? null,
       isEnrolled: placement.status === 'active',
       months,
-      subjects: subjects.map((subject) => ({
+      subjects: subjects.map((subject, index) => ({
         id: subject._id.toString(),
         code: subject.code,
         nameLo: subject.nameLo,
         nameEn: subject.nameEn ?? null,
+        fullMark: fullMarks[index],
+        // What ກວດກາ is out of — 6, or 5 for the 9-point subjects.
+        testMax: columnMaxFor(subject.monthlyColumnMax).test,
       })),
       monthly,
       subjectRows,
@@ -1551,6 +1603,8 @@ export class MonthlyMarksService {
       nameLo: subject.nameLo,
       nameEn: subject.nameEn ?? null,
       strands: strands.filter((strand): strand is string => strand !== null),
+      // What the subject is out of — a month, its exam and its term alike.
+      fullMark: fullMarkFor(subject),
     };
   }
 
@@ -1594,6 +1648,11 @@ export class MonthlyMarksService {
  * `findOnePopulated` resolves `gradeLevelId` to the document, so the id has to
  * be read back off it — the raw field is an object here, not an id.
  */
+/** What a subject is out of: 10, or 9 where its ກວດກາ is out of 5. */
+function fullMarkFor(subject: Pick<SubjectDocument, 'monthlyColumnMax'>): number {
+  return fullMarkOf(columnMaxFor(subject.monthlyColumnMax));
+}
+
 function gradeLevelIdOf(classroom: unknown): Types.ObjectId | null {
   const room = classroom as { gradeLevelId?: { _id?: Types.ObjectId } | Types.ObjectId | null };
   const level = room.gradeLevelId;

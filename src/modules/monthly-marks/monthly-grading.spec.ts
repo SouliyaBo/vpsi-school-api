@@ -4,6 +4,7 @@ import {
   classifyMonth,
   COLUMN_MAX,
   columnMaxFor,
+  fullMarkOf,
   DEFAULT_MONTHLY_BANDS,
   isColumnMaxUsable,
   isPassing,
@@ -15,7 +16,9 @@ import {
   monthScore,
   monthsForSemester,
   monthTotal,
+  passingMarkFor,
   semesterScore,
+  shareOf,
   threeMonthAverage,
   type MonthCells,
 } from './monthly-grading';
@@ -91,11 +94,19 @@ describe('columnMaxFor', () => {
     expect(markedColumns(COLUMN_MAX)).toEqual(MONTHLY_COLUMNS);
   });
 
-  it('refuses a scheme that does not total 10 rather than marking out of 9', () => {
-    // The mark would still print beside subjects marked out of 10, so a class
-    // that lost nothing would read as a class that had.
-    expect(isColumnMaxUsable({ attendance: 1, notebook: 0, activity: 2, test: 6 })).toBe(false);
-    expect(columnMaxFor({ attendance: 1, notebook: 0, activity: 2, test: 6 })).toEqual(COLUMN_MAX);
+  it('takes a scheme out of 9 — ພາສາລາວ and the social subjects since 20 Oct 2026', () => {
+    const lao = { attendance: 1, notebook: 1, activity: 2, test: 5 };
+    const social = { attendance: 1, notebook: 0, activity: 3, test: 5 };
+    expect(isColumnMaxUsable(lao)).toBe(true);
+    expect(columnMaxFor(social)).toEqual(social);
+    expect(fullMarkOf(columnMaxFor(lao))).toBe(9);
+    expect(fullMarkOf(COLUMN_MAX)).toBe(10);
+  });
+
+  it('refuses a scheme over 10, or one worth nothing at all', () => {
+    expect(isColumnMaxUsable({ attendance: 1, notebook: 1, activity: 3, test: 6 })).toBe(false);
+    expect(isColumnMaxUsable({ attendance: 0, notebook: 0, activity: 0, test: 0 })).toBe(false);
+    expect(columnMaxFor({ attendance: 1, notebook: 1, activity: 3, test: 6 })).toEqual(COLUMN_MAX);
   });
 
   it('refuses a half-typed or negative scheme', () => {
@@ -210,6 +221,12 @@ describe('semesterScore', () => {
     expect(semesterScore(9.6, 9.8, 2).value).toBe(10);
   });
 
+  it('caps a 9-point subject at 9', () => {
+    // ພາສາລາວ: months and exam both out of 9, so a bonus stops at 9.
+    expect(semesterScore(8.8, 9, 1, 9).value).toBe(9);
+    expect(semesterScore(8, 7, null, 9).value).toBe(7.5);
+  });
+
   it('withholds the term mark until the exam is sat', () => {
     expect(semesterScore(8, null)).toEqual({ value: null, isComplete: false });
     expect(semesterScore(null, 8.4)).toEqual({ value: null, isComplete: false });
@@ -246,6 +263,23 @@ describe('isPassing', () => {
 
   it('says nothing about a mark that does not exist yet', () => {
     expect(isPassing(null)).toBeNull();
+  });
+
+  it('passes a 9-point subject at half of 9 — the office ruling of 20 Oct 2026', () => {
+    expect(passingMarkFor(9)).toBe(4.5);
+    expect(isPassing(4.5, 9)).toBe(true);
+    expect(isPassing(4.49, 9)).toBe(false);
+    // The same 4.5 still fails a subject out of 10.
+    expect(isPassing(4.5)).toBe(false);
+  });
+});
+
+describe('shareOf', () => {
+  it('reads a mark as a share of what its subject is out of', () => {
+    expect(shareOf(9, 9)).toBe(100);
+    // A on the school's scale starts at 85%: 7.65 of 9.
+    expect(shareOf(7.65, 9)).toBe(85);
+    expect(shareOf(8.5)).toBe(85);
   });
 });
 

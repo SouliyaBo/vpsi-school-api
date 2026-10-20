@@ -374,4 +374,17 @@ describe('computeSubjectFromMark', () => {
       isIncomplete: true,
     });
   });
+
+  it('keeps a 9-point mark as written, but grades and passes it on its share of 9', () => {
+    // ພາສາລາວ out of 9: 7.65 is stored as the 76.5 the report card prints back
+    // as 7.65, and is an A — 85% of 9.
+    expect(computeSubjectFromMark(7.65, true, { fullMark: 9 })).toMatchObject({
+      percentage: 76.5,
+      grade: 'A',
+      isPassed: true,
+    });
+    // 4.5 of 9 is half: a pass, where 4.5 of 10 is not.
+    expect(computeSubjectFromMark(4.5, true, { fullMark: 9 }).isPassed).toBe(true);
+    expect(computeSubjectFromMark(4.5, true).isPassed).toBe(false);
+  });
 });

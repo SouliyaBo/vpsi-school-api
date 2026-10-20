@@ -330,6 +330,15 @@ export class PushToMonthlyMarksDto {
   @IsOptional()
   classroomId?: string;
 
+  @ApiPropertyOptional({
+    description:
+      'The marked subject the points go to, when the paper’s subject is split (ສັງຄົມ → ພູມສາດ …). ' +
+      'Must be the paper’s subject or one marked under it.',
+  })
+  @IsMongoId()
+  @IsOptional()
+  subjectId?: string;
+
   @ApiProperty({ minimum: 1, maximum: 12, description: 'The month the ກວດກາ column belongs to' })
   @IsInt()
   @Min(1)
