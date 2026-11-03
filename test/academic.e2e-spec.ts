@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
+import JSZip from 'jszip';
 import { Model, Types } from 'mongoose';
 import request from 'supertest';
 import { flattenOfficialLocations } from 'src/database/locations/location-matching';
@@ -2257,6 +2258,55 @@ describe('Academic operations (e2e)', () => {
       expect(response.body).toMatchObject({ saved: 1, errors: [] });
     });
 
+    it('gives the term block a ລວມ, ສະເລ່ຍ and ເກຣດ for 3 ເດືອນ and ສອບເສັງ, and the room’s size', async () => {
+      const response = await http()
+        .get('/api/monthly-marks/student')
+        .query({ studentId: markedStudentId, semesterId })
+        .set(auth(token))
+        .expect(200);
+
+      const { summary, subjectRows, subjects } = response.body as {
+        summary: Record<string, unknown> & {
+          threeMonth: Record<string, unknown>;
+          classSize: { students: number; female: number };
+        };
+        subjectRows: { threeMonth: number | null }[];
+        subjects: unknown[];
+      };
+      const threeMonths = subjectRows
+        .map((row) => row.threeMonth)
+        .filter((mark): mark is number => mark !== null);
+
+      // One subject marked in one month: written, but not finished, so no letter.
+      expect(threeMonths).toHaveLength(1);
+      expect(summary.threeMonth).toEqual({
+        total: threeMonths[0],
+        subjectsRecorded: 1,
+        average: Math.round((threeMonths[0] / subjects.length) * 100) / 100,
+        isComplete: false,
+        grade: null,
+      });
+      // No exam is written yet.
+      expect(summary.exam).toEqual({
+        total: null,
+        subjectsRecorded: 0,
+        average: null,
+        isComplete: false,
+        grade: null,
+      });
+
+      // The class sheet's roll — not the room's `currentCount`, which still
+      // counts a placement whose student the school has stopped teaching.
+      const sheet = await http()
+        .get('/api/monthly-marks/class-month')
+        .query({ classroomId, semesterId, month: 9 })
+        .set(auth(token))
+        .expect(200);
+      const onRoll = (sheet.body.rows as { isEnrolled: boolean }[]).filter((row) => row.isEnrolled);
+      expect(summary.classSize.students).toBe(onRoll.length);
+      expect(summary.classSize.female).toBeLessThanOrEqual(summary.classSize.students);
+    });
+
     it('still refuses a mark above that subject’s own maximum, and says which', async () => {
       const response = await http()
         .post('/api/monthly-marks/month')
@@ -2996,6 +3046,74 @@ describe('Academic operations (e2e)', () => {
           guardianContacts: [{ date, content: 'ບໍ່ມີຊື່' }],
         })
         .expect(400);
+    });
+
+    it('prints a student with several rows once in the Word file, merged down their rows', async () => {
+      const day = (d: number) =>
+        `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      await http()
+        .put('/api/homeroom-reviews/monthly-report')
+        .set(auth(token))
+        .send({
+          ...report(),
+          extraClasses: [
+            { studentId, subject: 'ທຳມະຊາດ', teacherName: 'ອຈ ໜຶ່ງ' },
+            { studentId, subject: 'ຄະນິດສາດ', teacherName: 'ອຈ ສອງ' },
+            { studentId, subject: 'ສັງຄົມ', teacherName: 'ອຈ ສາມ' },
+          ],
+          outsideActivities: [],
+          // A whole-class notice between the child's two contacts: the child's are
+          // gathered together all the same, ahead of it as the earlier first contact.
+          guardianContacts: [
+            { studentId, date: day(3), content: 'ຕິດຕໍ່ຄັ້ງທຳອິດ' },
+            { allStudents: true, date: day(4), content: 'ແຈ້ງທັງຫ້ອງ' },
+            { studentId, date: day(5), content: 'ຕິດຕໍ່ຄັ້ງທີສອງ' },
+          ],
+        })
+        .expect(200);
+
+      const response = await http()
+        .get('/api/homeroom-reviews/monthly-report/docx')
+        .query(report())
+        .set(auth(token))
+        .buffer(true)
+        .parse((res, callback) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => callback(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      const xml = await (
+        await JSZip.loadAsync(response.body as Buffer)
+      )
+        .file('word/document.xml')!
+        .async('string');
+
+      // A table's text, and its rows' merge marks, by its header.
+      const table = (header: string) => {
+        const found = xml.split('<w:tbl>').find((candidate) => candidate.includes(header))!;
+        const rows = found.split('<w:tr>').slice(2);
+        return {
+          text: found.replace(/<[^>]+>/g, ''),
+          merges: rows.map((row) => (row.match(/<w:vMerge w:val="(\w+)"\/>/g) ?? []).join(' ')),
+        };
+      };
+
+      const extra = table('ວິຊາທີ່ຮຽນ');
+      expect(extra.merges).toEqual([
+        '<w:vMerge w:val="restart"/> <w:vMerge w:val="restart"/>',
+        '<w:vMerge w:val="continue"/> <w:vMerge w:val="continue"/>',
+        '<w:vMerge w:val="continue"/> <w:vMerge w:val="continue"/>',
+      ]);
+      expect(extra.text.match(/ມະນີວອນ/g)).toHaveLength(1);
+
+      const contacts = table('ເນື້ອໃນການພົວພັນ');
+      expect(contacts.text.match(/ມະນີວອນ/g)).toHaveLength(1);
+      const order = ['ຕິດຕໍ່ຄັ້ງທຳອິດ', 'ຕິດຕໍ່ຄັ້ງທີສອງ', 'ແຈ້ງທັງຫ້ອງ'].map((text) =>
+        contacts.text.indexOf(text),
+      );
+      expect(order).toEqual([...order].sort((a, b) => a - b));
+      expect(order[0]).toBeGreaterThanOrEqual(0);
     });
 
     it('refuses an extra class with no subject', async () => {

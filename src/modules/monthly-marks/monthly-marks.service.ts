@@ -1051,6 +1051,9 @@ export class MonthlyMarksService {
           termAverage: null,
           termComplete: false,
           termGrade: null,
+          threeMonth: null,
+          exam: null,
+          classSize: null,
         },
       };
     }
@@ -1061,8 +1064,9 @@ export class MonthlyMarksService {
     const subjectIds = subjects.map((subject) => subject._id);
     const scale = await this.gradingScale.resolve();
 
-    const [roster, marks, termMarks] = await Promise.all([
+    const [roster, classSize, marks, termMarks] = await Promise.all([
       this.loadRoster(classroom._id, subjectIds, semester._id),
+      this.classSize(classroom._id),
       subjectIds.length === 0
         ? Promise.resolve([])
         : this.model
@@ -1238,6 +1242,24 @@ export class MonthlyMarksService {
       subjects.length,
     );
 
+    /**
+     * ລວມ / ຈຳນວນວິຊາ / ສະເລ່ຍ / ເກຣດ for one line of the term block, worked out
+     * as a month's are: the marks as written, divided by every subject the grade
+     * sits, the letter withheld until none is missing. The term sheet the office
+     * exports prints them for 3 ເດືອນ and ສອບເສັງ as well as for each month.
+     */
+    const standingOf = (scores: (number | null)[]) => {
+      const recorded = scores.filter((score): score is number => score !== null);
+      const average = acrossSubjects(scores, subjects.length);
+      return {
+        total: recorded.length > 0 ? round2(recorded.reduce((sum, score) => sum + score, 0)) : null,
+        subjectsRecorded: recorded.length,
+        average: average.value,
+        isComplete: average.isComplete,
+        grade: average.isComplete && average.value !== null ? gradeOf(average.value) : null,
+      };
+    };
+
     const rosterRow = roster.find((student) => student.studentId === query.studentId);
     return {
       classroom: this.classroomView(classroom),
@@ -1274,6 +1296,9 @@ export class MonthlyMarksService {
         // A student off the sheet — left the school, or moved out of this room —
         // is still shown their marks, with the page free to say so.
         onRoster: rosterRow !== undefined,
+        threeMonth: standingOf(subjectRows.map((row) => row.threeMonth)),
+        exam: standingOf(subjectRows.map((row) => row.examScore)),
+        classSize,
       },
     };
   }
@@ -1357,6 +1382,29 @@ export class MonthlyMarksService {
    * records zeros against it, and a sheet that dropped them would lose marks
    * already earned.
    */
+  /**
+   * ລວມ … ຄົນ, ຍິງ … ຄົນ — the room as it stands, for the head of the term sheet.
+   *
+   * Counted on its own rather than off `loadRoster`, whose rows are spread into
+   * every sheet the API returns and so carry nothing a sheet does not print.
+   * The same roll: active placements of students the school is still teaching.
+   */
+  private async classSize(classroomId: Types.ObjectId) {
+    const rows = await this.enrollmentModel
+      .find({ classroomId, status: 'active', deletedAt: null })
+      .populate('studentId', 'status gender')
+      .lean()
+      .exec();
+    const students = rows.filter((row) => isStudying(row.studentId));
+    return {
+      students: students.length,
+      female: students.filter(
+        (row) =>
+          (populatedStudent(row.studentId) as { gender?: string } | null)?.gender === 'female',
+      ).length,
+    };
+  }
+
   private async loadRoster(
     classroomId: Types.ObjectId,
     subjectIds: Types.ObjectId[],

@@ -11,6 +11,7 @@ import {
   TableRow,
   TextRun,
   VerticalAlign,
+  VerticalMergeType,
   WidthType,
 } from 'docx';
 import { readFileSync } from 'node:fs';
@@ -40,6 +41,8 @@ const LAO_PATTERN = /[຀-໿]/;
 const CONTENT_WIDTH = 11906 - 2 * 1134;
 const DOTS = '.'.repeat(150);
 const BLANK_ROWS = 2;
+/** Groups III.'s whole-class notices; no student id can collide with it. */
+const ALL_STUDENTS_KEY = 'all-students';
 
 type Cell = string | number | null;
 interface Column {
@@ -47,6 +50,22 @@ interface Column {
   /** Share of the table's width. */
   width: number;
   align?: (typeof AlignmentType)[keyof typeof AlignmentType];
+}
+
+/**
+ * Rows reordered so each student's sit together, students in order of their
+ * first row and each student's rows in the order given — what lets a table
+ * print a student's name once, merged down their rows.
+ */
+export function groupByStudent<T>(rows: T[], keyOf: (row: T) => string): T[] {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = keyOf(row);
+    const group = groups.get(key);
+    if (group) group.push(row);
+    else groups.set(key, [row]);
+  }
+  return [...groups.values()].flat();
 }
 
 @Injectable()
@@ -154,14 +173,17 @@ export class HomeroomMonthlyReportDocxWriter {
       ),
 
       this.heading('5. ນັກຮຽນທີ່ຮຽນເພີ່ມ', 1),
-      this.table(
+      this.studentTable(
         [
           no,
           nameCol(0.33),
           { header: 'ວິຊາທີ່ຮຽນ', width: 0.3 },
           { header: 'ອາຈານທີ່ສອນ', width: 0.3 },
         ],
-        r.entry.extraClasses.map((row) => [row.studentNameLo ?? '', row.subject, row.teacherName]),
+        r.entry.extraClasses.map((row) => ({
+          key: row.studentId,
+          cells: [row.studentNameLo ?? '', row.subject, row.teacherName],
+        })),
         3,
       ),
 
@@ -192,33 +214,35 @@ export class HomeroomMonthlyReportDocxWriter {
       ),
 
       this.heading('7. ການເຄື່ອນໄຫວພາຍນອກທີ່ພົ້ນເດັ່ນຂອງນັກຮຽນ', 1),
-      this.table(
+      this.studentTable(
         [
           no,
           nameCol(0.3),
           { header: 'ວ/ດ/ປ ທີ່ເຄື່ອນໄຫວ', width: 0.23, align: AlignmentType.CENTER },
           { header: 'ລາຍລະອຽດ', width: 0.4 },
         ],
-        r.entry.outsideActivities.map((row) => [
-          row.studentNameLo ?? '',
-          row.date ? laoDate(row.date) : null,
-          row.detail,
-        ]),
+        r.entry.outsideActivities.map((row) => ({
+          key: row.studentId,
+          cells: [row.studentNameLo ?? '', row.date ? laoDate(row.date) : null, row.detail],
+        })),
         3,
       ),
 
       this.heading('III. ການພົວພັນຜູ້ປົກຄອງ.'),
-      this.table(
+      this.studentTable(
         [
           no,
           nameCol(0.28),
           { header: 'ວ.ດ.ປ ທີ່ພົວພັນ', width: 0.17, align: AlignmentType.CENTER },
           { header: 'ເນື້ອໃນການພົວພັນ', width: 0.48 },
         ],
-        // The reviews' contacts and the ones the teacher added, in date order.
+        // The reviews' contacts and the ones the teacher added, in date order —
+        // then gathered by student, so the students come in the order of their
+        // first contact. A whole-class notice is a group of its own.
         [
-          ...r.guardianContacts.map((row) => ({ name: named(row), ...row })),
+          ...r.guardianContacts.map((row) => ({ key: row.studentId, name: named(row), ...row })),
           ...(r.entry.guardianContacts ?? []).map((row) => ({
+            key: row.allStudents ? ALL_STUDENTS_KEY : (row.studentId ?? ALL_STUDENTS_KEY),
             name: named({
               studentNameLo: row.studentNameLo ?? '',
               studentCode: row.allStudents
@@ -229,7 +253,7 @@ export class HomeroomMonthlyReportDocxWriter {
           })),
         ]
           .sort((a, b) => a.date.localeCompare(b.date))
-          .map((row) => [row.name, laoDate(row.date), row.content]),
+          .map((row) => ({ key: row.key, cells: [row.name, laoDate(row.date), row.content] })),
       ),
 
       this.heading('IV. ຂໍ້ສະເໜີ'),
@@ -349,19 +373,53 @@ export class HomeroomMonthlyReportDocxWriter {
   }
 
   /**
+   * A table of rows of which several may be one student's — extra classes,
+   * activities, guardian contacts. The rows are gathered by student and the
+   * student's ລ/ດ and name are merged down their rows, so ລ/ດ counts students,
+   * not rows. The name column must be the second, after ລ/ດ.
+   */
+  private studentTable(
+    columns: Column[],
+    rows: { key: string; cells: Cell[] }[],
+    blankRows = BLANK_ROWS,
+  ): Table {
+    const grouped = groupByStudent(rows, (row) => row.key);
+    return this.table(
+      columns,
+      grouped.map((row) => row.cells),
+      blankRows,
+      grouped.map((row) => row.key),
+    );
+  }
+
+  /**
    * A ruled table with ລ/ດ numbered in the first column.
    *
    * `rows` carry every column but ລ/ດ. With nothing to list the table still
    * prints, with `blankRows` empty numbered rows for the teacher to fill.
+   * Consecutive rows with the same `groupKeys` entry share one ລ/ດ and one name
+   * cell, merged vertically.
    */
-  private table(columns: Column[], rows: Cell[][], blankRows = BLANK_ROWS): Table {
+  private table(
+    columns: Column[],
+    rows: Cell[][],
+    blankRows = BLANK_ROWS,
+    groupKeys: string[] = [],
+  ): Table {
     const widths = columns.map((column) => Math.round(column.width * CONTENT_WIDTH));
     const line = { style: BorderStyle.SINGLE, size: 4, color: '000000' };
     const borders = { top: line, bottom: line, left: line, right: line };
 
-    const cell = (value: Cell, index: number, bold = false, align = columns[index].align) =>
+    const cell = (
+      value: Cell,
+      index: number,
+      bold = false,
+      align = columns[index].align,
+      verticalMerge?: (typeof VerticalMergeType)[keyof typeof VerticalMergeType],
+    ) =>
       new TableCell({
         borders,
+        verticalMerge,
         verticalAlign: VerticalAlign.CENTER,
         width: { size: widths[index], type: WidthType.DXA },
         margins: { left: 60, right: 60, top: 20, bottom: 20 },
@@ -374,6 +432,8 @@ export class HomeroomMonthlyReportDocxWriter {
       });
 
     const body = rows.length > 0 ? rows : Array.from({ length: blankRows }, () => []);
+    const key = (rowIndex: number) => groupKeys[rowIndex];
+    let number = 0;
     return new Table({
       width: { size: CONTENT_WIDTH, type: WidthType.DXA },
       columnWidths: widths,
@@ -384,15 +444,29 @@ export class HomeroomMonthlyReportDocxWriter {
             cell(column.header, index, true, AlignmentType.CENTER),
           ),
         }),
-        ...body.map(
-          (row, rowIndex) =>
-            new TableRow({
-              height: { value: 360, rule: 'atLeast' },
-              children: columns.map((_, index) =>
-                cell(index === 0 ? rowIndex + 1 : (row[index - 1] ?? null), index),
-              ),
+        ...body.map((row, rowIndex) => {
+          const continues =
+            rowIndex > 0 && key(rowIndex) !== undefined && key(rowIndex) === key(rowIndex - 1);
+          const starts =
+            !continues && key(rowIndex) !== undefined && key(rowIndex) === key(rowIndex + 1);
+          if (!continues) number += 1;
+          const merge = continues
+            ? VerticalMergeType.CONTINUE
+            : starts
+              ? VerticalMergeType.RESTART
+              : undefined;
+          return new TableRow({
+            height: { value: 360, rule: 'atLeast' },
+            children: columns.map((_, index) => {
+              // ລ/ດ and the name: written once, on the student's first row.
+              if (index <= 1 && merge) {
+                const value = continues ? null : index === 0 ? number : (row[0] ?? null);
+                return cell(value, index, false, undefined, merge);
+              }
+              return cell(index === 0 ? number : (row[index - 1] ?? null), index);
             }),
-        ),
+          });
+        }),
       ],
     });
   }
