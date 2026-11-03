@@ -121,6 +121,16 @@ export class GenerateClassReportsDto {
   @IsMongoId()
   @IsOptional()
   templateId?: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'One PDF for the whole class, each card on its own pages, instead of one report per ' +
+      'student — what the office prints. Refused when the class has no term results yet.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  combined?: boolean;
 }
 
 export class QueryGeneratedReportsDto extends PaginationQueryDto {

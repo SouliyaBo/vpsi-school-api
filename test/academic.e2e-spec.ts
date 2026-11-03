@@ -1,6 +1,9 @@
 import { INestApplication } from '@nestjs/common';
+import { getModelToken } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import request from 'supertest';
 import { flattenOfficialLocations } from 'src/database/locations/location-matching';
+import { Classroom } from 'src/database/schemas';
 import {
   ADMIN_USERNAME,
   TestContext,
@@ -2744,6 +2747,109 @@ describe('Academic operations (e2e)', () => {
         .expect(400);
 
       expect(response.body.messageKey).toBe('teacher.nothingToHandOver');
+    });
+  });
+
+  describe('homeroom change on a room older than its history', () => {
+    /**
+     * Every live room predates `homeroomHistory` and has no such field at all —
+     * not an empty list. The close used to be an `arrayFilters` update, which
+     * MongoDB rejects on a missing array, so every homeroom change from the
+     * classroom form, and every handover, answered 500.
+     */
+    let roomId: string;
+
+    const makeTeacher = async (firstNameLo: string): Promise<string> => {
+      const response = await http()
+        .post('/api/teachers')
+        .set(auth(token))
+        .send({ firstNameLo, lastNameLo: 'ຫ້ອງເກົ່າ', gender: 'male' })
+        .expect(201);
+      return response.body.id as string;
+    };
+
+    const dropHistory = (id: string) =>
+      app
+        .get<Model<Classroom>>(getModelToken(Classroom.name))
+        .collection.updateOne({ _id: new Types.ObjectId(id) }, { $unset: { homeroomHistory: '' } });
+
+    const historyOf = async (id: string) => {
+      const room = await http().get(`/api/classrooms/${id}`).set(auth(token)).expect(200);
+      return room.body.homeroomHistory as { teacherId: unknown; to: string | null }[];
+    };
+
+    beforeAll(async () => {
+      const room = await http()
+        .post('/api/classrooms')
+        .set(auth(token))
+        .send({ schoolYearId, gradeLevelId, name: 'ຫ້ອງເກົ່າ', capacity: 40 })
+        .expect(201);
+      roomId = room.body.id;
+      await dropHistory(roomId);
+    });
+
+    it('moves the homeroom from the classroom form and starts the history there', async () => {
+      const first = await makeTeacher('ຄົນທຳອິດ');
+      await http()
+        .patch(`/api/classrooms/${roomId}`)
+        .set(auth(token))
+        .send({ homeroomTeacherId: first })
+        .expect(200);
+
+      const history = await historyOf(roomId);
+      expect(history).toHaveLength(1);
+      expect(refId(history[0].teacherId)).toBe(first);
+      expect(history[0].to).toBeNull();
+    });
+
+    it('moves it again through a handover, closing the spell it just opened', async () => {
+      const room = await http().get(`/api/classrooms/${roomId}`).set(auth(token)).expect(200);
+      const outgoing = refId(room.body.homeroomTeacherId) as string;
+      const incoming = await makeTeacher('ຄົນທີສອງ');
+
+      await http()
+        .post(`/api/teachers/${outgoing}/handover`)
+        .set(auth(token))
+        .send({ toTeacherId: incoming })
+        .expect(201);
+
+      const history = await historyOf(roomId);
+      expect(history).toHaveLength(2);
+      expect(history[0].to).not.toBeNull();
+      expect(refId(history[1].teacherId)).toBe(incoming);
+      expect(history[1].to).toBeNull();
+    });
+
+    it('hands over a room with no history field at all', async () => {
+      const outgoing = await makeTeacher('ຄົນທີສາມ');
+      const incoming = await makeTeacher('ຄົນທີສີ່');
+      const room = await http()
+        .post('/api/classrooms')
+        .set(auth(token))
+        .send({
+          schoolYearId,
+          gradeLevelId,
+          name: 'ຫ້ອງເກົ່າ2',
+          capacity: 40,
+          homeroomTeacherId: outgoing,
+        })
+        .expect(201);
+      await dropHistory(room.body.id);
+
+      await http()
+        .post(`/api/teachers/${outgoing}/handover`)
+        .set(auth(token))
+        .send({ toTeacherId: incoming })
+        .expect(201);
+
+      const after = await http()
+        .get(`/api/classrooms/${room.body.id}`)
+        .set(auth(token))
+        .expect(200);
+      expect(refId(after.body.homeroomTeacherId)).toBe(incoming);
+      const history = after.body.homeroomHistory as { teacherId: unknown; to: string | null }[];
+      expect(history).toHaveLength(1);
+      expect(refId(history[0].teacherId)).toBe(incoming);
     });
   });
 

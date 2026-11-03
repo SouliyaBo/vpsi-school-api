@@ -2,6 +2,8 @@ import { DOMParser, type Element, type Node } from '@xmldom/xmldom';
 import JSZip from 'jszip';
 import { ExamOptionLabelStyle } from 'src/common/constants/enums';
 import { hasMath, normaliseMathDelimiters, splitMath, stripTexComments } from './math/latex-text';
+import { foldUnicodeScripts, Script, scriptChars, scriptOf } from './script';
+import { fromSymbolCode, fromSymbolText, isSymbolFont } from './symbol-font';
 import { underlineChars } from './underline';
 import { versifyTabs } from './verse';
 import { isValidTex } from './math/mathjax';
@@ -159,6 +161,8 @@ const EMPHASES: Emphasis[] = ['bold', 'underline', 'highlight', 'color'];
 interface Char {
   ch: string;
   emphasis: Set<Emphasis>;
+  /** ຕົວຍົກ / ຕົວຫ້ອຍ — Word's raised or lowered run. Not emphasis: it never marks an answer. */
+  script?: Script | null;
   /** Set when `ch` is the image placeholder. */
   imageId?: string;
 }
@@ -482,7 +486,8 @@ function emphasisOf(chars: Char[]): Record<Emphasis, number> {
  * does not: a Tab, which may divide the two ວັກ of a ຄຳກອນ (`versifyTabs`
  * turns it into verse when the question closes), and the underline on a word
  * the question asks about (`[u]…[/u]`). In an option, an underline marks the
- * answer and is read as that instead.
+ * answer and is read as that instead. Raised and lowered figures (`[sup]`,
+ * `[sub]`) are kept everywhere.
  */
 function slice(chars: Char[], from: number, to: number, stem = false): Piece {
   const part = chars.slice(from, to);
@@ -490,11 +495,21 @@ function slice(chars: Char[], from: number, to: number, stem = false): Piece {
   // middle of a sentence is printed in the middle of the sentence.
   const imageIds: string[] = [];
   const marked = part.map((c) => {
-    if (!c.imageId) return { ch: c.ch, underline: stem && c.emphasis.has('underline') };
+    if (!c.imageId) {
+      return {
+        ch: c.ch,
+        underline: stem && c.emphasis.has('underline'),
+        script: c.script ?? null,
+      };
+    }
     imageIds.push(c.imageId);
-    return { ch: imageToken(imageIds.length - 1), underline: false };
+    return { ch: imageToken(imageIds.length - 1), underline: false, script: null };
   });
-  const text = (stem ? underlineChars(marked) : marked.map((c) => c.ch).join(''))
+  // Raised and lowered runs first, as whole pieces, so an underline round
+  // `10⁸` is one run and never cuts through a `[sup]` marker.
+  const pieces = scriptChars(marked);
+  const joined = stem ? underlineChars(pieces) : pieces.map((c) => c.ch).join('');
+  const text = foldUnicodeScripts(joined)
     .replace(stem ? /[ ]+/g : /[\t ]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/ {2,}/g, ' ');
@@ -693,14 +708,32 @@ function walkRuns(node: Node, out: Char[], images: ImageStore): void {
 }
 
 function readRun(run: Element, out: Char[], images: ImageStore): void {
-  const emphasis = runEmphasis(firstChild(run, 'w:rPr'));
+  const rPr = firstChild(run, 'w:rPr');
+  const emphasis = runEmphasis(rPr);
+  const script = scriptOf(rPr ? firstChild(rPr, 'w:vertAlign')?.getAttribute('w:val') : null);
+  // A run set in the Symbol font: its letters stand for Greek and maths signs.
+  const fonts = rPr ? firstChild(rPr, 'w:rFonts') : null;
+  const symbolRun =
+    isSymbolFont(fonts?.getAttribute('w:ascii')) || isSymbolFont(fonts?.getAttribute('w:hAnsi'));
   for (const child of Array.from(run.childNodes)) {
     if (child.nodeType !== 1) continue;
     const element = child as Element;
     switch (element.nodeName) {
-      case 'w:t':
-        for (const ch of element.textContent ?? '') out.push({ ch, emphasis });
+      case 'w:t': {
+        const text = element.textContent ?? '';
+        for (const ch of symbolRun ? fromSymbolText(text) : text) {
+          out.push({ ch, emphasis, script });
+        }
         break;
+      }
+      case 'w:sym': {
+        // Insert → Symbol. Only the Symbol font's codes mean a character; a
+        // Wingdings picture has no text to stand for it, as before.
+        if (!isSymbolFont(element.getAttribute('w:font'))) break;
+        const ch = fromSymbolCode(parseInt(element.getAttribute('w:char') ?? '', 16));
+        if (ch) out.push({ ch, emphasis, script });
+        break;
+      }
       case 'w:tab':
         out.push({ ch: '\t', emphasis });
         break;

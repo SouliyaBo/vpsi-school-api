@@ -587,6 +587,11 @@ export const PERMISSION_RESOURCES = tuple(
   // a teacher who may write a register row is not thereby a party to the report
   // that names which homeroom teachers have stopped looking at their room.
   'homeroom-reviews',
+  // ລາຍງານຫາຜູ້ປົກຄອງ — a month of one child, sent to a family as a link that
+  // opens without an account. Its own resource because sending is a narrower
+  // act than reading any of the logs it is built from: only the room's homeroom
+  // teacher, or the office, sends — not every teacher who can read the marks.
+  'guardian-reports',
   // ຄັງປື້ມ — the school's books: teacher guides, textbooks, donated and
   // reference titles, loans, and the workbooks it prints and sells. Its own
   // resource because the people who keep it (the office, the librarian) are not

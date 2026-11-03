@@ -301,6 +301,46 @@ describeWithFont('PdfRendererService', () => {
     // is where a multi-page render tends to break.
     expect(pdf.length).toBeGreaterThan(3000);
   }, 30_000);
+
+  /** Page objects in the file — `/Type /Page`, not the `/Type /Pages` tree root. */
+  const pageCount = (buffer: Buffer): number =>
+    buffer.toString('latin1').match(/\/Type \/Page(?!s)/g)?.length ?? 0;
+
+  it('puts each report of a class pack on its own page', async () => {
+    const pdf = await renderer.renderMany(DEFAULT_REPORT_CARD_LAYOUT, [
+      sampleData(),
+      sampleData({ student: { ...sampleData().student, fullNameLo: 'ທ້າວ ສົມສັກ' } }),
+      sampleData({ student: { ...sampleData().student, fullNameLo: 'ນາງ ມະນີວັນ' } }),
+    ]);
+
+    expect(looksLikePdf(pdf)).toBe(true);
+    expect(pageCount(pdf)).toBe(3);
+  }, 30_000);
+
+  it('keeps a one-page card to one page — the footer must not spill onto a blank one', async () => {
+    const pdf = await renderer.render(DEFAULT_REPORT_CARD_LAYOUT, sampleData());
+
+    expect(pageCount(pdf)).toBe(1);
+  }, 30_000);
+
+  it('numbers a long card and its neighbour apart, without spilling', async () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      nameLo: `ວິຊາທີ ${index + 1}`,
+      credits: 2,
+      percentage: 70,
+      grade: 'B',
+      gradePoint: 3,
+      isPassed: true,
+      components: [],
+    }));
+    const long = await renderer.render(DEFAULT_REPORT_CARD_LAYOUT, sampleData({ subjects: many }));
+    const pack = await renderer.renderMany(DEFAULT_REPORT_CARD_LAYOUT, [
+      sampleData({ subjects: many }),
+      sampleData(),
+    ]);
+
+    expect(pageCount(pack)).toBe(pageCount(long) + 1);
+  }, 30_000);
 });
 
 describe('font resolver', () => {

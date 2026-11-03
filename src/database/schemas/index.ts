@@ -14,6 +14,7 @@ export * from './conduct.schema';
 export * from './lesson-plan.schema';
 export * from './teaching-observation.schema';
 export * from './homeroom-review.schema';
+export * from './guardian-report.schema';
 export * from './exam-paper.schema';
 export * from './exam-response.schema';
 export * from './exam-scan.schema';

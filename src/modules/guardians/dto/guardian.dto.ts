@@ -114,4 +114,11 @@ export class QueryGuardiansDto extends PaginationQueryDto {
   @IsMongoId()
   @IsOptional()
   villageId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Only guardians of students currently placed in this classroom',
+  })
+  @IsMongoId()
+  @IsOptional()
+  classroomId?: string;
 }

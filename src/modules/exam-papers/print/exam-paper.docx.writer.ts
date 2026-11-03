@@ -16,6 +16,7 @@ import { IMAGE_TOKEN } from '../docx-exam.parser';
 import { splitMath } from '../math/latex-text';
 import { texToDocxMath } from '../math/mathml-to-docx';
 import { drawStamp, Variant } from '../variants';
+import { Script, splitScript } from '../script';
 import { splitUnderline } from '../underline';
 import { splitVerse } from '../verse';
 import { OPTION_LETTERS, PrintImage, PrintOption, PrintPaper } from './exam-paper.renderer';
@@ -275,14 +276,21 @@ export class ExamPaperDocxWriter {
 
   /** Words as runs, each `$…$` formula as a Word equation — or as its TeX when it does not parse. */
   private runsWithMath(text: string, style: { bold?: boolean } = {}): (TextRun | DocxMath)[] {
-    // `[u]…[/u]` — ຂີດກ້ອງ — as Word's own underline on those words.
-    return splitUnderline(text).flatMap((piece) => {
-      const look = piece.underline ? { ...style, underline: true } : style;
-      return splitMath(piece.text).flatMap((part) => {
-        if (part.kind === 'text') return this.runs(part.text, look);
-        return texToDocxMath(part.tex, part.display) ?? this.runs(part.source, look);
-      });
-    });
+    // `[u]…[/u]` — ຂີດກ້ອງ — and `[sup]`/`[sub]` as Word's own underline,
+    // superscript and subscript on those words.
+    return splitUnderline(text).flatMap((piece) =>
+      splitScript(piece.text).flatMap((scripted) => {
+        const look = {
+          ...style,
+          ...(piece.underline ? { underline: true } : {}),
+          ...(scripted.script ? { script: scripted.script } : {}),
+        };
+        return splitMath(scripted.text).flatMap((part) => {
+          if (part.kind === 'text') return this.runs(part.text, look);
+          return texToDocxMath(part.tex, part.display) ?? this.runs(part.source, look);
+        });
+      }),
+    );
   }
 
   private imageRun(image: PrintImage): ImageRun {
@@ -311,7 +319,7 @@ export class ExamPaperDocxWriter {
    */
   private runs(
     text: string,
-    style: { bold?: boolean; size?: number; underline?: boolean } = {},
+    style: { bold?: boolean; size?: number; underline?: boolean; script?: Script } = {},
   ): TextRun[] {
     const runs: TextRun[] = [];
     const lines = text.split('\n');
@@ -327,6 +335,8 @@ export class ExamPaperDocxWriter {
             bold: style.bold,
             size: style.size,
             ...(style.underline ? { underline: { type: UnderlineType.SINGLE } } : {}),
+            ...(style.script === 'sup' ? { superScript: true } : {}),
+            ...(style.script === 'sub' ? { subScript: true } : {}),
           }),
         );
         current = '';

@@ -47,6 +47,14 @@ import {
   UploadExamPaperDto,
 } from './dto/exam-paper.dto';
 import { GradedQuestion, gradeSheet } from './grading';
+import {
+  partsProblem,
+  partTotal,
+  scoreBySubject,
+  sectionKey,
+  SubjectPart,
+  unassignedCount,
+} from './subject-parts';
 import { readAnswerSheet } from './omr/reader';
 import { answerSheetLayout, MIN_CODE_DIGITS } from './print/answer-sheet.layout';
 import { AnswerSheetRenderer } from './print/answer-sheet.renderer';
@@ -295,6 +303,7 @@ export class ExamPapersService {
     const prefix = `exam-papers/${paper._id.toHexString()}/`;
 
     if (dto.title !== undefined) paper.title = dto.title.trim() || paper.title;
+    const subjectBefore = paper.subjectId ? String(refIdOf(paper.subjectId)) : null;
     if (dto.subjectId !== undefined) {
       paper.subjectId = dto.subjectId ? new Types.ObjectId(dto.subjectId) : null;
     }
@@ -308,6 +317,12 @@ export class ExamPapersService {
     if (dto.optionLabelStyle !== undefined) paper.optionLabelStyle = dto.optionLabelStyle;
     if (dto.boldQuestions !== undefined) paper.boldQuestions = dto.boldQuestions;
     if (dto.totalPoints !== undefined) paper.totalPoints = dto.totalPoints;
+    if (dto.subjectParts !== undefined) {
+      paper.subjectParts = await this.checkedParts(paper, dto.subjectParts);
+    } else if (dto.subjectId !== undefined && (dto.subjectId ?? null) !== subjectBefore) {
+      // The parts named the old subject's subjects; under another they mean nothing.
+      paper.subjectParts = [];
+    }
 
     if (dto.questions !== undefined) {
       paper.questions = dto.questions.map((question) => this.toQuestion(question, prefix));
@@ -689,6 +704,17 @@ export class ExamPapersService {
       .lean()
       .exec();
     const byStudent = new Map(sheets.map((sheet) => [String(sheet.studentId), sheet]));
+    const key = paper.questions.map((question) => question.correctIndex ?? null);
+    const parts = partsOf(paper);
+    const gradedBySheet = new Map<string, GradedQuestion[]>();
+    for (const sheet of sheets) {
+      const variant = paper.variants.find((candidate) => candidate.label === sheet.setLabel);
+      if (!variant) continue;
+      gradedBySheet.set(
+        String(sheet._id),
+        gradeSheet(variant, key, sheet.answers, paper.totalPoints ?? null).questions,
+      );
+    }
 
     const rows = students.map((student) => {
       const sheet = byStudent.get(student.studentId);
@@ -705,6 +731,15 @@ export class ExamPapersService {
               correctCount: sheet.correctCount,
               totalQuestions: sheet.totalQuestions,
               points: sheet.points ?? null,
+              // ແຍກຄະແນນຕາມວິຊາ: the points per marked subject, [] for a paper marked whole.
+              subjects: parts.length
+                ? scoreBySubject(
+                    paper.questions,
+                    gradedBySheet.get(String(sheet._id)) ?? [],
+                    parts,
+                    paper.totalPoints,
+                  )
+                : [],
               source: sheet.source,
               updatedAt: sheet.updatedAt,
             }
@@ -716,16 +751,10 @@ export class ExamPapersService {
     const correctByOriginal = paper.questions.map(() => 0);
     let marked = 0;
     for (const sheet of sheets) {
-      const variant = paper.variants.find((candidate) => candidate.label === sheet.setLabel);
-      if (!variant) continue;
+      const graded = gradedBySheet.get(String(sheet._id));
+      if (!graded) continue;
       marked += 1;
-      const graded = gradeSheet(
-        variant,
-        paper.questions.map((question) => question.correctIndex ?? null),
-        sheet.answers,
-        paper.totalPoints ?? null,
-      );
-      for (const question of graded.questions) {
+      for (const question of graded) {
         if (question.isCorrect) correctByOriginal[question.original] += 1;
       }
     }
@@ -765,6 +794,21 @@ export class ExamPapersService {
           0,
         ),
       },
+      // ແຍກຄະແນນຕາມວິຊາ — the subjects the paper's ພາກ are given to, in order.
+      subjectParts: parts.map((part) => {
+        const marked = markedSubjects.find((subject) => String(subject._id) === part.subjectId);
+        const sections = new Set(part.sections);
+        return {
+          subjectId: part.subjectId,
+          nameLo: marked?.nameLo ?? '—',
+          testMax: marked ? columnMaxFor(marked.monthlyColumnMax).test : null,
+          points: partTotal(part, paper.totalPoints),
+          questions: paper.questions.filter((question) =>
+            sections.has(sectionKey(question.section)),
+          ).length,
+        };
+      }),
+      unassigned: parts.length ? unassignedCount(paper.questions, parts) : 0,
       questionCount: paper.questions.length,
       optionLabelStyle: paper.optionLabelStyle,
       sets: paper.variants.map((variant) => variant.label),
@@ -919,7 +963,12 @@ export class ExamPapersService {
     // What ກວດກາ is out of in the subject the points go to — 5 for ພາສາລາວ and
     // the social subjects, 6 for the rest.
     const testMax = columnMaxFor(target.monthlyColumnMax).test;
-    if ((paper.totalPoints ?? 0) > testMax) {
+    // A paper split by ພາກ sends this subject its own part's points only.
+    const parts = partsOf(paper);
+    const part = parts.find((candidate) => candidate.subjectId === String(target._id));
+    if (parts.length > 0 && !part) throw AppException.badRequest('examPaper.subjectNotInParts');
+    const outOf = part ? partTotal(part, paper.totalPoints) : (paper.totalPoints ?? null);
+    if ((outOf ?? 0) > testMax) {
       throw AppException.badRequest('examPaper.pointsExceedTest', { max: testMax });
     }
     const classroomId =
@@ -933,12 +982,24 @@ export class ExamPapersService {
         paperId: paper._id,
         classroomId: new Types.ObjectId(classroomId),
         deletedAt: null,
-        points: { $ne: null },
+        ...(part ? {} : { points: { $ne: null } }),
       })
-      .select('studentId points')
+      .select('studentId points setLabel answers')
       .lean()
       .exec();
-    if (sheets.length === 0) throw AppException.badRequest('examPaper.nothingToPush');
+    const key = paper.questions.map((question) => question.correctIndex ?? null);
+    const entries = sheets
+      .map((sheet) => {
+        if (!part) return { studentId: String(sheet.studentId), points: sheet.points ?? null };
+        const variant = paper.variants.find((candidate) => candidate.label === sheet.setLabel);
+        const graded = variant
+          ? gradeSheet(variant, key, sheet.answers, paper.totalPoints ?? null).questions
+          : [];
+        const [score] = scoreBySubject(paper.questions, graded, [part], paper.totalPoints);
+        return { studentId: String(sheet.studentId), points: variant ? score.points : null };
+      })
+      .filter((entry): entry is { studentId: string; points: number } => entry.points !== null);
+    if (entries.length === 0) throw AppException.badRequest('examPaper.nothingToPush');
 
     return this.monthlyMarks.saveMonthGrid(
       {
@@ -947,14 +1008,48 @@ export class ExamPapersService {
         semesterId: String(semester._id),
         month: dto.month,
         overrideReason: dto.overrideReason,
-        entries: sheets.map((sheet) => ({
-          studentId: String(sheet.studentId),
-          test: Math.min(testMax, sheet.points ?? 0),
+        entries: entries.map((entry) => ({
+          studentId: entry.studentId,
+          test: Math.min(testMax, entry.points),
         })),
       },
       actor,
       ip,
     );
+  }
+
+  /**
+   * ແຍກຄະແນນຕາມວິຊາ as the teacher set it, checked: every subject one marked
+   * under the paper's, and no ພາກ counted twice. A part with no ພາກ is dropped.
+   */
+  private async checkedParts(
+    paper: ExamPaperDocument,
+    parts: { subjectId: string; sections: string[]; points?: number | null }[],
+  ): Promise<ExamPaperDocument['subjectParts']> {
+    const cleaned: SubjectPart[] = parts
+      .map((part) => ({
+        subjectId: part.subjectId,
+        sections: [...new Set(part.sections)],
+        points: part.points ?? null,
+      }))
+      .filter((part) => part.sections.length > 0);
+    if (cleaned.length === 0) return [];
+    if (!paper.subjectId) throw AppException.badRequest('examPaper.subjectRequired');
+    const subjectId = new Types.ObjectId(String(refIdOf(paper.subjectId)));
+    const allowed = new Set(
+      (await this.subjects.findMarkedUnder({ _id: subjectId })).map((subject) =>
+        String(subject._id),
+      ),
+    );
+    const stranger = cleaned.find((part) => !allowed.has(part.subjectId));
+    if (stranger) {
+      throw AppException.badRequest('common.validationFailed', {
+        field: 'subjectParts',
+        reason: 'not a subject marked under the paper’s subject',
+      });
+    }
+    if (partsProblem(cleaned)) throw AppException.badRequest('examPaper.partsInvalid');
+    return cleaned.map((part) => ({ ...part, subjectId: new Types.ObjectId(part.subjectId) }));
   }
 
   /**
@@ -1304,6 +1399,15 @@ export class ExamPapersService {
         permission.resource === 'exam-papers' && permission.actions.includes('manage'),
     );
   }
+}
+
+/** The paper's ແຍກຄະແນນຕາມວິຊາ, ids as strings. */
+function partsOf(paper: ExamPaperDocument): SubjectPart[] {
+  return (paper.subjectParts ?? []).map((part) => ({
+    subjectId: String(refIdOf(part.subjectId)),
+    sections: part.sections ?? [],
+    points: part.points ?? null,
+  }));
 }
 
 /** The id behind a reference, populated or not. */

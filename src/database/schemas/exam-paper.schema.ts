@@ -254,6 +254,26 @@ export class ExamPaper extends SoftDeletableDocument {
    */
   @Prop({ type: Number, default: 6, min: 0 })
   totalPoints?: number | null;
+
+  /**
+   * ແຍກຄະແນນຕາມວິຊາ — for a paper whose subject is marked as several (ທຳມະຊາດ →
+   * ຟີຊິກ, ເຄມີ, ຊີວະ): which ພາກ belongs to which marked subject, and what that
+   * subject's part is out of (`null` takes `totalPoints`). Empty for a paper
+   * marked as a whole. The points per subject are worked out on read — see
+   * `exam-papers/subject-parts.ts`.
+   */
+  @Prop({
+    type: [
+      {
+        subjectId: { type: SchemaTypes.ObjectId, ref: 'Subject', required: true },
+        sections: { type: [String], default: [] },
+        points: { type: Number, default: null, min: 0 },
+        _id: false,
+      },
+    ],
+    default: [],
+  })
+  subjectParts: { subjectId: Types.ObjectId; sections: string[]; points: number | null }[];
 }
 
 export const ExamPaperSchema = SchemaFactory.createForClass(ExamPaper);

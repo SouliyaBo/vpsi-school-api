@@ -73,6 +73,11 @@ export const ROLE_SEEDS: RoleSeed[] = [
       // it names which homeroom teachers have stopped looking at their room, and
       // withdraws a review filed against the wrong day.
       { resource: 'homeroom-reviews', actions: ['manage'] },
+      // `manage` sends for any room — a room with no homeroom teacher, or one
+      // whose teacher is away — and reads and revokes every room's links, which
+      // is what the office needs when a family says a report went to the wrong
+      // phone. The report still names the room's homeroom teacher.
+      { resource: 'guardian-reports', actions: ['manage'] },
       { resource: 'term-results', actions: ['manage'] },
       { resource: 'reports', actions: ['create', 'read', 'export'] },
       { resource: 'lesson-plans', actions: ['read', 'approve'] },
@@ -121,18 +126,23 @@ export const ROLE_SEEDS: RoleSeed[] = [
       // which is the office's call. No `delete`: removing a child from the
       // register stays with the registrar.
       { resource: 'students', actions: ['read', 'create', 'update'] },
-      { resource: 'guardians', actions: ['read'] },
+      // `update` for the same reason: the parent's phone is the number the
+      // homeroom teacher rings, and they are the first to learn it has changed.
+      // GuardiansService narrows it to guardians of their own room's children.
+      // No `create` — a new guardian arrives through the student's guardian list
+      // — and no `delete`.
+      { resource: 'guardians', actions: ['read', 'update'] },
       { resource: 'teachers', actions: ['read'] },
       { resource: 'classrooms', actions: ['read'] },
       { resource: 'subject-groups', actions: ['read'] },
       { resource: 'subjects', actions: ['read'] },
       { resource: 'teaching-assignments', actions: ['read'] },
       // A new student who is never placed is invisible to the teacher who just
-      // added them, so creating one has to come with placing them. Narrowed by
-      // EnrollmentsService to the teacher's own homeroom — they cannot pull a
-      // child into someone else's room, and moving or removing an enrolment
-      // still needs `update`/`delete`, which they do not have.
-      { resource: 'enrollments', actions: ['read', 'create'] },
+      // added them, so creating one has to come with placing them. `update` so
+      // the homeroom teacher can fill in ຫ້ອງພາກອັງກິດ for their own class.
+      // EnrollmentsService narrows both to the teacher's own homeroom and keeps
+      // a status change (transfer, ໂຈະ, ອອກ) with the office; no `delete`.
+      { resource: 'enrollments', actions: ['read', 'create', 'update'] },
       { resource: 'score-components', actions: ['create', 'read', 'update'] },
       // Deliberately no `manage`: a teacher can submit and lock grades but not
       // reopen them.
@@ -159,6 +169,11 @@ export const ROLE_SEEDS: RoleSeed[] = [
       // could un-say what they told a guardian, and the report that names who has
       // not reviewed is the office's to read, not a colleague's.
       { resource: 'homeroom-reviews', actions: ['create', 'read', 'update'] },
+      // ລາຍງານຫາຜູ້ປົກຄອງ, for the room they are ຄູປະຈຳຫ້ອງ of — narrowed to it by
+      // GuardianReportsService. `delete` is revoking their own link; there is no
+      // `update`, because a report that has gone to a family is not edited, it is
+      // revoked and sent again.
+      { resource: 'guardian-reports', actions: ['create', 'read', 'delete'] },
       { resource: 'term-results', actions: ['read'] },
       { resource: 'lesson-plans', actions: ['create', 'read', 'update', 'delete'] },
       // Observing a colleague is ordinary staff work here — a head of department
@@ -169,7 +184,10 @@ export const ROLE_SEEDS: RoleSeed[] = [
       { resource: 'teaching-observations', actions: ['create', 'read', 'update', 'delete'] },
       // Full rights, narrowed in the service to the teacher's own papers.
       { resource: 'exam-papers', actions: ['create', 'read', 'update', 'delete'] },
-      { resource: 'reports', actions: ['read'] },
+      // ໃບຄະແນນ for the room they are ຄູປະຈຳຫ້ອງ of — narrowed to it by
+      // ReportsService, which also narrows `read` to their own room's reports. No
+      // `export`: that is the office's grant to download any room's.
+      { resource: 'reports', actions: ['create', 'read'] },
       ...readOnly(
         'locations',
         'school-years',

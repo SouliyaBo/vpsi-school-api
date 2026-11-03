@@ -10,6 +10,10 @@ import { BehaviorLogsModule } from './behavior-logs/behavior-logs.module';
 import { BehaviorLogsService } from './behavior-logs/behavior-logs.service';
 import { ConductDeductionsModule } from './conduct-deductions/conduct-deductions.module';
 import { ConductDeductionsService } from './conduct-deductions/conduct-deductions.service';
+import { GuardianReportsModule } from './guardian-reports/guardian-reports.module';
+import { GuardianReportsService } from './guardian-reports/guardian-reports.service';
+import { GuardiansModule } from './guardians/guardians.module';
+import { GuardiansService } from './guardians/guardians.service';
 import { HomeroomReviewsModule } from './homeroom-reviews/homeroom-reviews.module';
 import { HomeroomReviewsService } from './homeroom-reviews/homeroom-reviews.service';
 import { LessonPlansModule } from './lesson-plans/lesson-plans.module';
@@ -20,6 +24,7 @@ import { LibraryModule } from './library/library.module';
 import { LibraryService } from './library/library.service';
 import { MonthlyMarksModule } from './monthly-marks/monthly-marks.module';
 import { MonthlyMarksService } from './monthly-marks/monthly-marks.service';
+import { MonthlyStandingService } from './monthly-marks/monthly-standing.service';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
 import { TelegramModule } from './telegram/telegram.module';
@@ -74,6 +79,8 @@ const MODELS = [
   'GradeLevel',
   'HomeroomReview',
   'Guardian',
+  // ລາຍງານຫາຜູ້ປົກຄອງ.
+  'GuardianReport',
   'LessonPlan',
   // Both per-lesson logs resolve cover before they authorize a write.
   'LessonSubstitution',
@@ -203,6 +210,21 @@ describe('module wiring', () => {
     await app.close();
   });
 
+  // Narrows a homeroom teacher's edits to their own room through the record scope.
+  it('resolves guardians, which check the homeroom before a write', async () => {
+    const app = await build([GuardiansModule]);
+    expect(app.get(GuardiansService)).toBeInstanceOf(GuardiansService);
+    await app.close();
+  });
+
+  // The guardian report reads its sections through the marks, roll-call and
+  // conduct services, so all three have to resolve for it.
+  it('resolves guardian reports, which read marks, attendance and conduct', async () => {
+    const app = await build([GuardianReportsModule]);
+    expect(app.get(GuardianReportsService)).toBeInstanceOf(GuardianReportsService);
+    await app.close();
+  });
+
   // Publishes the term's conduct score as a side effect of taking points, which
   // puts ConductScoresService in its graph without its owning that collection.
   it('resolves conduct deductions, which publish the conduct score they compute', async () => {
@@ -220,6 +242,7 @@ describe('module wiring', () => {
   it('resolves monthly marks, which cross the roster with the timetable', async () => {
     const app = await build([MonthlyMarksModule]);
     expect(app.get(MonthlyMarksService)).toBeInstanceOf(MonthlyMarksService);
+    expect(app.get(MonthlyStandingService)).toBeInstanceOf(MonthlyStandingService);
     await app.close();
   });
 

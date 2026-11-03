@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ClientIp, CurrentUser, RequirePermissions } from 'src/common/decorators';
+import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import {
   BatchReportQueuedDto,
@@ -106,13 +107,17 @@ export class ReportsController {
   @RequirePermissions({ resource: 'reports', action: 'create' })
   @ApiOperation({
     summary: 'Queue a report card for one student',
-    description: 'Rendering runs as a background job. Poll the returned report id for status.',
+    description:
+      'Rendering runs as a background job. Poll the returned report id for status. A ' +
+      'homeroom teacher may queue one only for a student of their own room.',
   })
   @ApiResponse({ status: 202, type: ReportQueuedDto })
   async generateReportCard(
     @Body() dto: GenerateReportCardDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<ReportQueuedDto> {
+    const classroomId = await this.reportData.termResultClassroomId(dto.studentId, dto.semesterId);
+    await this.reports.assertMayReportOn(actor, classroomId);
     const template = await this.reports.resolveTemplate('report_card', dto.templateId);
 
     const report = await this.reports.createPending({
@@ -120,6 +125,7 @@ export class ReportsController {
       templateId: template._id,
       params: { studentId: dto.studentId, semesterId: dto.semesterId },
       studentId: dto.studentId,
+      classroomId,
       semesterId: dto.semesterId,
       requestedBy: actor.sub,
     });
@@ -135,18 +141,46 @@ export class ReportsController {
     summary: 'Queue a report card for every student in a classroom',
     description:
       'One job per student rather than one job for the class, so a single unrenderable ' +
-      'student does not lose the whole batch, and progress is visible per report.',
+      'student does not lose the whole batch, and progress is visible per report. With ' +
+      '`combined`, one job and one PDF for the class instead — what the office prints. A ' +
+      'homeroom teacher may queue either only for their own room.',
   })
   @ApiResponse({ status: 202, type: BatchReportQueuedDto })
   async generateClassReports(
     @Body() dto: GenerateClassReportsDto,
     @CurrentUser() actor: AuthenticatedUser,
   ): Promise<BatchReportQueuedDto> {
+    await this.reports.assertMayReportOn(actor, dto.classroomId);
     const template = await this.reports.resolveTemplate('report_card', dto.templateId);
     const studentIds = await this.reportData.listClassroomStudentIds(
       dto.classroomId,
       dto.semesterId,
     );
+
+    if (dto.combined) {
+      // Refused here rather than left to fail in the worker, so the office is
+      // told to compute the term at the moment it presses the button.
+      if (studentIds.length === 0) {
+        throw AppException.unprocessable('report.noTermResults', {
+          classroomId: dto.classroomId,
+          semesterId: dto.semesterId,
+        });
+      }
+      const report = await this.reports.createPending({
+        type: 'report_card',
+        templateId: template._id,
+        params: {
+          classroomId: dto.classroomId,
+          semesterId: dto.semesterId,
+          students: studentIds.length,
+        },
+        classroomId: dto.classroomId,
+        semesterId: dto.semesterId,
+        requestedBy: actor.sub,
+      });
+      const jobId = await this.queue.enqueueRender(report._id.toString());
+      return { queued: 1, reports: [{ reportId: report._id.toString(), jobId, status: 'queued' }] };
+    }
 
     const queued: ReportQueuedDto[] = [];
     for (const studentId of studentIds) {
@@ -182,9 +216,14 @@ export class ReportsController {
 
   @Get()
   @RequirePermissions({ resource: 'reports', action: 'read' })
-  @ApiOperation({ summary: 'List generated reports' })
-  findAll(@Query() query: QueryGeneratedReportsDto) {
-    return this.reports.findAll(query);
+  @ApiOperation({
+    summary: 'List generated reports',
+    description:
+      'Narrowed per caller: a homeroom teacher sees what they asked for and what was made ' +
+      'for their room; a student or guardian only the cards about their own child.',
+  })
+  findAll(@Query() query: QueryGeneratedReportsDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.reports.findAll(query, actor);
   }
 
   @Get('jobs/:jobId')
@@ -199,8 +238,8 @@ export class ReportsController {
   @Get(':id')
   @RequirePermissions({ resource: 'reports', action: 'read' })
   @ApiOperation({ summary: 'One generated report, including its status and any error' })
-  findOne(@Param('id') id: string) {
-    return this.reports.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
+    return this.reports.findOneFor(id, actor);
   }
 
   @Get(':id/download')

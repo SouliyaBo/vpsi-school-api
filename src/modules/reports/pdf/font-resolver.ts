@@ -250,3 +250,50 @@ export function resetFontCache(): void {
   cached = null;
   cachedOfficial = null;
 }
+
+/**
+ * Times New Roman, or a face drawn to its exact metrics, for the figures and
+ * Latin text of a printout — the office's house style.
+ *
+ * PDFKit's own `Times-Roman` covers only the Western European letters: an Ω,
+ * π or √ in a question came out as ":•" (the office's ຟີຊິກ paper, 20 Oct
+ * 2026). Liberation Serif, which the Docker image installs for LibreOffice, has
+ * Greek and the maths signs at Times New Roman's widths, so nothing moves on the
+ * page. With neither found the built-in face is returned, and the symbols stay
+ * broken — logged once.
+ */
+const LATIN_REGULAR_CANDIDATES = [
+  '/System/Library/Fonts/Supplemental/Times New Roman.ttf',
+  'C:\\Windows\\Fonts\\times.ttf',
+  '/usr/share/fonts/liberation/LiberationSerif-Regular.ttf',
+  '/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf',
+  '/usr/share/fonts/TTF/LiberationSerif-Regular.ttf',
+];
+const LATIN_BOLD_CANDIDATES = [
+  '/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf',
+  'C:\\Windows\\Fonts\\timesbd.ttf',
+  '/usr/share/fonts/liberation/LiberationSerif-Bold.ttf',
+  '/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf',
+  '/usr/share/fonts/TTF/LiberationSerif-Bold.ttf',
+];
+
+let latinCached: ResolvedFonts | null = null;
+
+export function resolveLatinFonts(): ResolvedFonts {
+  if (latinCached) return latinCached;
+  const regular = firstExisting(LATIN_REGULAR_CANDIDATES);
+  const bold = firstExisting(LATIN_BOLD_CANDIDATES);
+  if (!regular) {
+    logger.warn(
+      'No Times New Roman or Liberation Serif found; Ω, π, √ and the like will not print. ' +
+        'Install font-liberation.',
+    );
+  } else {
+    logger.log(`Latin fonts resolved — regular: ${regular}, bold: ${bold ?? regular}`);
+  }
+  latinCached = {
+    regular: regular ?? 'Times-Roman',
+    bold: bold ?? (regular ? regular : 'Times-Bold'),
+  };
+  return latinCached;
+}

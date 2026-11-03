@@ -10,7 +10,7 @@ import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { LessonAccessService } from 'src/common/lesson-access/lesson-access.service';
-import { periodsOnDate, substitutionKey } from 'src/common/lesson-access/lesson-write-access';
+import { lessonPeriodsOn, substitutionKey } from 'src/common/lesson-access/lesson-write-access';
 import { loadCoverageAssignments } from 'src/common/lesson-coverage/coverage-assignments';
 import {
   buildCoverage,
@@ -517,7 +517,7 @@ export class AttendancesService {
    * leaves `periodNumber` unset, so the field is always usable for ordering.
    */
   private periodNumberFor(assignment: TeachingAssignmentDocument, date: Date): number {
-    const today = periodsOnDate(assignment.schedule, date).sort((a, b) =>
+    const today = lessonPeriodsOn(assignment, date).sort((a, b) =>
       a.startTime.localeCompare(b.startTime),
     );
     return today[0]?.periodNumber ?? 1;
@@ -859,9 +859,9 @@ export class AttendancesService {
     );
 
     const lessons = assignments
-      .filter((assignment) => periodsOnDate(assignment.schedule, normalized).length > 0)
+      .filter((assignment) => lessonPeriodsOn(assignment, normalized).length > 0)
       .map((assignment) => {
-        const slot = periodsOnDate(assignment.schedule, normalized).sort((a, b) =>
+        const slot = lessonPeriodsOn(assignment, normalized).sort((a, b) =>
           a.startTime.localeCompare(b.startTime),
         )[0];
         const assignmentId = assignment._id.toString();

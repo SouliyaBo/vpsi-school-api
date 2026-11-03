@@ -262,3 +262,39 @@ export class SaveMarksResultDto {
   @ApiProperty() skipped: number;
   @ApiProperty({ type: [Object] }) errors: { studentId: string; reason: string }[];
 }
+
+/**
+ * ສະຫຼຸບຜົນການຮຽນປະຈຳເດືອນ — every class the caller may see, one month against another.
+ *
+ * Both months default: the active term's current month, and the month the
+ * school collected before it — across the term break if need be, so ກຸມພາ is
+ * compared with ພະຈິກ. A compare month without its term is looked up in the
+ * year by month alone.
+ */
+export class StandingQueryDto {
+  @ApiPropertyOptional({ description: 'Defaults to the active semester' })
+  @IsMongoId()
+  @IsOptional()
+  semesterId?: string;
+
+  @ApiPropertyOptional({ example: 10, description: 'Calendar month, 1–12' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  @IsOptional()
+  month?: number;
+
+  @ApiPropertyOptional({ description: 'The term of the month compared against' })
+  @IsMongoId()
+  @IsOptional()
+  compareSemesterId?: string;
+
+  @ApiPropertyOptional({ example: 9, description: 'Calendar month compared against, 1–12' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  @IsOptional()
+  compareMonth?: number;
+}

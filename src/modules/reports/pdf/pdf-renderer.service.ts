@@ -205,6 +205,17 @@ export class PdfRendererService {
   private readonly logger = new Logger(PdfRendererService.name);
 
   async render(layout: ReportLayout, data: ReportData): Promise<Buffer> {
+    return this.renderMany(layout, [data]);
+  }
+
+  /**
+   * Several reports in one PDF — ໃບຄະແນນ for a whole class, printed in one go.
+   *
+   * Each report starts on a fresh page and is numbered on its own ("1 / 2" for
+   * every child, not "37 / 64"), because the pack is printed, cut into a card per
+   * child and handed out: a card has to read as complete without its neighbours.
+   */
+  async renderMany(layout: ReportLayout, reports: ReportData[]): Promise<Buffer> {
     // Throws LaoFontUnavailableError, which the queue processor records as the
     // job's failure reason — better than a PDF full of blank boxes.
     const fonts = resolveLaoFonts();
@@ -229,11 +240,17 @@ export class PdfRendererService {
       doc.on('error', reject);
     });
 
-    this.drawHeader(doc, layout, data, locale);
-    for (const section of layout.sections) {
-      this.drawSection(doc, section, data, locale);
-    }
-    this.drawFooter(doc, layout, locale);
+    // The first page of each report, so the footer can number them apart.
+    const starts: number[] = [];
+    reports.forEach((data, index) => {
+      if (index > 0) doc.addPage();
+      starts.push(doc.bufferedPageRange().count - 1);
+      this.drawHeader(doc, layout, data, locale);
+      for (const section of layout.sections) {
+        this.drawSection(doc, section, data, locale);
+      }
+    });
+    this.drawFooter(doc, layout, locale, starts);
 
     doc.end();
     await finished;
@@ -436,7 +453,13 @@ export class PdfRendererService {
     doc.moveDown(0.6);
   }
 
-  private drawFooter(doc: PDFKit.PDFDocument, layout: ReportLayout, locale: Locale): void {
+  /** `starts` is the first page of each report, so each is numbered on its own. */
+  private drawFooter(
+    doc: PDFKit.PDFDocument,
+    layout: ReportLayout,
+    locale: Locale,
+    starts: number[] = [0],
+  ): void {
     const footer = layout.footer;
     if (!footer) return;
 
@@ -445,7 +468,15 @@ export class PdfRendererService {
 
     for (let index = 0; index < range.count; index += 1) {
       doc.switchToPage(range.start + index);
+      const first = starts.filter((start) => start <= index).pop() ?? 0;
+      const next = starts.find((start) => start > index) ?? range.count;
       const y = doc.page.height - doc.page.margins.bottom + 12;
+      // The footer sits in the bottom margin, and PDFKit answers text written
+      // below the margin by adding a page — which gave every report card a blank
+      // second page carrying nothing but "2 / 2". The margin is lifted while the
+      // footer is written and put back after.
+      const bottomMargin = doc.page.margins.bottom;
+      doc.page.margins.bottom = 0;
 
       if (text) {
         doc.fontSize(8);
@@ -461,11 +492,12 @@ export class PdfRendererService {
         doc
           .font(LATIN)
           .fontSize(8)
-          .text(`${index + 1} / ${range.count}`, doc.page.margins.left, y, {
+          .text(`${index - first + 1} / ${next - first}`, doc.page.margins.left, y, {
             width: this.contentWidth(doc),
             align: 'right',
           });
       }
+      doc.page.margins.bottom = bottomMargin;
     }
   }
 

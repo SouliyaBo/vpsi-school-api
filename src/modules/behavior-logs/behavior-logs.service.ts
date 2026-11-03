@@ -6,7 +6,7 @@ import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { LessonAccessService } from 'src/common/lesson-access/lesson-access.service';
-import { periodsOnDate } from 'src/common/lesson-access/lesson-write-access';
+import { lessonPeriodsOn } from 'src/common/lesson-access/lesson-write-access';
 import { loadCoverageAssignments } from 'src/common/lesson-coverage/coverage-assignments';
 import { TimelinessQueryDto } from 'src/common/dto/timeliness-query.dto';
 import { readTimeliness } from 'src/common/record-timeliness/read-timeliness';
@@ -281,9 +281,9 @@ export class BehaviorLogsService {
     ]);
 
     const lessons = assignments
-      .filter((assignment) => periodsOnDate(assignment.schedule, normalized).length > 0)
+      .filter((assignment) => lessonPeriodsOn(assignment, normalized).length > 0)
       .map((assignment) => {
-        const slot = periodsOnDate(assignment.schedule, normalized).sort((a, b) =>
+        const slot = lessonPeriodsOn(assignment, normalized).sort((a, b) =>
           a.startTime.localeCompare(b.startTime),
         )[0];
         return {
@@ -925,7 +925,7 @@ export class BehaviorLogsService {
 
   /** The period to stamp on the row, falling back to the day's first slot. */
   private periodNumberFor(assignment: TeachingAssignmentDocument, date: Date): number {
-    const today = periodsOnDate(assignment.schedule, date).sort((a, b) =>
+    const today = lessonPeriodsOn(assignment, date).sort((a, b) =>
       a.startTime.localeCompare(b.startTime),
     );
     return today[0]?.periodNumber ?? 1;

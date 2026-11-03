@@ -20,6 +20,15 @@ import { AttendancesService } from '../attendances/attendances.service';
 import { SettingsService } from '../settings/settings.service';
 import { CONDUCT_LABELS, GENDER_LABELS, ReportData } from './pdf/pdf-renderer.service';
 
+/** What a generated report is about, by name — see `describeTargets`. */
+export interface ReportTargetNames {
+  classroomName: string | null;
+  /** Latin, `m1`; the admin writes it as ມ.1. */
+  gradeLevelCode: string | null;
+  semesterNameLo: string | null;
+  semesterNameEn: string | null;
+}
+
 /**
  * Gathers everything a report needs into one flat structure.
  *
@@ -227,6 +236,100 @@ export class ReportDataService {
       issuedDate: options.issuedDate,
       titleLo: options.titleLo,
     };
+  }
+
+  /**
+   * ໃບຄະແນນ for every student in a class with a stored term result, in the
+   * order of the register (by student code) — the pack is printed and handed out
+   * down the roll, not by rank.
+   */
+  async buildClassReportCards(classroomId: string, semesterId: string): Promise<ReportData[]> {
+    const studentIds = await this.listClassroomStudentIds(classroomId, semesterId);
+    if (studentIds.length === 0) {
+      throw AppException.unprocessable('report.noTermResults', { classroomId, semesterId });
+    }
+
+    // One at a time: this runs in the worker on a small box, and a class is
+    // forty cards at most.
+    const cards: ReportData[] = [];
+    for (const studentId of studentIds) {
+      cards.push(await this.buildReportCard(studentId, semesterId));
+    }
+    return cards.sort((a, b) =>
+      a.student.studentCode.localeCompare(b.student.studentCode, undefined, { numeric: true }),
+    );
+  }
+
+  /** The room a student's term result was computed in, or `null` without one. */
+  async termResultClassroomId(studentId: string, semesterId: string): Promise<string | null> {
+    const result = await this.termResultModel
+      .findOne({
+        studentId: new Types.ObjectId(studentId),
+        semesterId: new Types.ObjectId(semesterId),
+        deletedAt: null,
+      })
+      .select('classroomId')
+      .lean()
+      .exec();
+    return result ? String(result.classroomId) : null;
+  }
+
+  /**
+   * The room and term each generated report is about, by name, for the list.
+   *
+   * Two reads for the whole page rather than a populate per row, and a missing
+   * room or term reads as `null` rather than failing the list.
+   */
+  async describeTargets(
+    reports: { classroomId?: unknown; semesterId?: unknown; params?: Record<string, unknown> }[],
+  ): Promise<ReportTargetNames[]> {
+    const ids = (field: 'classroomId' | 'semesterId') => [
+      ...new Set(
+        reports
+          .map((report) => report[field])
+          .filter(Boolean)
+          .map(String),
+      ),
+    ];
+
+    const [classrooms, semesters] = await Promise.all([
+      this.classroomModel
+        .find({ _id: { $in: ids('classroomId').map((id) => new Types.ObjectId(id)) } })
+        .select('name gradeLevelId')
+        .lean()
+        .exec(),
+      this.semesterModel
+        .find({ _id: { $in: ids('semesterId').map((id) => new Types.ObjectId(id)) } })
+        .select('nameLo nameEn')
+        .lean()
+        .exec(),
+    ]);
+    const gradeLevels = await this.gradeLevelModel
+      .find({ _id: { $in: classrooms.map((classroom) => classroom.gradeLevelId) } })
+      .select('code')
+      .lean()
+      .exec();
+
+    const classroomById = new Map(
+      classrooms.map((classroom) => [String(classroom._id), classroom]),
+    );
+    const semesterById = new Map(semesters.map((semester) => [String(semester._id), semester]));
+    const gradeCodeById = new Map(gradeLevels.map((grade) => [String(grade._id), grade.code]));
+
+    return reports.map((report) => {
+      const classroom = report.classroomId
+        ? classroomById.get(String(report.classroomId))
+        : undefined;
+      const semester = report.semesterId ? semesterById.get(String(report.semesterId)) : undefined;
+      return {
+        classroomName: classroom?.name ?? null,
+        gradeLevelCode: classroom
+          ? (gradeCodeById.get(String(classroom.gradeLevelId)) ?? null)
+          : null,
+        semesterNameLo: semester?.nameLo ?? null,
+        semesterNameEn: semester?.nameEn ?? null,
+      };
+    });
   }
 
   /** Every actively enrolled student in a classroom — the batch report unit. */

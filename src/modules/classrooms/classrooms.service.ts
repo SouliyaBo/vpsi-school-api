@@ -159,6 +159,13 @@ export class ClassroomsService extends BaseCrudService<ClassroomDocument> {
    * `$push` onto the same array in one update; the caller passes a session where
    * it has one, and the handover always does.
    *
+   * The close matches on an open spell with `$elemMatch` and writes through the
+   * positional `$`, rather than an `arrayFilters` update: every room created
+   * before the history existed has no `homeroomHistory` field at all, and MongoDB
+   * rejects an `arrayFilters` update on a missing array outright — which made
+   * every homeroom change a 500. With no open spell the close matches nothing,
+   * and the `$push` creates the array.
+   *
    * Closing the previous spell and opening the next are the same instant, so a
    * question about any day lands in exactly one spell and never between two.
    */
@@ -175,9 +182,9 @@ export class ClassroomsService extends BaseCrudService<ClassroomDocument> {
 
     await this.model
       .updateOne(
-        { _id, deletedAt: null },
-        { $set: { homeroomTeacherId: next, 'homeroomHistory.$[open].to': at } },
-        { arrayFilters: [{ 'open.to': null }], session: context.session },
+        { _id, deletedAt: null, homeroomHistory: { $elemMatch: { to: null } } },
+        { $set: { 'homeroomHistory.$.to': at } },
+        { session: context.session },
       )
       .exec();
 
@@ -185,6 +192,7 @@ export class ClassroomsService extends BaseCrudService<ClassroomDocument> {
       .findOneAndUpdate(
         { _id, deletedAt: null },
         {
+          $set: { homeroomTeacherId: next },
           $push: {
             homeroomHistory: {
               teacherId: next,

@@ -1,5 +1,6 @@
 import {
   responsibleTeacher,
+  scheduleInForce,
   type LessonSubstitute,
   type SubstitutionIndex,
 } from '../lesson-access/lesson-write-access';
@@ -526,16 +527,9 @@ export function slotsOn(
   assignment: Pick<CoverageAssignment, 'schedule' | 'scheduleHistory'>,
   day: string,
 ): CoverageSlot[] {
-  const spells = assignment.scheduleHistory;
-  if (!spells || spells.length === 0) return assignment.schedule;
-
-  const inForce = spells.find(
-    (spell) => spell.from <= day && (spell.to === null || day < spell.to),
-  );
-  if (inForce) return inForce.schedule;
-
-  if (day < spells[0].from) return spells[0].schedule;
-  return assignment.schedule;
+  // The same rule the roll-call screen and the write guard read, so the lessons a
+  // teacher is chased for are exactly the lessons they are allowed to write.
+  return scheduleInForce(assignment, day);
 }
 
 /**

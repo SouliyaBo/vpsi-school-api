@@ -17,6 +17,7 @@ import { SeedModule } from 'src/database/seeds/seed.module';
 import { SeedService } from 'src/database/seeds/seed.service';
 import { AttendancesModule } from 'src/modules/attendances/attendances.module';
 import { HomeroomReviewsModule } from 'src/modules/homeroom-reviews/homeroom-reviews.module';
+import { GuardianReportsModule } from 'src/modules/guardian-reports/guardian-reports.module';
 import { LibraryModule } from 'src/modules/library/library.module';
 import { AuditLogsModule } from 'src/modules/audit-logs/audit-logs.module';
 import { AuthModule } from 'src/modules/auth/auth.module';
@@ -259,6 +260,8 @@ export async function createTestApp(): Promise<TestContext> {
       // Pulls BehaviorLogsModule and ConductDeductionsModule in with it: the review
       // sheet is assembled from the roll call, the register and the ledger.
       HomeroomReviewsModule,
+      // ລາຍງານຫາຜູ້ປົກຄອງ — read through marks, roll call and the conduct ledger.
+      GuardianReportsModule,
       LibraryModule,
 
       // The real modules are imported and then overridden below, so that a

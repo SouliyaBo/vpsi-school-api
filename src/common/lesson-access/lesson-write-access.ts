@@ -97,6 +97,54 @@ export function periodsOnDate<T extends { dayOfWeek: number }>(schedule: T[], da
   return schedule.filter((period) => period.dayOfWeek === date.getUTCDay());
 }
 
+/** A lesson's timetable with its dated past — the stored shape or the report's. */
+export interface DatedTimetable<T> {
+  schedule: T[];
+  /** Oldest first; `[from, to)`, an open `to` running to the present. */
+  scheduleHistory?: ReadonlyArray<{
+    from: Date | string;
+    to?: Date | string | null;
+    schedule: T[];
+  }> | null;
+}
+
+/**
+ * The arrangement of a lesson's periods that was in force on one day.
+ *
+ * What the timetable said *then*, not what it says now. The reports have asked
+ * it this way since the timetable was dated; the roll-call screen and the write
+ * guard did not, so after the 5 Oct 2026 revision swapped two lessons between
+ * Tuesday and Wednesday, picking a Wednesday before it offered the lesson that
+ * moved onto Wednesday afterwards and refused the one the report was chasing.
+ * Both sides now read this one rule, which is the only way they stay agreed.
+ *
+ * No recorded moves → the current arrangement, for every day. A day before the
+ * oldest spell → that spell, the best account of the timetable before anybody
+ * wrote one down. Compared by `yyyy-MM-dd` so a stored date and a report's day
+ * key mean the same thing.
+ */
+export function scheduleInForce<T>(timetable: DatedTimetable<T>, date: Date | string): T[] {
+  const spells = timetable.scheduleHistory;
+  if (!spells || spells.length === 0) return timetable.schedule;
+
+  const day = dayKeyOf(date);
+  const inForce = spells.find(
+    (spell) => dayKeyOf(spell.from) <= day && (spell.to == null || day < dayKeyOf(spell.to)),
+  );
+  if (inForce) return inForce.schedule;
+
+  if (day < dayKeyOf(spells[0].from)) return spells[0].schedule;
+  return timetable.schedule;
+}
+
+/** The periods a lesson was taught in on `date`, by the timetable of that day. */
+export function lessonPeriodsOn<T extends { dayOfWeek: number }>(
+  timetable: DatedTimetable<T>,
+  date: Date,
+): T[] {
+  return periodsOnDate(scheduleInForce(timetable, date), date);
+}
+
 /**
  * An id however the caller holds it.
  *

@@ -20,6 +20,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BehaviorLogsModule } from './modules/behavior-logs/behavior-logs.module';
 import { LessonSubstitutionsModule } from './modules/lesson-substitutions/lesson-substitutions.module';
 import { HomeroomReviewsModule } from './modules/homeroom-reviews/homeroom-reviews.module';
+import { GuardianReportsModule } from './modules/guardian-reports/guardian-reports.module';
 import { MonthlyMarksModule } from './modules/monthly-marks/monthly-marks.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { CertificatesModule } from './modules/certificates/certificates.module';
@@ -175,6 +176,7 @@ import { UsersModule } from './modules/users/users.module';
     AttendancesModule,
     BehaviorLogsModule,
     HomeroomReviewsModule,
+    GuardianReportsModule,
     MonthlyMarksModule,
     TermResultsModule,
     VaccinationsModule,

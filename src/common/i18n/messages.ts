@@ -119,6 +119,18 @@ export const MESSAGES = {
     lo: 'ຈັດເຂົ້າຫ້ອງໄດ້ສະເພາະຫ້ອງທີ່ທ່ານເປັນຄູປະຈຳຫ້ອງ',
     en: 'You may only place a student in the classroom you are homeroom teacher of',
   },
+  'monthlyMark.monthNotInTerm': {
+    lo: 'ພາກຮຽນນີ້ບໍ່ມີເດືອນທີ່ເລືອກ',
+    en: 'That month is not one this term collects marks for',
+  },
+  'enrollment.notOwnHomeroomStudent': {
+    lo: 'ແກ້ໄຂໄດ້ສະເພາະນັກຮຽນໃນຫ້ອງທີ່ທ່ານເປັນຄູປະຈຳຫ້ອງ',
+    en: 'You may only edit students in the classroom you are homeroom teacher of',
+  },
+  'enrollment.moveIsOfficeOnly': {
+    lo: 'ການຍ້າຍຫ້ອງ, ໂຈະ ຫຼື ອອກ ຕ້ອງເຮັດໂດຍຫ້ອງການ',
+    en: 'Moving, suspending or withdrawing a student is done by the office',
+  },
 
   // ── Teaching assignments ──────────────────────────────────────────────────
   'assignment.teacherConflict': {
@@ -275,6 +287,46 @@ export const MESSAGES = {
   },
 
   // ── Homeroom review (ການຕິດຕາມນັກຮຽນຂອງຄູປະຈຳຫ້ອງ) ─────────────────────────
+  'guardianReport.notHomeroomTeacher': {
+    lo: 'ສະເພາະຄູປະຈຳຫ້ອງຂອງນັກຮຽນຄົນນີ້ ຫຼື ຫ້ອງການໂຮງຮຽນ ຈຶ່ງສົ່ງລາຍງານຫາຜູ້ປົກຄອງໄດ້',
+    en: 'Only this student’s homeroom teacher or the school office can send a guardian report',
+  },
+  'guardianReport.studentNotEnrolled': {
+    lo: 'ນັກຮຽນຄົນນີ້ບໍ່ໄດ້ຢູ່ໃນຫ້ອງຮຽນໃດໃນສົກຮຽນນີ້',
+    en: 'This student is not in a class this school year',
+  },
+  'guardianReport.monthOutsideTerm': {
+    lo: 'ເດືອນ {month} ບໍ່ຢູ່ໃນພາກຮຽນທີ່ເລືອກ',
+    en: 'Month {month} is not part of the selected term',
+  },
+  'guardianReport.guardianNotLinked': {
+    lo: 'ຜູ້ປົກຄອງຄົນນີ້ບໍ່ໄດ້ຮັບສິດເບິ່ງຂໍ້ມູນຂອງນັກຮຽນຄົນນີ້',
+    en: 'That guardian is not allowed to view this student’s records',
+  },
+  'guardianReport.guardianHasNoPhone': {
+    lo: 'ຜູ້ປົກຄອງຄົນນີ້ບໍ່ມີເບີໂທທີ່ໃຊ້ໄດ້ — ເພີ່ມເບີໂທກ່ອນ ເພາະໃຊ້ 4 ໂຕທ້າຍເປັນລະຫັດເປີດ',
+    en: 'That guardian has no usable phone number — its last four digits open the report',
+  },
+  'guardianReport.empty': {
+    lo: 'ກະລຸນາເລືອກຢ່າງໜ້ອຍໜຶ່ງຫົວຂໍ້ ຫຼື ຂຽນຂໍ້ຄວາມ',
+    en: 'Choose at least one section or write a message',
+  },
+  'guardianReport.revoked': {
+    lo: 'ລາຍງານນີ້ຖືກຍົກເລີກແລ້ວ — ກະລຸນາສ້າງລາຍງານໃໝ່',
+    en: 'This report was revoked — create a new one instead',
+  },
+  'guardianReport.unavailable': {
+    lo: 'ລິ້ງນີ້ໃຊ້ບໍ່ໄດ້ແລ້ວ — ກະລຸນາຂໍລິ້ງໃໝ່ຈາກຄູປະຈຳຫ້ອງ',
+    en: 'This link no longer works — please ask the homeroom teacher for a new one',
+  },
+  'guardianReport.wrongPin': {
+    lo: 'ເລກບໍ່ຖືກຕ້ອງ — ຍັງລອງໄດ້ອີກ {attemptsLeft} ຄັ້ງ',
+    en: 'Those digits are not right — {attemptsLeft} tries left',
+  },
+  'guardianReport.locked': {
+    lo: 'ໃສ່ເລກຜິດເກີນກຳນົດ ລິ້ງນີ້ຖືກລັອກແລ້ວ — ກະລຸນາຂໍລິ້ງໃໝ່ຈາກຄູປະຈຳຫ້ອງ',
+    en: 'Too many wrong tries; this link is locked — please ask the homeroom teacher for a new one',
+  },
   'homeroomReview.notHomeroomTeacher': {
     lo: 'ທ່ານບໍ່ແມ່ນຄູປະຈຳຫ້ອງນີ້',
     en: 'You are not the homeroom teacher of that class',
@@ -390,6 +442,16 @@ export const MESSAGES = {
     en: 'Term results have not been published yet',
   },
 
+  // ── Reports (ລາຍງານ) ──────────────────────────────────────────────────────
+  'report.notHomeroomTeacher': {
+    lo: 'ສະເພາະຄູປະຈຳຫ້ອງນີ້ ຫຼື ຫ້ອງການໂຮງຮຽນ ຈຶ່ງສ້າງ ແລະ ດາວໂຫຼດລາຍງານຂອງຫ້ອງນີ້ໄດ້',
+    en: 'Only this class’s homeroom teacher or the school office can create or download its reports',
+  },
+  'report.noTermResults': {
+    lo: 'ຫ້ອງນີ້ຍັງບໍ່ມີຜົນການຮຽນຂອງພາກຮຽນນີ້ — ໃຫ້ຄິດໄລ່ຜົນການຮຽນກ່ອນ',
+    en: 'This class has no term results for that term yet — compute them first',
+  },
+
   // ── People ────────────────────────────────────────────────────────────────
   'student.guardianRequired': {
     lo: 'ຕ້ອງມີຜູ້ປົກຄອງຢ່າງໜ້ອຍ 1 ຄົນ',
@@ -406,6 +468,10 @@ export const MESSAGES = {
   'student.notInHomeroom': {
     lo: 'ແກ້ໄຂໄດ້ສະເພາະນັກຮຽນໃນຫ້ອງທີ່ທ່ານເປັນຄູປະຈຳຫ້ອງ',
     en: 'You may only edit students in the classroom you are homeroom teacher of',
+  },
+  'guardian.notInHomeroom': {
+    lo: 'ແກ້ໄຂໄດ້ສະເພາະຜູ້ປົກຄອງຂອງນັກຮຽນໃນຫ້ອງທີ່ທ່ານເປັນຄູປະຈຳຫ້ອງ',
+    en: 'You may only edit guardians of students in the classroom you are homeroom teacher of',
   },
   'student.statusIsOfficeOnly': {
     lo: 'ການປ່ຽນສະຖານະນັກຮຽນແມ່ນໜ້າທີ່ຂອງຫ້ອງທະບຽນ',
@@ -460,6 +526,14 @@ export const MESSAGES = {
   'examPaper.pointsExceedTest': {
     lo: 'ຄະແນນເຕັມຂອງບົດສອບເກີນຊ່ອງ ກວດກາ ({{max}} ຄະແນນ) — ຕັ້ງຄະແນນເຕັມບໍ່ເກີນ {{max}}',
     en: 'The paper’s total exceeds the ກວດກາ column ({{max}}) — set a total of at most {{max}}',
+  },
+  'examPaper.subjectNotInParts': {
+    lo: 'ວິຊານີ້ຍັງບໍ່ມີພາກໃດໃນບົດສອບ — ເລືອກພາກໃຫ້ວິຊານີ້ໃນ ແຍກຄະແນນຕາມວິຊາ ກ່ອນ',
+    en: 'No part of this paper is given to that subject yet — choose its part under Split marks by subject first',
+  },
+  'examPaper.partsInvalid': {
+    lo: 'ພາກດຽວກັນຖືກເລືອກໃຫ້ຫຼາຍວິຊາ ຫຼື ວິຊາດຽວກັນຊ້ຳກັນ — ໃຫ້ແຕ່ລະພາກເປັນຂອງວິຊາດຽວ',
+    en: 'A part is given to two subjects, or a subject is listed twice — give each part to one subject',
   },
   'examPaper.scanNeedsStudent': {
     lo: 'ກະລຸນາລະບຸນັກຮຽນ ແລະ ຊຸດ ກ່ອນຢືນຢັນ',

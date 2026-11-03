@@ -14,6 +14,7 @@ import type { AuthenticatedUser } from '../interfaces/authenticated-user.interfa
 import {
   canWriteLesson,
   periodsOnDate,
+  scheduleInForce,
   substitutionKey,
   type LessonSubstitute,
   type SubstitutionIndex,
@@ -108,11 +109,14 @@ export class LessonAccessService {
       throw AppException.badRequest('attendance.assignmentInactive', { teachingAssignmentId });
     }
 
-    if (periodsOnDate(assignment.schedule, date).length === 0) {
+    // By the timetable of that day: a lesson moved since is still writable on the
+    // weekday it was taught on then, which is the weekday the reports chase.
+    const schedule = scheduleInForce(assignment, date);
+    if (periodsOnDate(schedule, date).length === 0) {
       throw AppException.badRequest('attendance.lessonNotScheduled', {
         teachingAssignmentId,
         dayOfWeek: date.getUTCDay(),
-        scheduledDays: [...new Set(assignment.schedule.map((period) => period.dayOfWeek))].sort(),
+        scheduledDays: [...new Set(schedule.map((period) => period.dayOfWeek))].sort(),
       });
     }
 

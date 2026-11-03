@@ -1,8 +1,10 @@
 import { Types } from 'mongoose';
 import {
   canWriteLesson,
+  lessonPeriodsOn,
   periodsOnDate,
   responsibleTeacher,
+  scheduleInForce,
   substitutionKey,
   type LessonSubstitute,
 } from './lesson-write-access';
@@ -128,5 +130,91 @@ describe('periodsOnDate', () => {
     ];
 
     expect(periodsOnDate(schedule, monday)).toHaveLength(2);
+  });
+});
+
+describe('scheduleInForce', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+
+  // ມ.1/ກ ທຳມະຊາດ, as the 5 Oct 2026 revision left it: Wednesday until then,
+  // Tuesday since. Stored dates, as Mongo hands them back.
+  const moved = {
+    schedule: [{ dayOfWeek: 2, startTime: '15:10' }],
+    scheduleHistory: [
+      {
+        from: day('2026-08-17'),
+        to: day('2026-10-05'),
+        schedule: [{ dayOfWeek: 3, startTime: '15:10' }],
+      },
+      { from: day('2026-10-05'), to: null, schedule: [{ dayOfWeek: 2, startTime: '15:10' }] },
+    ],
+  };
+
+  it('answers with the arrangement of the day asked about, not today’s', () => {
+    expect(scheduleInForce(moved, day('2026-09-30'))).toEqual([
+      { dayOfWeek: 3, startTime: '15:10' },
+    ]);
+    expect(scheduleInForce(moved, day('2026-10-13'))).toEqual([
+      { dayOfWeek: 2, startTime: '15:10' },
+    ]);
+  });
+
+  it('starts the new arrangement on its own `from` day', () => {
+    // `[from, to)`: the cut-over day belongs to the spell that begins on it.
+    expect(scheduleInForce(moved, day('2026-10-04'))[0].dayOfWeek).toBe(3);
+    expect(scheduleInForce(moved, day('2026-10-05'))[0].dayOfWeek).toBe(2);
+  });
+
+  it('reads a day before the oldest spell by that spell', () => {
+    expect(scheduleInForce(moved, day('2026-08-10'))[0].dayOfWeek).toBe(3);
+  });
+
+  it('uses the current schedule for a lesson that never moved', () => {
+    const still = { schedule: [{ dayOfWeek: 1 }], scheduleHistory: [] };
+    expect(scheduleInForce(still, day('2026-09-07'))).toBe(still.schedule);
+    expect(scheduleInForce({ schedule: still.schedule }, day('2026-09-07'))).toBe(still.schedule);
+  });
+
+  it('takes the report’s `yyyy-MM-dd` keys and stored dates alike', () => {
+    const keyed = {
+      schedule: moved.schedule,
+      scheduleHistory: [
+        { from: '2026-08-17', to: '2026-10-05', schedule: [{ dayOfWeek: 3 }] },
+        { from: '2026-10-05', to: null, schedule: [{ dayOfWeek: 2 }] },
+      ],
+    };
+    expect(scheduleInForce(keyed, '2026-09-30')).toEqual([{ dayOfWeek: 3 }]);
+    expect(scheduleInForce(moved, '2026-09-30')[0].dayOfWeek).toBe(3);
+  });
+});
+
+describe('lessonPeriodsOn', () => {
+  const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+  const science = {
+    schedule: [{ dayOfWeek: 2 }],
+    scheduleHistory: [
+      { from: day('2026-08-17'), to: day('2026-10-05'), schedule: [{ dayOfWeek: 3 }] },
+      { from: day('2026-10-05'), to: null, schedule: [{ dayOfWeek: 2 }] },
+    ],
+  };
+  // The lesson it swapped with: Tuesday until 5 Oct, Wednesday since.
+  const lao = {
+    schedule: [{ dayOfWeek: 3 }],
+    scheduleHistory: [
+      { from: day('2026-08-17'), to: day('2026-10-05'), schedule: [{ dayOfWeek: 2 }] },
+      { from: day('2026-10-05'), to: null, schedule: [{ dayOfWeek: 3 }] },
+    ],
+  };
+
+  it('offers the lesson that was on that Wednesday, and not the one that moved there later', () => {
+    const wednesday = day('2026-09-30');
+    expect(lessonPeriodsOn(science, wednesday)).toHaveLength(1);
+    expect(lessonPeriodsOn(lao, wednesday)).toHaveLength(0);
+  });
+
+  it('follows each lesson onto its new weekday after the revision', () => {
+    expect(lessonPeriodsOn(science, day('2026-10-13'))).toHaveLength(1); // Tuesday
+    expect(lessonPeriodsOn(lao, day('2026-10-14'))).toHaveLength(1); // Wednesday
+    expect(lessonPeriodsOn(science, day('2026-10-14'))).toHaveLength(0);
   });
 });

@@ -15,6 +15,7 @@ import { GradingScaleModule } from '../term-results/grading-scale.service';
 import { TermResultStalenessModule } from '../term-results/term-result-staleness.service';
 import { MonthlyMarksController } from './monthly-marks.controller';
 import { MonthlyMarksService } from './monthly-marks.service';
+import { MonthlyStandingService } from './monthly-standing.service';
 
 @Module({
   imports: [
@@ -38,7 +39,7 @@ import { MonthlyMarksService } from './monthly-marks.service';
     GradingScaleModule,
   ],
   controllers: [MonthlyMarksController],
-  providers: [MonthlyMarksService],
+  providers: [MonthlyMarksService, MonthlyStandingService],
   exports: [MonthlyMarksService, MongooseModule],
 })
 export class MonthlyMarksModule {}

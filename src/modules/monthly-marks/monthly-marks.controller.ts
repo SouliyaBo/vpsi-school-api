@@ -10,9 +10,11 @@ import {
   SaveMonthGridDto,
   SaveTermMarksDto,
   SheetQueryDto,
+  StandingQueryDto,
   StudentMonthsQueryDto,
 } from './dto/monthly-mark.dto';
 import { MonthlyMarksService } from './monthly-marks.service';
+import { MonthlyStandingService } from './monthly-standing.service';
 
 /**
  * ຄະແນນປະຈຳເດືອນ — the school's own mark sheet.
@@ -30,7 +32,10 @@ import { MonthlyMarksService } from './monthly-marks.service';
 @ApiBearerAuth()
 @Controller('monthly-marks')
 export class MonthlyMarksController {
-  constructor(private readonly service: MonthlyMarksService) {}
+  constructor(
+    private readonly service: MonthlyMarksService,
+    private readonly standing: MonthlyStandingService,
+  ) {}
 
   @Get('month')
   @RequirePermissions({ resource: 'scores', action: 'read' })
@@ -79,6 +84,19 @@ export class MonthlyMarksController {
   })
   classMonth(@Query() query: ClassMonthQueryDto) {
     return this.service.getClassMonth(query);
+  }
+
+  @Get('standing')
+  @RequirePermissions({ resource: 'scores', action: 'read' })
+  @ApiOperation({
+    summary: 'ສະຫຼຸບຜົນການຮຽນປະຈຳເດືອນ — every class banded, one month against another',
+    description:
+      'Each student is ດີ (7 or more in every subject), ກາງ, ຫຼຸດ (below the pass line in ' +
+      'any subject — 5, or 4.5 on a 9-point subject) or ຍັງບໍ່ຄົບ. Shares are over the ' +
+      'decided students. A homeroom teacher gets their own room only.',
+  })
+  standingReport(@Query() query: StandingQueryDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.standing.getStanding(query, actor);
   }
 
   @Get('student')

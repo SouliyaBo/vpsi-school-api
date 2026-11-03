@@ -180,3 +180,27 @@ export const DEFAULT_CERTIFICATE_LAYOUT: ReportLayout = {
     { type: 'signatures', rolesLo: ['ຜູ້ອຳນວຍການ'], showDate: true },
   ],
 };
+
+/**
+ * The templates the school starts with, keyed by `code`.
+ *
+ * Seeded by the full seed, and also created on first use by
+ * `ReportTemplatesService.findActiveForType` — a database that never had the
+ * full seed run (the live one must not) would otherwise refuse every report card.
+ */
+export const BUILT_IN_REPORT_TEMPLATES = [
+  {
+    code: 'report-card-default',
+    nameLo: 'ໃບລາຍງານຜົນການຮຽນ (ມາດຕະຖານ)',
+    nameEn: 'Report Card (default)',
+    type: 'report_card' as const,
+    layout: DEFAULT_REPORT_CARD_LAYOUT,
+  },
+  {
+    code: 'certificate-default',
+    nameLo: 'ໃບປະກາດສະນີຍະບັດ (ມາດຕະຖານ)',
+    nameEn: 'Certificate (default)',
+    type: 'certificate' as const,
+    layout: DEFAULT_CERTIFICATE_LAYOUT,
+  },
+];

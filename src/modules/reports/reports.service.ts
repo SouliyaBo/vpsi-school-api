@@ -6,6 +6,7 @@ import { PaginatedResponse, stableSort } from 'src/common/dto/pagination.dto';
 import { AppException } from 'src/common/exceptions/app.exception';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import { CrudContext } from 'src/common/services/base-crud.service';
+import { RecordScopeService } from 'src/common/services/record-scope.service';
 import { toApiDocuments } from 'src/common/utils/serialize';
 import {
   GeneratedReport,
@@ -20,7 +21,7 @@ import { StorageService } from '../storage/storage.service';
 import { QueryGeneratedReportsDto } from './dto/report.dto';
 import { ReportLayout } from './pdf/layout.types';
 import { PdfRendererService } from './pdf/pdf-renderer.service';
-import { ReportDataService } from './report-data.service';
+import { ReportDataService, ReportTargetNames } from './report-data.service';
 
 @Injectable()
 export class ReportsService {
@@ -37,17 +38,37 @@ export class ReportsService {
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditLogsService,
+    private readonly scope: RecordScopeService,
   ) {}
 
+  /**
+   * Generated reports, newest first, narrowed to what the actor may see.
+   *
+   * `reports:read` is held by teachers, students and guardians as well as the
+   * office, and says nothing about *whose* reports. A homeroom teacher sees what
+   * they asked for and anything made for their own room; a student or guardian
+   * sees only the cards about their own child. Each row carries the names of its
+   * room and term, so the list reads without a lookup per row.
+   */
   async findAll(
     query: QueryGeneratedReportsDto,
-  ): Promise<PaginatedResponse<GeneratedReportDocument>> {
+    actor: AuthenticatedUser,
+  ): Promise<PaginatedResponse<GeneratedReportDocument & ReportTargetNames>> {
     const filter: Record<string, unknown> = { deletedAt: null };
     if (query.type) filter.type = query.type;
     if (query.status) filter.status = query.status;
     if (query.studentId) filter.studentId = new Types.ObjectId(query.studentId);
     if (query.classroomId) filter.classroomId = new Types.ObjectId(query.classroomId);
     if (query.semesterId) filter.semesterId = new Types.ObjectId(query.semesterId);
+
+    await this.scope.applyStudentScope(filter, actor);
+    const rooms = await this.scope.homeroomClassroomIds(actor);
+    if (rooms !== null) {
+      filter.$or = [
+        { requestedBy: new Types.ObjectId(actor.sub) },
+        { classroomId: { $in: rooms } },
+      ];
+    }
 
     const [data, total] = await Promise.all([
       this.model
@@ -60,12 +81,52 @@ export class ReportsService {
       this.model.countDocuments(filter).exec(),
     ]);
 
+    const names = await this.reportData.describeTargets(data);
+
     return new PaginatedResponse(
-      toApiDocuments(data as { _id?: unknown }[]) as unknown as GeneratedReportDocument[],
+      toApiDocuments(data as { _id?: unknown }[]).map((row, index) => ({
+        ...row,
+        ...names[index],
+      })) as unknown as (GeneratedReportDocument & ReportTargetNames)[],
       total,
       query.page,
       query.limit,
     );
+  }
+
+  /**
+   * Refuses a homeroom teacher a report on a room that is not theirs.
+   *
+   * The office — anyone `homeroomClassroomIds` leaves unrestricted — passes
+   * for every room.
+   */
+  async assertMayReportOn(actor: AuthenticatedUser, classroomId: string | null): Promise<void> {
+    if (!(await this.mayReportOn(actor, classroomId))) {
+      throw AppException.forbidden('report.notHomeroomTeacher');
+    }
+  }
+
+  /** One report, if the actor may see it at all — see `findAll` for the rule. */
+  async findOneFor(id: string, actor: AuthenticatedUser): Promise<GeneratedReportDocument> {
+    const report = await this.findOne(id);
+    const isRequester = report.requestedBy.toString() === actor.sub;
+    if (isRequester) return report;
+
+    if (this.scope.isScoped(actor)) {
+      if (!report.studentId) throw AppException.notFound();
+      await this.scope.assertCanAccessStudent(actor, report.studentId.toString());
+      return report;
+    }
+    if (!(await this.mayReportOn(actor, report.classroomId?.toString() ?? null))) {
+      throw AppException.notFound();
+    }
+    return report;
+  }
+
+  private async mayReportOn(actor: AuthenticatedUser, classroomId: string | null) {
+    const rooms = await this.scope.homeroomClassroomIds(actor);
+    if (rooms === null) return true;
+    return classroomId !== null && rooms.some((room) => String(room) === classroomId);
   }
 
   async findOne(id: string): Promise<GeneratedReportDocument> {
@@ -129,6 +190,15 @@ export class ReportsService {
         });
       }
 
+      // A report card with no student is the whole class in one file.
+      if (report.type === 'report_card' && !report.studentId && report.classroomId) {
+        const cards = await this.reportData.buildClassReportCards(
+          report.classroomId.toString(),
+          report.semesterId!.toString(),
+        );
+        return await this.store(report, await this.renderer.renderMany(layout, cards));
+      }
+
       const data =
         report.type === 'certificate'
           ? await this.reportData.buildCertificate(report.studentId!.toString(), {
@@ -144,30 +214,7 @@ export class ReportsService {
               report.semesterId!.toString(),
             );
 
-      const pdf = await this.renderer.render(layout, data);
-
-      const fileKey = `reports/${report.type}/${report._id.toString()}.pdf`;
-      await this.storage.putBuffer(fileKey, pdf, 'application/pdf');
-
-      await this.model
-        .updateOne(
-          { _id: report._id },
-          {
-            $set: {
-              status: 'completed',
-              fileKey,
-              fileSizeBytes: pdf.length,
-              completedAt: new Date(),
-              errorMessage: null,
-            },
-          },
-        )
-        .exec();
-
-      await this.notifyRequester(report, 'ready');
-
-      this.logger.log(`Rendered report ${report._id.toString()} (${pdf.length} bytes)`);
-      return { fileKey, sizeBytes: pdf.length };
+      return await this.store(report, await this.renderer.render(layout, data));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       await this.model
@@ -183,11 +230,41 @@ export class ReportsService {
     }
   }
 
+  /** Puts a rendered PDF in storage and marks the report done. */
+  private async store(
+    report: GeneratedReportDocument,
+    pdf: Buffer,
+  ): Promise<{ fileKey: string; sizeBytes: number }> {
+    const fileKey = `reports/${report.type}/${report._id.toString()}.pdf`;
+    await this.storage.putBuffer(fileKey, pdf, 'application/pdf');
+
+    await this.model
+      .updateOne(
+        { _id: report._id },
+        {
+          $set: {
+            status: 'completed',
+            fileKey,
+            fileSizeBytes: pdf.length,
+            completedAt: new Date(),
+            errorMessage: null,
+          },
+        },
+      )
+      .exec();
+
+    await this.notifyRequester(report, 'ready');
+
+    this.logger.log(`Rendered report ${report._id.toString()} (${pdf.length} bytes)`);
+    return { fileKey, sizeBytes: pdf.length };
+  }
+
   /**
    * A signed download URL.
    *
-   * Only the requester and holders of `reports:export` may download — a report
-   * card is personal data, and the id is guessable enough not to be a secret.
+   * Only the requester, holders of `reports:export`, and the homeroom teacher of
+   * the room the report is about may download — a report card is personal
+   * data, and the id is guessable enough not to be a secret.
    */
   async getDownloadUrl(
     id: string,
@@ -216,7 +293,17 @@ export class ReportsService {
         (actor.personType === 'guardian' &&
           (await this.isLinkedGuardian(actor.personId, report.studentId.toString()))));
 
-    if (!isRequester && !canExport && !isOwnRecord) {
+    const isHomeroom =
+      !isRequester &&
+      !canExport &&
+      !isOwnRecord &&
+      actor.personType === 'teacher' &&
+      Boolean(report.classroomId) &&
+      (await this.scope.homeroomClassroomIds(actor))?.some((room) =>
+        room.equals(report.classroomId!),
+      ) === true;
+
+    if (!isRequester && !canExport && !isOwnRecord && !isHomeroom) {
       throw AppException.forbidden();
     }
 

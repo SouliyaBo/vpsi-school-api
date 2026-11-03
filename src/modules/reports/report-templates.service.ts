@@ -15,7 +15,7 @@ import {
   QueryReportTemplatesDto,
   UpdateReportTemplateDto,
 } from './dto/report.dto';
-import { ReportLayout, ReportSection } from './pdf/layout.types';
+import { BUILT_IN_REPORT_TEMPLATES, ReportLayout, ReportSection } from './pdf/layout.types';
 
 /** Section types the renderer knows how to draw. */
 const KNOWN_SECTION_TYPES: ReportSection['type'][] = [
@@ -84,12 +84,47 @@ export class ReportTemplatesService extends BaseCrudService<ReportTemplateDocume
       .sort({ version: -1 })
       .exec();
 
-    if (!active) {
+    if (active) return active;
+
+    const builtIn = await this.createBuiltIn(type);
+    if (!builtIn) {
       throw AppException.badRequest('common.notFound', {
         reason: `no active report template for type "${type}"; seed or create one first`,
       });
     }
-    return active;
+    return builtIn;
+  }
+
+  /**
+   * The built-in template for a type, created if it was never seeded.
+   *
+   * Only ever inserts: a built-in row that exists but was switched off or
+   * deleted is the office's decision and is left alone, so the caller still
+   * gets "no active template" for it.
+   */
+  private async createBuiltIn(
+    type: ReportTemplateDocument['type'],
+  ): Promise<ReportTemplateDocument | null> {
+    const template = BUILT_IN_REPORT_TEMPLATES.find((candidate) => candidate.type === type);
+    if (!template) return null;
+
+    await this.model
+      .updateOne(
+        { code: template.code },
+        {
+          $setOnInsert: {
+            ...template,
+            locale: 'lo',
+            isActive: true,
+            version: 1,
+            deletedAt: null,
+          },
+        },
+        { upsert: true },
+      )
+      .exec();
+
+    return this.model.findOne({ code: template.code, isActive: true, deletedAt: null }).exec();
   }
 
   create(dto: CreateReportTemplateDto, context: CrudContext) {

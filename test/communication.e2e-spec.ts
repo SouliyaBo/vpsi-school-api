@@ -1,4 +1,7 @@
 import { INestApplication } from '@nestjs/common';
+import { getModelToken } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { GeneratedReport, TermResult } from 'src/database/schemas';
 import request from 'supertest';
 import {
   ADMIN_PASSWORD,
@@ -949,6 +952,342 @@ describe('Communication, lesson plans, exams and certificates (e2e)', () => {
         .expect(200);
 
       expect(updated.body.version).toBe(template.version + 1);
+    });
+  });
+
+  // ── ໃບຄະແນນ for a class ───────────────────────────────────────────────────
+
+  describe('class report cards — one PDF per class, homeroom teacher or office', () => {
+    let otherTeacherToken: string;
+
+    beforeAll(async () => {
+      await http()
+        .patch(`/api/classrooms/${classroomId}`)
+        .set(auth(adminToken))
+        .send({ homeroomTeacherId: teacherId })
+        .expect(200);
+
+      // A teacher of their own: a teacher holds one account, and the seeded
+      // spare is given one by the guardian-report suite below.
+      const other = await http()
+        .post('/api/teachers')
+        .set(auth(adminToken))
+        .send({ firstNameLo: 'ຄູ', lastNameLo: 'ຫ້ອງອື່ນ', gender: 'female' })
+        .expect(201);
+      otherTeacherToken = await createAccount('rc-other-teacher', 'teacher', {
+        personType: 'teacher',
+        personId: other.body.id,
+      });
+    });
+
+    afterAll(async () => {
+      await http()
+        .patch(`/api/classrooms/${classroomId}`)
+        .set(auth(adminToken))
+        .send({ homeroomTeacherId: null })
+        .expect(200);
+    });
+
+    const queue = (token: string, room: string) =>
+      http()
+        .post('/api/reports/report-cards/class')
+        .set(auth(token))
+        .send({ classroomId: room, semesterId, combined: true });
+
+    it('is refused until the term has been computed', async () => {
+      const response = await queue(teacherToken, classroomId).expect(422);
+      expect(response.body.messageKey).toBe('report.noTermResults');
+    });
+
+    it('queues one report for the whole class once term results exist', async () => {
+      await app.get<Model<TermResult>>(getModelToken(TermResult.name)).create({
+        studentId: new Types.ObjectId(studentId),
+        studentCode: 'S-COMM-001',
+        studentNameLo: 'ນາງ ວົງສະຫວັນ',
+        semesterId: new Types.ObjectId(semesterId),
+        schoolYearId: new Types.ObjectId(schoolYearId),
+        classroomId: new Types.ObjectId(classroomId),
+        average: 72,
+        grade: 'B',
+      });
+
+      const response = await queue(teacherToken, classroomId).expect(202);
+      expect(response.body.queued).toBe(1);
+
+      const report = await http()
+        .get(`/api/reports/${response.body.reports[0].reportId}`)
+        .set(auth(teacherToken))
+        .expect(200);
+      expect(report.body.studentId).toBeNull();
+      expect(String(report.body.classroomId)).toBe(classroomId);
+    });
+
+    it('is refused to a teacher for a room that is not theirs', async () => {
+      const response = await queue(otherTeacherToken, classroomId).expect(403);
+      expect(response.body.messageKey).toBe('report.notHomeroomTeacher');
+
+      // The seed hands out rooms round-robin, so find one that is not this teacher's.
+      const rooms = await http().get('/api/classrooms?limit=100').set(auth(adminToken)).expect(200);
+      const notTheirs = rooms.body.data.find(
+        (room: { homeroomTeacherId: string | { id: string } | null }) =>
+          room.homeroomTeacherId &&
+          (typeof room.homeroomTeacherId === 'string'
+            ? room.homeroomTeacherId
+            : room.homeroomTeacherId.id) !== teacherId,
+      );
+      await queue(teacherToken, notTheirs.id).expect(403);
+    });
+
+    it('lists a room’s reports to its homeroom teacher and the office only', async () => {
+      const mine = await http().get('/api/reports').set(auth(teacherToken)).expect(200);
+      expect(mine.body.data).toHaveLength(1);
+      expect(mine.body.data[0].classroomName).toEqual(expect.any(String));
+
+      const office = await http().get('/api/reports').set(auth(headToken)).expect(200);
+      expect(office.body.data.length).toBeGreaterThanOrEqual(1);
+
+      const other = await http().get('/api/reports').set(auth(otherTeacherToken)).expect(200);
+      expect(other.body.data).toHaveLength(0);
+      const student = await http().get('/api/reports').set(auth(studentToken)).expect(200);
+      expect(student.body.data).toHaveLength(0);
+    });
+
+    it('lets the homeroom teacher download what the office made for their room', async () => {
+      const queued = await queue(headToken, classroomId).expect(202);
+      const reportId = queued.body.reports[0].reportId;
+      // Storage is S3 and the suite has none, so the render is stood in for.
+      await app
+        .get<Model<GeneratedReport>>(getModelToken(GeneratedReport.name))
+        .updateOne(
+          { _id: new Types.ObjectId(reportId) },
+          { $set: { status: 'completed', fileKey: `reports/report_card/${reportId}.pdf` } },
+        );
+
+      const download = await http()
+        .get(`/api/reports/${reportId}/download`)
+        .set(auth(teacherToken))
+        .expect(200);
+      expect(download.body.url).toContain(reportId);
+
+      await http()
+        .get(`/api/reports/${reportId}/download`)
+        .set(auth(otherTeacherToken))
+        .expect(403);
+    });
+  });
+
+  // ── ລາຍງານຫາຜູ້ປົກຄອງ ──────────────────────────────────────────────────────
+
+  describe('guardian report — sent by link, opened with the phone digits', () => {
+    let month: number;
+    let guardianId: string;
+    let token: string;
+    let reportId: string;
+    // The guardian on file is 020 5556 6001.
+    const PIN = '6001';
+
+    const open = (body: { token: string; pin: string }) =>
+      http().post('/api/guardian-reports/open').send(body);
+
+    beforeAll(async () => {
+      await http()
+        .patch(`/api/classrooms/${classroomId}`)
+        .set(auth(adminToken))
+        .send({ homeroomTeacherId: teacherId })
+        .expect(200);
+
+      const semester = await http().get('/api/semesters/active').set(auth(adminToken)).expect(200);
+      month = new Date(semester.body.startDate).getUTCMonth() + 1;
+    });
+
+    afterAll(async () => {
+      await http()
+        .patch(`/api/classrooms/${classroomId}`)
+        .set(auth(adminToken))
+        .send({ homeroomTeacherId: null })
+        .expect(200);
+    });
+
+    it('is not sent by a teacher who is not the room’s homeroom teacher', async () => {
+      const teachers = await http().get('/api/teachers?limit=10').set(auth(adminToken)).expect(200);
+      const other = teachers.body.data.find(
+        (t: { id: string; isAcademicHead: boolean }) => t.id !== teacherId && !t.isAcademicHead,
+      );
+      const otherToken = await createAccount('gr-other-teacher', 'teacher', {
+        personType: 'teacher',
+        personId: other.id,
+      });
+
+      const response = await http()
+        .get('/api/guardian-reports/draft')
+        .query({ studentId, month })
+        .set(auth(otherToken))
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('guardianReport.notHomeroomTeacher');
+    });
+
+    it('lets the office send one, in the homeroom teacher’s name', async () => {
+      const draft = await http()
+        .get('/api/guardian-reports/draft')
+        .query({ studentId, month })
+        .set(auth(headToken))
+        .expect(200);
+      expect(draft.body.sentBy).toBe('office');
+
+      const response = await http()
+        .post('/api/guardian-reports')
+        .set(auth(headToken))
+        .send({
+          studentId,
+          month,
+          guardianId: draft.body.guardians[0].id,
+          sections: ['attendance'],
+        })
+        .expect(201);
+
+      const opened = await open({ token: response.body.token, pin: PIN }).expect(200);
+      expect(opened.body.report.sentBy).toBe('office');
+      expect(opened.body.report.teacherName).toBe(draft.body.teacherName);
+      expect(opened.body.report.teacherName).not.toBe('');
+    });
+
+    it('previews the month and lists who it can go to', async () => {
+      const response = await http()
+        .get('/api/guardian-reports/draft')
+        .query({ studentId, month })
+        .set(auth(teacherToken))
+        .expect(200);
+
+      expect(response.body.month).toBe(month);
+      expect(response.body.guardians).toEqual([
+        expect.objectContaining({ canViewRecords: true, hasPhone: true, relationship: 'father' }),
+      ]);
+      expect(response.body.attendance).toMatchObject({ totalRecorded: expect.any(Number) });
+      // ກວດກາ per subject, and nothing that ranks the child or shows full marks.
+      expect(response.body.monthlyMarks.subjects.length).toBeGreaterThan(0);
+      expect(response.body.monthlyMarks.subjects[0]).toHaveProperty('test');
+      expect(response.body.monthlyMarks.subjects[0]).not.toHaveProperty('fullMark');
+      expect(response.body.monthlyMarks).not.toHaveProperty('rank');
+      expect(response.body.monthlyMarks).not.toHaveProperty('rankedStudents');
+      guardianId = response.body.guardians[0].id;
+    });
+
+    it('refuses a report with nothing in it', async () => {
+      const response = await http()
+        .post('/api/guardian-reports')
+        .set(auth(teacherToken))
+        .send({ studentId, month, guardianId, sections: [] })
+        .expect(400);
+
+      expect(response.body.messageKey).toBe('guardianReport.empty');
+    });
+
+    it('hands the token back once, and never its hash', async () => {
+      const response = await http()
+        .post('/api/guardian-reports')
+        .set(auth(teacherToken))
+        .send({
+          studentId,
+          month,
+          guardianId,
+          sections: ['attendance', 'conduct'],
+          message: 'ນ້ອງຕັ້ງໃຈຮຽນດີ',
+        })
+        .expect(201);
+
+      token = response.body.token;
+      reportId = response.body.report.id;
+      expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(response.body.report).toMatchObject({ state: 'active', viewCount: 0 });
+      expect(response.body.report.snapshot.sentBy).toBe('homeroom');
+      expect(JSON.stringify(response.body)).not.toContain('tokenHash');
+    });
+
+    it('opens with the last four digits, and shows nothing that identifies beyond a name', async () => {
+      const wrong = await open({ token, pin: '1234' }).expect(400);
+      expect(wrong.body.messageKey).toBe('guardianReport.wrongPin');
+      expect(wrong.body.details).toEqual({ attemptsLeft: 4 });
+
+      const response = await open({ token, pin: PIN }).expect(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body.report).toMatchObject({
+        sections: ['attendance', 'conduct'],
+        message: 'ນ້ອງຕັ້ງໃຈຮຽນດີ',
+        student: { nameLo: 'ນາງ ວົງສະຫວັນ' },
+      });
+      // Only what was ticked.
+      expect(response.body.report.monthlyMarks).toBeUndefined();
+
+      const body = JSON.stringify(response.body);
+      expect(body).not.toContain('S-COMM-001');
+      expect(body).not.toContain('02055566001');
+      expect(body).not.toContain(studentId);
+    });
+
+    it('counts the open for the teacher, and keeps the list from students', async () => {
+      const list = await http()
+        .get('/api/guardian-reports')
+        .query({ studentId })
+        .set(auth(teacherToken))
+        .expect(200);
+
+      const sent = list.body.find((row: { id: string }) => row.id === reportId);
+      expect(sent).toMatchObject({ viewCount: 1, failedAttempts: 1 });
+      expect(sent.firstViewedAt).toEqual(expect.any(String));
+
+      await http()
+        .get('/api/guardian-reports')
+        .query({ studentId })
+        .set(auth(studentToken))
+        .expect(403);
+    });
+
+    it('locks on the fifth wrong guess, and stays locked to the right one', async () => {
+      // One wrong guess is already on the link.
+      for (const left of [3, 2, 1]) {
+        const response = await open({ token, pin: '0000' }).expect(400);
+        expect(response.body.details).toEqual({ attemptsLeft: left });
+      }
+      const fifth = await open({ token, pin: '0000' }).expect(403);
+      expect(fifth.body.messageKey).toBe('guardianReport.locked');
+
+      await open({ token, pin: PIN }).expect(403);
+    });
+
+    it('reissues a fresh link and kills the old one', async () => {
+      const response = await http()
+        .post(`/api/guardian-reports/${reportId}/reissue`)
+        .set(auth(teacherToken))
+        .expect(200);
+
+      expect(response.body.report).toMatchObject({ state: 'active', failedAttempts: 0 });
+      const old = token;
+      token = response.body.token;
+
+      await open({ token, pin: PIN }).expect(200);
+      const stale = await open({ token: old, pin: PIN }).expect(404);
+      expect(stale.body.messageKey).toBe('guardianReport.unavailable');
+    });
+
+    it('lets the office revoke a link for good', async () => {
+      const response = await http()
+        .post(`/api/guardian-reports/${reportId}/revoke`)
+        .set(auth(headToken))
+        .expect(200);
+      expect(response.body.state).toBe('revoked');
+
+      const closed = await open({ token, pin: PIN }).expect(404);
+      expect(closed.body.messageKey).toBe('guardianReport.unavailable');
+
+      await http()
+        .post(`/api/guardian-reports/${reportId}/reissue`)
+        .set(auth(teacherToken))
+        .expect(400);
+    });
+
+    it('turns away a token that could never have been issued', async () => {
+      await open({ token: 'not-a-token', pin: PIN }).expect(404);
     });
   });
 });

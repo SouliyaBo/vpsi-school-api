@@ -228,14 +228,20 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
    * Edits the English-programme room on an existing placement.
    *
    * Not transactional: unlike a move this touches nothing but the one row — no
-   * headcount, no roll number, no second enrollment.
+   * headcount, no roll number, no second enrollment. A homeroom teacher may edit
+   * the placements in their own room only.
    */
   async update(
     id: string,
     dto: UpdateEnrollmentDto,
-    context: CrudContext,
+    context: EnrollmentWriteContext,
   ): Promise<EnrollmentDocument> {
-    await this.findOneOrFail(id);
+    const enrollment = await this.findOneOrFail(id);
+
+    const own = await this.scope.homeroomClassroomIds(context.actor);
+    if (own !== null && !own.some((roomId) => roomId.equals(enrollment.classroomId))) {
+      throw AppException.forbidden('enrollment.notOwnHomeroomStudent', { enrollmentId: id });
+    }
 
     const changes: Partial<EnrollmentDocument> = {};
     // `undefined` means "not sent" and an empty string means "clear it" — the
@@ -253,12 +259,19 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
    * A transfer creates the destination enrollment and decrements the origin's
    * count in the same transaction, so a student is never counted twice or in
    * neither place.
+   *
+   * The office's call alone: a homeroom teacher holds `enrollments:update` only
+   * to fill in the English room, so anyone scoped to a homeroom is refused here.
    */
   async changeStatus(
     id: string,
     dto: ChangeEnrollmentStatusDto,
-    context: CrudContext,
+    context: EnrollmentWriteContext,
   ): Promise<EnrollmentDocument> {
+    if ((await this.scope.homeroomClassroomIds(context.actor)) !== null) {
+      throw AppException.forbidden('enrollment.moveIsOfficeOnly');
+    }
+
     return this.tx.run(async (session) => {
       const enrollment = await this.findOneOrFail(id, session);
 

@@ -144,3 +144,27 @@ describe('ຂີດກ້ອງ in the printouts', () => {
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
   }, 30000);
 });
+
+describe('Greek and maths signs in the PDF', () => {
+  it('sets them in a real Times face, not PDFKit’s built-in one that cannot draw them', async () => {
+    const sheet = paper();
+    sheet.questions[0].text = 'ມີຄ່າຄວາມຕ້ານ 8 Ω, π ≈ 3.14, √2 ≤ 2 → ?';
+    const pdf = (await new ExamPaperRenderer().renderSets(sheet, ['A'])).toString('latin1');
+    // The built-in face prints Ω as ":•" — the office's ຟີຊິກ paper, 20 Oct 2026.
+    expect(pdf).not.toMatch(/\/BaseFont \/Times-Roman/);
+    expect(pdf).toMatch(/\/BaseFont \/[A-Z]{6}\+(TimesNewRoman|LiberationSerif)/);
+  }, 30000);
+});
+
+describe('ຕົວຍົກ and ຕົວຫ້ອຍ in the printouts', () => {
+  it('writes them as Word’s own superscript and subscript', async () => {
+    const sheet = paper();
+    sheet.questions[0].text = 'ຄວາມໄວ 3 × 10[sup]8[/sup] m/s, H[sub]2[/sub]O';
+    const docx = await new ExamPaperDocxWriter().writeSets(sheet, ['A']);
+    const xml = await (await JSZip.loadAsync(docx)).file('word/document.xml')!.async('string');
+    expect(xml).not.toMatch(/\[\/?su[pb]\]/);
+    const runs = xml.split('<w:r>');
+    expect(runs.find((r) => r.includes('>8<'))).toContain('<w:vertAlign w:val="superscript"/>');
+    expect(runs.find((r) => r.includes('>2<'))).toContain('<w:vertAlign w:val="subscript"/>');
+  });
+});

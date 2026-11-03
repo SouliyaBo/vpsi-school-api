@@ -147,6 +147,31 @@ export class ExamQuestionDto {
   lockOptions?: boolean;
 }
 
+/** One marked subject's ພາກ on a split paper. */
+export class SubjectPartDto {
+  @ApiProperty({ description: 'A subject marked under the paper’s subject' })
+  @IsMongoId()
+  subjectId: string;
+
+  @ApiProperty({ type: [String], description: 'ພາກ headings as on the questions; "" for none' })
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  sections: string[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description: 'What this part is out of; null takes the paper’s total',
+  })
+  @ValidateIf((_, value) => value !== null)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1000)
+  @IsOptional()
+  points?: number | null;
+}
+
 export class UpdateExamPaperDto {
   @ApiPropertyOptional()
   @IsString()
@@ -198,6 +223,17 @@ export class UpdateExamPaperDto {
   @Max(1000)
   @IsOptional()
   totalPoints?: number | null;
+
+  @ApiPropertyOptional({
+    type: [SubjectPartDto],
+    description: 'ແຍກຄະແນນຕາມວິຊາ — which ພາກ is which marked subject; [] marks the paper whole',
+  })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SubjectPartDto)
+  @IsOptional()
+  subjectParts?: SubjectPartDto[];
 
   @ApiPropertyOptional({ type: [ExamQuestionDto], description: 'The whole list, in order' })
   @IsArray()

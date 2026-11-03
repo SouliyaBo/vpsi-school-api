@@ -551,6 +551,79 @@ describe('RBAC (e2e)', () => {
       expect(response.body.messageKey).toBe('student.notInHomeroom');
     });
 
+    it('lets a homeroom teacher correct their own student’s guardian', async () => {
+      const response = await http()
+        .patch(`/api/guardians/${guardianId}`)
+        .set(auth(tokens.assignedTeacher))
+        .send({ phone: '02055577099', occupation: 'ຄ້າຂາຍ' })
+        .expect(200);
+      expect(response.body.phone).toBe('02055577099');
+      expect(response.body.occupation).toBe('ຄ້າຂາຍ');
+
+      // The copy on the student follows, so the class list shows the new number.
+      const student = await http()
+        .get(`/api/students/${studentId}`)
+        .set(auth(adminToken))
+        .expect(200);
+      expect(student.body.guardians[0].phone).toBe('02055577099');
+
+      // Put back for the suites below.
+      await http()
+        .patch(`/api/guardians/${guardianId}`)
+        .set(auth(adminToken))
+        .send({ phone: '02055577001' })
+        .expect(200);
+    });
+
+    it('denies a teacher the guardian of a student outside their homeroom', async () => {
+      const response = await http()
+        .patch(`/api/guardians/${guardianId}`)
+        .set(auth(tokens.unassignedTeacher))
+        .send({ phone: '02055577098' })
+        .expect(403);
+
+      expect(response.body.messageKey).toBe('guardian.notInHomeroom');
+    });
+
+    it('still keeps guardian deletion from a homeroom teacher', async () => {
+      await http()
+        .delete(`/api/guardians/${guardianId}`)
+        .set(auth(tokens.assignedTeacher))
+        .expect(403);
+    });
+
+    it('lists each guardian with their children and this year’s room', async () => {
+      const response = await http()
+        .get('/api/guardians?search=S-RBAC-001')
+        .set(auth(tokens.assignedTeacher))
+        .expect(200);
+
+      // Found by the child's code, not anything on the guardian.
+      const row = response.body.data.find((g: { id: string }) => g.id === guardianId);
+      expect(row.children).toEqual([
+        expect.objectContaining({
+          id: studentId,
+          studentCode: 'S-RBAC-001',
+          relationship: 'father',
+          classroomId,
+        }),
+      ]);
+      expect(row.children[0].classroomName).toEqual(expect.any(String));
+    });
+
+    it('narrows the guardians list to one room’s children', async () => {
+      const ids = async (roomId: string) =>
+        (
+          await http()
+            .get(`/api/guardians?classroomId=${roomId}&limit=100`)
+            .set(auth(adminToken))
+            .expect(200)
+        ).body.data.map((g: { id: string }) => g.id);
+
+      expect(await ids(classroomId)).toContain(guardianId);
+      expect(await ids(otherClassroomId)).not.toContain(guardianId);
+    });
+
     it('refuses a status change from a homeroom teacher', async () => {
       const response = await http()
         .patch(`/api/students/${studentId}`)
@@ -773,6 +846,77 @@ describe('RBAC (e2e)', () => {
       expect(response.body.messageKey).toBe('enrollment.notOwnHomeroom');
     });
 
+    describe('ຫ້ອງພາກອັງກິດ', () => {
+      async function placementOf(student: string): Promise<string> {
+        const response = await http()
+          .get(`/api/enrollments?studentId=${student}&limit=100`)
+          .set(auth(adminToken))
+          .expect(200);
+        return response.body.data[0].id;
+      }
+
+      it('lets a homeroom teacher fill in the English room for their own class', async () => {
+        const enrollmentId = await placementOf(studentId);
+
+        const response = await http()
+          .patch(`/api/enrollments/${enrollmentId}`)
+          .set(auth(tokens.assignedTeacher))
+          .send({ englishClass: 'EP-A' })
+          .expect(200);
+        expect(response.body.englishClass).toBe('EP-A');
+
+        await http()
+          .patch(`/api/enrollments/${enrollmentId}`)
+          .set(auth(tokens.assignedTeacher))
+          .send({ englishClass: '' })
+          .expect(200);
+      });
+
+      it('refuses the English room of a student in someone else’s room', async () => {
+        const created = await http()
+          .post('/api/students')
+          .set(auth(adminToken))
+          .send({
+            studentCode: 'S-RBAC-EP-OTHER',
+            firstNameLo: 'ພາກ',
+            lastNameLo: 'ອັງກິດ',
+            gender: 'female',
+            dateOfBirth: '2011-05-05',
+            guardians: [
+              {
+                guardian: { firstNameLo: 'ແມ່', lastNameLo: 'ອັງກິດ', phone: '02055577013' },
+                relationship: 'mother',
+                isPrimary: true,
+              },
+            ],
+          })
+          .expect(201);
+        const placement = await http()
+          .post('/api/enrollments')
+          .set(auth(adminToken))
+          .send({ studentId: created.body.id, classroomId: otherClassroomId })
+          .expect(201);
+
+        const response = await http()
+          .patch(`/api/enrollments/${placement.body.id}`)
+          .set(auth(tokens.assignedTeacher))
+          .send({ englishClass: 'EP-B' })
+          .expect(403);
+        expect(response.body.messageKey).toBe('enrollment.notOwnHomeroomStudent');
+      });
+
+      it('keeps a move out of the homeroom teacher’s hands, even in their own room', async () => {
+        const enrollmentId = await placementOf(studentId);
+
+        const response = await http()
+          .patch(`/api/enrollments/${enrollmentId}/status`)
+          .set(auth(tokens.assignedTeacher))
+          .send({ status: 'dropped' })
+          .expect(403);
+        expect(response.body.messageKey).toBe('enrollment.moveIsOfficeOnly');
+      });
+    });
+
     it('leaves the academic office unscoped', async () => {
       // `academic_head` holds more than `read` on students, so it looks across the
       // whole school even when its account is linked to a teacher with a homeroom.
@@ -869,6 +1013,97 @@ describe('RBAC (e2e)', () => {
         .expect(400);
 
       expect(response.body.messageKey).toBe('homeroomReview.notReviewDay');
+    });
+  });
+
+  /**
+   * ສະຫຼຸບຜົນການຮຽນປະຈຳເດືອນ — every class banded, held to the homeroom.
+   *
+   * The bands themselves are unit-tested in monthly-standing.spec.ts; what is
+   * tested here is who sees which classes, and that a failed mark puts a student
+   * in ຫຼຸດ before the rest of their month is in.
+   */
+  describe('monthly standing report', () => {
+    beforeAll(async () => {
+      // ຄະນິດສາດ 4/10 in ຕຸລາ — below 5, with every other subject still blank.
+      await http()
+        .post('/api/monthly-marks/month')
+        .set(auth(adminToken))
+        .send({
+          subjectId: mathSubjectId,
+          classroomId,
+          semesterId,
+          month: 10,
+          entries: [{ studentId, attendance: 1, notebook: 1, activity: 2, test: 0 }],
+        })
+        .expect(201);
+    });
+
+    // The term-result gate below marks the whole curriculum itself; a stray ຕຸລາ
+    // fail left behind here would change the result it publishes.
+    afterAll(async () => {
+      await http()
+        .post('/api/monthly-marks/month')
+        .set(auth(adminToken))
+        .send({
+          subjectId: mathSubjectId,
+          classroomId,
+          semesterId,
+          month: 10,
+          entries: [{ studentId, attendance: null, notebook: null, activity: null, test: null }],
+        })
+        .expect(201);
+    });
+
+    const standing = (token: string) =>
+      http().get(`/api/monthly-marks/standing?semesterId=${semesterId}&month=10`).set(auth(token));
+
+    it('shows the office every class, and compares with the month before', async () => {
+      const response = await standing(adminToken).expect(200);
+
+      const ids = response.body.classrooms.map((room: { id: string }) => room.id);
+      expect(ids).toEqual(expect.arrayContaining([classroomId, otherClassroomId]));
+      expect(response.body.current.month).toBe(10);
+      expect(response.body.previous.month).toBe(9);
+    });
+
+    it('counts a failed subject as ຫຼຸດ at once, and names it', async () => {
+      const response = await standing(adminToken).expect(200);
+
+      const row = response.body.students.find(
+        (student: { studentId: string }) => student.studentId === studentId,
+      );
+      expect(row.band).toBe('below');
+      expect(row.failing).toEqual([
+        expect.objectContaining({ subjectId: mathSubjectId, score: 4, fullMark: 10 }),
+      ]);
+    });
+
+    it('shows a homeroom teacher their own class only', async () => {
+      const mine = await standing(tokens.assignedTeacher).expect(200);
+      expect(mine.body.classrooms.map((room: { id: string }) => room.id)).toEqual([classroomId]);
+
+      const theirs = await standing(tokens.unassignedTeacher).expect(200);
+      expect(theirs.body.classrooms.map((room: { id: string }) => room.id)).toEqual([
+        otherClassroomId,
+      ]);
+      expect(
+        theirs.body.students.some(
+          (student: { studentId: string }) => student.studentId === studentId,
+        ),
+      ).toBe(false);
+    });
+
+    it('refuses a student, whose marks permission covers only their own', async () => {
+      await standing(tokens.student).expect(403);
+    });
+
+    it('refuses a month the term does not collect', async () => {
+      const response = await http()
+        .get(`/api/monthly-marks/standing?semesterId=${semesterId}&month=12`)
+        .set(auth(adminToken))
+        .expect(400);
+      expect(response.body.messageKey).toBe('monthlyMark.monthNotInTerm');
     });
   });
 

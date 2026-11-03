@@ -1,7 +1,8 @@
 import PDFDocument from 'pdfkit';
-import { resolveOfficialLaoFonts } from 'src/modules/reports/pdf/font-resolver';
+import { resolveLatinFonts, resolveOfficialLaoFonts } from 'src/modules/reports/pdf/font-resolver';
 import SVGtoPDF from 'svg-to-pdfkit';
 import { splitMath } from '../math/latex-text';
+import { splitScript } from '../script';
 import { splitUnderline } from '../underline';
 import { texToSvg, TypesetMath } from '../math/mathjax';
 
@@ -18,9 +19,12 @@ import { texToSvg, TypesetMath } from '../math/mathjax';
 
 const LAO = 'exam-lao';
 const LAO_BOLD = 'exam-lao-bold';
-const LATIN = 'Times-Roman';
-const LATIN_BOLD = 'Times-Bold';
+/** Times New Roman, or its metric twin — see `resolveLatinFonts`. */
+const LATIN = 'exam-latin';
+const LATIN_BOLD = 'exam-latin-bold';
 
+/** A raised or lowered figure's size, as a share of the text's. */
+const SCRIPT_SCALE = 0.65;
 const LAO_PATTERN = /[຀-໿]/;
 
 export interface InlineImage {
@@ -42,6 +46,8 @@ export interface Span {
   bold?: boolean;
   /** ຂີດກ້ອງ — a line under the words, below the vowels written under the line. */
   underline?: boolean;
+  /** ຕົວຍົກ / ຕົວຫ້ອຍ — set small, above or below the line's baseline. */
+  script?: 'sup' | 'sub';
   image?: InlineImage;
   /** A formula MathJax drew, as vector art on the baseline. */
   math?: TypesetMath;
@@ -55,6 +61,10 @@ interface Atom {
   /** A `\n` in the source: the line ends here whatever its width. */
   isBreak: boolean;
   underline?: boolean;
+  /** Its own size, for a raised or lowered figure; the line's otherwise. */
+  size?: number;
+  /** How far it sits below the baseline — negative is raised. */
+  rise?: number;
   /** An equation or figure sitting in the line, on the baseline with the words. */
   image?: InlineImage;
   math?: TypesetMath;
@@ -76,6 +86,9 @@ export class Typesetter {
     const fonts = resolveOfficialLaoFonts();
     doc.registerFont(LAO, fonts.regular);
     doc.registerFont(LAO_BOLD, fonts.bold);
+    const latin = resolveLatinFonts();
+    doc.registerFont(LATIN, latin.regular);
+    doc.registerFont(LATIN_BOLD, latin.bold);
   }
 
   /**
@@ -146,8 +159,11 @@ export class Typesetter {
             height: atom.image.height,
           });
         } else if (!atom.isSpace && !atom.isBreak) {
-          this.doc.font(atom.font).fontSize(size);
-          this.doc.text(atom.text, cursor, baseline, { lineBreak: false, baseline: 'alphabetic' });
+          this.doc.font(atom.font).fontSize(atom.size ?? size);
+          this.doc.text(atom.text, cursor, baseline + (atom.rise ?? 0), {
+            lineBreak: false,
+            baseline: 'alphabetic',
+          });
         }
         cursor += atom.width;
       }
@@ -241,6 +257,10 @@ export class Typesetter {
         continue;
       }
       const bold = span.bold ?? false;
+      // A raised or lowered figure: smaller, and off the baseline.
+      const atomSize = span.script ? size * SCRIPT_SCALE : size;
+      const rise = span.script === 'sup' ? -size * 0.33 : span.script === 'sub' ? size * 0.15 : 0;
+      const scripted = span.script ? { size: atomSize, rise } : {};
       for (const token of span.text.split(/(\s+)/)) {
         if (!token) continue;
         if (/^\s+$/.test(token)) {
@@ -264,7 +284,7 @@ export class Typesetter {
         }
         for (const run of segmentByScript(token)) {
           const font = this.fontFor(run.isLao, bold);
-          this.doc.font(font).fontSize(size);
+          this.doc.font(font).fontSize(atomSize);
           atoms.push({
             text: run.text,
             font,
@@ -272,6 +292,7 @@ export class Typesetter {
             isSpace: false,
             isBreak: false,
             underline: span.underline,
+            ...scripted,
           });
         }
       }
@@ -344,7 +365,7 @@ export class Typesetter {
   }
 
   private split(atom: Atom, width: number, size: number): Atom[] {
-    this.doc.font(atom.font).fontSize(size);
+    this.doc.font(atom.font).fontSize(atom.size ?? size);
     const pieces: Atom[] = [];
     let text = '';
     for (const character of [...atom.text]) {
@@ -368,16 +389,23 @@ export class Typesetter {
  * come out underlined.
  */
 export function spansWithMath(text: string, size: number, style: { bold?: boolean } = {}): Span[] {
-  // `[u]…[/u]` first: a formula inside an underlined run keeps its own look.
+  // `[u]…[/u]` first, then `[sup]`/`[sub]` inside it: a formula inside an
+  // underlined run keeps its own look.
   return splitUnderline(text).flatMap((piece) =>
-    mathSpans(piece.text, size, piece.underline ? { ...style, underline: true } : style),
+    splitScript(piece.text).flatMap((part) =>
+      mathSpans(part.text, size, {
+        ...style,
+        ...(piece.underline ? { underline: true } : {}),
+        ...(part.script ? { script: part.script } : {}),
+      }),
+    ),
   );
 }
 
 function mathSpans(
   text: string,
   size: number,
-  style: { bold?: boolean; underline?: boolean },
+  style: { bold?: boolean; underline?: boolean; script?: 'sup' | 'sub' },
 ): Span[] {
   return splitMath(text).map((part) => {
     if (part.kind === 'text') return { text: part.text, ...style };

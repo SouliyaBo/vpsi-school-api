@@ -34,10 +34,7 @@ import {
   UserDocument,
 } from 'src/database/schemas';
 import { DEFAULT_LESSON_PLAN_POLICY } from 'src/modules/lesson-plans/lesson-plan-weeks';
-import {
-  DEFAULT_CERTIFICATE_LAYOUT,
-  DEFAULT_REPORT_CARD_LAYOUT,
-} from 'src/modules/reports/pdf/layout.types';
+import { BUILT_IN_REPORT_TEMPLATES } from 'src/modules/reports/pdf/layout.types';
 import {
   DEFAULT_MONTHLY_BANDS,
   DEFAULT_SEMESTER_MONTHS,
@@ -437,6 +434,15 @@ export class SeedService {
       // The day the school got the screen. Without it the report counts every
       // ວັນພຸດ/ວັນສຸກ back to the start of term as missing, and the reminder names
       // days nobody could have filed.
+      {
+        key: 'guardianReports.linkDays',
+        value: 30,
+        category: 'guardianReports',
+        isPublic: false,
+        description:
+          'How many days a ລາຍງານຫາຜູ້ປົກຄອງ link opens for, from when it is sent or reissued ' +
+          '(1–180).',
+      },
       {
         key: 'homeroomReview.startDate',
         value: '2026-09-25',
@@ -928,22 +934,7 @@ export class SeedService {
    * these are what make the reporting module usable out of the box.
    */
   private async seedReportTemplates(): Promise<void> {
-    const templates = [
-      {
-        code: 'report-card-default',
-        nameLo: 'ໃບລາຍງານຜົນການຮຽນ (ມາດຕະຖານ)',
-        nameEn: 'Report Card (default)',
-        type: 'report_card' as const,
-        layout: DEFAULT_REPORT_CARD_LAYOUT,
-      },
-      {
-        code: 'certificate-default',
-        nameLo: 'ໃບປະກາດສະນີຍະບັດ (ມາດຕະຖານ)',
-        nameEn: 'Certificate (default)',
-        type: 'certificate' as const,
-        layout: DEFAULT_CERTIFICATE_LAYOUT,
-      },
-    ];
+    const templates = BUILT_IN_REPORT_TEMPLATES;
 
     for (const template of templates) {
       await this.reportTemplateModel

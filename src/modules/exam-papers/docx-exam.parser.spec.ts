@@ -9,6 +9,7 @@ import {
   MathSuperScript,
   Packer,
   Paragraph,
+  SymbolRun,
   Table,
   TableCell,
   TableRow,
@@ -47,6 +48,50 @@ async function build(
 }
 
 describe('parseExamDocx', () => {
+  it('keeps a raised or lowered figure, in the question and in the options', async () => {
+    const sup = (text: string, bolded = false) =>
+      new TextRun({ text, superScript: true, bold: bolded });
+    const sub = (text: string) => new TextRun({ text, subScript: true });
+    const file = await build([
+      line('1. ຄວາມໄວຂອງແສງແມ່ນ 3 × 10', sup('8'), ' m/s. ໂມເລກຸນ H', sub('2'), 'O ມີຈັກອາຕອມ?'),
+      line(bold('ກ. 3 × 10'), sup('8', true), bold(' m/s'), tab(), 'ຂ. 3 × 10', sup('6'), ' m/s'),
+      line('ຄ. 3 × 10', sup('-8'), ' m/s', tab(), 'ງ. 3⁸ m/s'),
+    ]);
+
+    const [question] = (await parseExamDocx(file)).questions;
+
+    expect(question.text).toBe(
+      'ຄວາມໄວຂອງແສງແມ່ນ 3 × 10[sup]8[/sup] m/s. ໂມເລກຸນ H[sub]2[/sub]O ມີຈັກອາຕອມ?',
+    );
+    expect(question.options.map((o) => o.text)).toEqual([
+      '3 × 10[sup]8[/sup] m/s',
+      '3 × 10[sup]6[/sup] m/s',
+      '3 × 10[sup]-8[/sup] m/s',
+      '3[sup]8[/sup] m/s',
+    ]);
+    expect(question.correctIndex).toBe(0);
+  });
+
+  it('reads an Ω put in with Insert → Symbol, or typed in the Symbol font', async () => {
+    const file = await build([
+      line(
+        '27. ສາຍນຳທອງແດງເສັ້ນໜຶ່ງຍາວ L ແລະ ມີຄ່າຄວາມຕ້ານ 8 ',
+        new SymbolRun({ char: 'F057', symbolfont: 'Symbol' }),
+        ' ຄ່າຄວາມຕ້ານຂອງສາຍນຳໃໝ່ຈະມີຄ່າເທົ່າໃດ?',
+      ),
+      line(bold('ກ. 4 '), new TextRun({ text: 'W', font: 'Symbol', bold: true }), tab(), 'ຂ. 2 Ω'),
+      line('ຄ. 8 Ω', tab(), 'ງ. 16 Ω'),
+    ]);
+
+    const [question] = (await parseExamDocx(file)).questions;
+
+    expect(question.text).toBe(
+      'ສາຍນຳທອງແດງເສັ້ນໜຶ່ງຍາວ L ແລະ ມີຄ່າຄວາມຕ້ານ 8 Ω ຄ່າຄວາມຕ້ານຂອງສາຍນຳໃໝ່ຈະມີຄ່າເທົ່າໃດ?',
+    );
+    expect(question.options.map((o) => o.text)).toEqual(['4 Ω', '2 Ω', '8 Ω', '16 Ω']);
+    expect(question.correctIndex).toBe(0);
+  });
+
   it('keeps the underline on a question’s words, and still reads one in the options as the answer', async () => {
     const underlined = (text: string) => new TextRun({ text, underline: {} });
     const file = await build([
