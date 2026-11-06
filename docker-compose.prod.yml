@@ -1,4 +1,6 @@
-# Production stack for the API alone — the admin SPA is not part of this yet.
+# Production stack: the API, its queue worker and Redis, with Caddy in front
+# terminating HTTPS for api.vpsischool.com and serving the admin SPA's files at
+# vpsischool.com (caddy/Caddyfile).
 #
 # MongoDB is deliberately absent: it lives on Atlas and the app already points at
 # it, so what this box has to run is the API, the queue worker that shares its
@@ -34,8 +36,11 @@ services:
       redis:
         condition: service_healthy
     ports:
-      # Host port is configurable so the API can move behind a proxy later
-      # without editing this file.
+      # Caddy reaches the API over the compose network and needs no host port.
+      # This one is for curl on the box (deploy.sh checks readiness through it)
+      # and, until the admin has moved to https://vpsischool.com, for the old
+      # S3 page that still calls :3000. After that, set
+      # API_PUBLIC_PORT=127.0.0.1:3000 so it stops answering from outside.
       - '${API_PUBLIC_PORT:-3000}:3000'
     healthcheck:
       # `/v1/health`, not `/health`: URI versioning applies even to the two routes
@@ -100,5 +105,28 @@ services:
     # A Redis open to the internet is a full compromise of the session store.
     logging: *logging
 
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      # Folders rather than single files: a file bind mount is pinned to the
+      # inode, so an edit that replaces the file (scp, rsync) never reaches the
+      # container.
+      - ./caddy:/etc/caddy:ro
+      # The built admin SPA. vpsischool-admin/deploy.sh rsyncs into it.
+      - ./admin:/srv/admin:ro
+      # Certificates and the ACME account. Losing this volume means re-issuing,
+      # and Let's Encrypt allows only five of the same certificate a week.
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: *logging
+
 volumes:
   redis-data:
+  caddy-data:
+  caddy-config:

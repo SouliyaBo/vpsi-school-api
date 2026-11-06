@@ -1,16 +1,23 @@
 # Deploying the API to EC2
 
-Target: `3.26.219.236`, API only. The admin SPA is not part of this yet.
+Target: `3.106.78.209` (an Elastic IP, so it survives a stop/start), in **ap-southeast-2 (Sydney)** — instance
+`i-0fa4411b00cb39609`. The S3 buckets are in Singapore; the Console has to be
+switched to Sydney before this box appears in it.
 
-What runs on the box: the API, the queue worker that shares its image, and the
-Redis those two use. MongoDB stays on Atlas — there is no database to move.
+What runs on the box: Caddy, the API, the queue worker that shares its image,
+and the Redis those two use. MongoDB stays on Atlas — there is no database to
+move. Caddy is the only thing the internet reaches: HTTPS for
+`api.vpsischool.com`, and the admin SPA's files at `vpsischool.com` — see
+section 8.
 
 ```text
-                                  ┌──────────────────────────────┐
-  browser / admin ──── :3000 ───► │  api      (node dist/main)   │
-                                  │  worker   (WORKER_MODE=true) │──► Atlas
-                                  │  redis    (private)          │
-                                  └──────────────────────────────┘
+                          ┌─────────────────────────────────────────────┐
+  https://vpsischool.com  │  caddy  ──► ./admin  (the SPA's files)      │
+  https://api.vpsischool  │    │                                        │
+          .com  ── :443 ─►│    └────► api      (node dist/main)         │
+                          │           worker   (WORKER_MODE=true)  ─────┼──► Atlas
+                          │           redis    (private)                │
+                          └─────────────────────────────────────────────┘
 ```
 
 ---
@@ -22,7 +29,9 @@ In the EC2 security group, inbound:
 | Port | Source | Why |
 | --- | --- | --- |
 | 22 | your IP only | SSH. Not `0.0.0.0/0`. |
-| 3000 | where the admin will call from | The API. |
+| 80 | `0.0.0.0/0` | Let's Encrypt proves the domain over it; Caddy redirects the rest to 443. |
+| 443 | `0.0.0.0/0` | Caddy — the admin and the API. |
+| 3000 | nobody, once section 8 is done | The API in plain HTTP. Open only while the old S3 page still calls it. |
 
 Redis is not published at all — only the two containers on the compose network
 reach it.
@@ -36,7 +45,7 @@ The instance logs in as `ubuntu`, so this is an Ubuntu AMI. From your laptop:
 
 ```bash
 chmod 400 vpsi-api.pem          # ssh refuses a key others can read
-ssh -i vpsi-api.pem ubuntu@3.26.219.236
+ssh -i vpsi-api.pem ubuntu@3.106.78.209
 ```
 
 Everything below runs on the server.
@@ -99,7 +108,7 @@ shell. Log out and back in:
 
 ```bash
 exit
-ssh -i vpsi-api.pem ubuntu@3.26.219.236
+ssh -i vpsi-api.pem ubuntu@3.106.78.209
 ```
 
 ### 2e. Verify
@@ -149,7 +158,7 @@ rsync -av --delete \
   --exclude node_modules --exclude dist --exclude coverage \
   --exclude .env --exclude .git \
   -e "ssh -i vpsi-api.pem" \
-  vpsischool-api/ ubuntu@3.26.219.236:~/vpsischool-api/
+  vpsischool-api/ ubuntu@3.106.78.209:~/vpsischool-api/
 ```
 
 `--exclude .env` is deliberate: that is the development file. The production one
@@ -235,9 +244,9 @@ Then ship it — about 464 MB gzipped, most of it LibreOffice:
 
 ```bash
 docker save vpsischool-api:prod | gzip -6 > api-prod.tar.gz
-scp -i vpsi-api.pem -C api-prod.tar.gz ubuntu@3.26.219.236:~/
+scp -i vpsi-api.pem -C api-prod.tar.gz ubuntu@3.106.78.209:~/
 
-ssh -i vpsi-api.pem ubuntu@3.26.219.236 \
+ssh -i vpsi-api.pem ubuntu@3.106.78.209 \
   'gunzip -c ~/api-prod.tar.gz | docker load && rm ~/api-prod.tar.gz'
 ```
 
@@ -290,7 +299,7 @@ curl -s localhost:3000/v1/health
 curl -s localhost:3000/v1/health/ready     # database: "connected"
 
 # From your laptop
-curl -s http://3.26.219.236:3000/v1/health
+curl -s http://3.106.78.209:3000/v1/health
 ```
 
 `/v1/health` and not `/health`: URI versioning applies even to the two routes
@@ -299,12 +308,12 @@ excluded from the global `api` prefix.
 A real request, end to end:
 
 ```bash
-curl -s -X POST http://3.26.219.236:3000/api/v1/auth/login \
+curl -s -X POST http://3.106.78.209:3000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"..."}'
 ```
 
-Then point the admin at it by setting `VITE_API_BASE_URL=http://3.26.219.236:3000/api/v1`
+Then point the admin at it by setting `VITE_API_BASE_URL=http://3.106.78.209:3000/api/v1`
 and adding that origin to `CORS_ORIGINS`.
 
 ## 7. Day-to-day
@@ -355,17 +364,10 @@ $C up -d --no-build
 
 ## Things to know before this is public
 
-**There is no TLS.** Traffic to `:3000` is plain HTTP, and that includes the
-login request and every bearer token after it — anyone on the path can read
-them. This is fine for testing from a known address and not fine for a school's
-real data. Fixing it needs a **domain name**; a certificate cannot be issued for
-a bare IP. Once you have one, either:
-
-- put an AWS Application Load Balancer with an ACM certificate in front and
-  point the API at it (`API_PUBLIC_PORT` can then bind to localhost only), or
-- add Caddy or nginx on the box with Let's Encrypt.
-
-Say the word and I will write whichever you pick.
+**Port 3000 is plain HTTP.** The login request and every bearer token after it
+cross the network readable by anyone on the path. Section 8 puts HTTPS in front;
+until `API_PUBLIC_PORT=127.0.0.1:3000` is set and 3000 is closed in the security
+group, the plain door is still open beside it.
 
 **Swagger is off.** `main.ts` serves it in non-production only — the schema maps
 the entire attack surface. `/api/docs` will 404, which is intended.
@@ -406,3 +408,106 @@ and Redis was confirmed unpublished.
 **Backups.** Atlas holds everything that matters; the only local state is the
 Redis volume, which is a cache and a job queue and can be lost. Check that Atlas
 has backups enabled for the cluster.
+
+---
+
+## 8. The domain and HTTPS
+
+**Done 6 Nov 2026**: live on both names, 3000 bound to `127.0.0.1`, `CORS_ORIGINS`
+down to `https://vpsischool.com`, and the old S3 address redirecting here. What
+follows is how it was done — the record to repeat it from, on a new box.
+
+`vpsischool.com` is registered at GoDaddy (DNS too — `ns17/ns18.domaincontrol.com`).
+Caddy, a container in `docker-compose.prod.yml` configured by
+[caddy/Caddyfile](caddy/Caddyfile), gets the certificates from Let's Encrypt and
+renews them by itself. There is nothing to pay for and nothing to renew by hand.
+
+| Name | Serves |
+| --- | --- |
+| `https://vpsischool.com` | the admin SPA, from `~/vpsischool-api/admin/` on the box |
+| `https://www.vpsischool.com` | a redirect to the above |
+| `https://api.vpsischool.com` | the API — `/api/v1/...`, `/v1/health` |
+
+### Before anything on the box
+
+1. **An Elastic IP**, allocated in **Sydney** and associated with the instance.
+   An auto-assigned public IP changes whenever the instance is stopped, and DNS
+   would then point at somebody else's machine. Add the Elastic IP to **Atlas →
+   Network Access** *before* associating it: the moment it is associated the old
+   IP is gone, and with it the API's route to the database.
+2. **Security group**: 80 and 443 open to `0.0.0.0/0` (section 1).
+3. **GoDaddy → Domain → DNS**: delete the parked `A @` records and add
+
+   | Type | Name | Value |
+   | --- | --- | --- |
+   | A | `@` | the Elastic IP |
+   | A | `api` | the Elastic IP |
+   | CNAME | `www` | `@` |
+
+   `dig +short vpsischool.com` and `dig +short api.vpsischool.com` must both
+   print the Elastic IP before Caddy starts. Caddy retries if they do not, but
+   Let's Encrypt's rate limits count the failures.
+
+### Cutting over (once)
+
+Not `./deploy.sh` — that ships a new API image as well, with whatever is
+undeployed in this folder. The cut-over needs only the compose file and the
+Caddyfile; the running image stays as it is, and compose leaves `api` and
+`worker` alone because their configuration has not changed.
+
+```bash
+# from VPSI-SCHOOL/vpsischool-api, on your machine
+rsync -a -e "ssh -i ../vpsi-api.pem" docker-compose.prod.yml caddy \
+  ubuntu@3.106.78.209:~/vpsischool-api/
+ssh -i ../vpsi-api.pem ubuntu@3.106.78.209
+```
+
+On the server:
+
+```bash
+cd ~/vpsischool-api
+mkdir -p admin        # must exist before compose, or Docker creates it as root
+C="docker compose --env-file .env.production -f docker-compose.prod.yml"
+
+# the new admin origin, keeping the S3 one until nobody uses it
+sed -i 's#^CORS_ORIGINS=.*#CORS_ORIGINS=https://vpsischool.com,http://vpsi-school-admin.s3-website-ap-southeast-1.amazonaws.com#' .env.production
+
+$C up -d --no-build --force-recreate api   # re-reads CORS_ORIGINS
+$C up -d --no-build                        # starts caddy
+$C logs -f caddy                           # "certificate obtained successfully" × 3
+```
+
+Then from anywhere:
+
+```bash
+curl -s https://api.vpsischool.com/v1/health/ready
+```
+
+and deploy the admin to the box — `vpsischool-admin/deploy.sh`, see its
+`DEPLOY.md`.
+
+### Closing the old door
+
+When `https://vpsischool.com` is what staff use:
+
+```bash
+sed -i 's#^API_PUBLIC_PORT=.*#API_PUBLIC_PORT=127.0.0.1:3000#' .env.production
+sed -i 's#^CORS_ORIGINS=.*#CORS_ORIGINS=https://vpsischool.com#' .env.production
+$C up -d --no-build --force-recreate api
+```
+
+and remove the 3000 rule from the security group. `deploy.sh` keeps working: it
+checks readiness on `localhost:3000` from the box itself.
+
+### What changes for the rest of the system
+
+- **The guardian report link** is built from the admin's own origin, so it
+  becomes `https://vpsischool.com/r#…` with nothing to change. This is the TLS
+  that had to come before any real family gets one.
+- **Web Push and a Telegram webhook** are now possible, both being HTTPS-only.
+  The bot still long-polls, which keeps working as it is.
+- **The Caddy volume holds the certificates.** `down -v` deletes it along with
+  Redis, and Let's Encrypt issues the same certificate only five times a week.
+- **Editing the Caddyfile** needs a reload, not a restart (deploy.sh does it):
+  `$C exec caddy caddy reload --config /etc/caddy/Caddyfile`.
+

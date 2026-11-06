@@ -13,7 +13,7 @@
 # shows up as a container restarting for ever with "exec format error".
 set -euo pipefail
 
-HOST=ubuntu@3.26.219.236
+HOST=ubuntu@3.106.78.209
 KEY=../vpsi-api.pem
 IMAGE=vpsischool-api:prod
 PREVIOUS=vpsischool-api:previous
@@ -124,10 +124,19 @@ scp -i "$KEY" -C "$tarball" "$HOST:$REMOTE_TARBALL"
 on_server "gunzip -c $REMOTE_TARBALL | docker load && rm -f $REMOTE_TARBALL"
 
 # ── Start ───────────────────────────────────────────────────────────────────
+# The compose file and the Caddyfile go up with every deploy, so the box never
+# runs a stack this folder does not describe. `admin/` is created here because
+# a bind-mount source Docker has to create itself is root's, and the admin's
+# deploy (an rsync as ubuntu) could then never write into it.
+say "5/6  restarting"
+rsync -a -e "ssh -i $KEY" docker-compose.prod.yml caddy "$HOST:$REMOTE_DIR/"
+on_server "mkdir -p $REMOTE_DIR/admin"
 # --env-file on every compose call: without it compose reads .env, which is the
 # development configuration.
-say "5/6  restarting"
 on_server "cd $REMOTE_DIR && $COMPOSE up -d --no-build"
+# `up` leaves a running caddy alone when only the mounted Caddyfile changed.
+on_server "cd $REMOTE_DIR && $COMPOSE exec -T caddy caddy reload --config /etc/caddy/Caddyfile" \
+  || printf '     \033[33mcaddy did not reload — see: %s logs caddy\033[0m\n' "$COMPOSE"
 
 # ── Healthy, not merely running ─────────────────────────────────────────────
 # /v1/health/ready is the one that actually talks to Atlas; a container can be
@@ -136,7 +145,7 @@ say "6/6  waiting for the database to answer"
 for attempt in $(seq 1 12); do
   if ready=$(on_server 'curl -fsS localhost:3000/v1/health/ready' 2>/dev/null); then
     printf '     %s\n' "$ready"
-    printf '\n\033[32mdeployed\033[0m — http://3.26.219.236:3000/v1/health\n'
+    printf '\n\033[32mdeployed\033[0m — https://api.vpsischool.com/v1/health\n'
     exit 0
   fi
   printf '     not ready yet (%s/12)\n' "$attempt"
