@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ClientIp, CurrentUser, RequirePermissions } from 'src/common/decorators';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-user.interface';
 import {
+  ClassYearQueryDto,
   AnnualSheetQueryDto,
   ClassMonthQueryDto,
   LockMonthDto,
@@ -13,6 +14,7 @@ import {
   StandingQueryDto,
   StudentMonthsQueryDto,
 } from './dto/monthly-mark.dto';
+import { ClassYearService } from './class-year.service';
 import { MonthlyMarksService } from './monthly-marks.service';
 import { MonthlyStandingService } from './monthly-standing.service';
 
@@ -35,6 +37,7 @@ export class MonthlyMarksController {
   constructor(
     private readonly service: MonthlyMarksService,
     private readonly standing: MonthlyStandingService,
+    private readonly classYear: ClassYearService,
   ) {}
 
   @Get('month')
@@ -71,6 +74,19 @@ export class MonthlyMarksController {
   })
   annualSheet(@Query() query: AnnualSheetQueryDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.service.getAnnualSheet(query, actor);
+  }
+
+  @Get('class-year')
+  @RequirePermissions({ resource: 'scores', action: 'read' })
+  @ApiOperation({
+    summary: 'ໝົດປີ ທັງຫ້ອງ — one class, the whole year, every subject',
+    description:
+      'Each month of both terms, each exam, ພາກ I, ພາກ II and ໝົດປີ per subject, with ' +
+      'ຄະແນນຖືກຕັດ and ວັນຂາດ beside every month and term. Derived on read. Any room to staff ' +
+      'who may read marks; refused to students and guardians.',
+  })
+  classYearSheet(@Query() query: ClassYearQueryDto, @CurrentUser() actor: AuthenticatedUser) {
+    return this.classYear.getClassYear(query, actor);
   }
 
   @Get('class-month')

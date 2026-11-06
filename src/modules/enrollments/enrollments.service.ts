@@ -286,6 +286,16 @@ export class EnrollmentsService extends BaseCrudService<EnrollmentDocument> {
 
       const isTransfer = dto.status === 'transferred' && Boolean(dto.transferredToClassroomId);
 
+      // A move into the room the child is already in closes their row and opens
+      // a second one at the foot of the same roll: the same child twice on every
+      // sheet that reads the room, under two roll numbers. ມ.5's 0638 was filed
+      // that way from the move dialog, which offered the current room.
+      if (isTransfer && String(dto.transferredToClassroomId) === String(enrollment.classroomId)) {
+        throw AppException.badRequest('enrollment.transferToSameClassroom', {
+          classroomId: String(enrollment.classroomId),
+        });
+      }
+
       // Check the destination has room before vacating the origin, so a failed
       // transfer leaves the student where they were.
       const destination = isTransfer

@@ -131,6 +131,10 @@ export const MESSAGES = {
     lo: 'ການຍ້າຍຫ້ອງ, ໂຈະ ຫຼື ອອກ ຕ້ອງເຮັດໂດຍຫ້ອງການ',
     en: 'Moving, suspending or withdrawing a student is done by the office',
   },
+  'enrollment.transferToSameClassroom': {
+    lo: 'ນັກຮຽນຢູ່ຫ້ອງນີ້ແລ້ວ, ກະລຸນາເລືອກຫ້ອງອື່ນ',
+    en: 'The student is already in that classroom; choose a different one',
+  },
 
   // ── Teaching assignments ──────────────────────────────────────────────────
   'assignment.teacherConflict': {

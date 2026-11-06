@@ -470,6 +470,39 @@ describe('Academic operations (e2e)', () => {
       expect(destinationAfter.body.currentCount).toBe(destinationBefore.body.currentCount + 1);
     });
 
+    it('refuses a move into the room the student is already in, and leaves the row alone', async () => {
+      const studentId = await createStudent('S-XFER-SAME', 'ນາງ');
+      const enrollment = await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId, classroomId })
+        .expect(201);
+      const before = await http()
+        .get(`/api/classrooms/${classroomId}`)
+        .set(auth(token))
+        .expect(200);
+
+      const refused = await http()
+        .patch(`/api/enrollments/${enrollment.body.id}/status`)
+        .set(auth(token))
+        .send({ status: 'transferred', transferredToClassroomId: classroomId })
+        .expect(400);
+      expect(refused.body.messageKey).toBe('enrollment.transferToSameClassroom');
+
+      const after = await http().get(`/api/classrooms/${classroomId}`).set(auth(token)).expect(200);
+      expect(after.body.currentCount).toBe(before.body.currentCount);
+      const roster = await http()
+        .get(`/api/enrollments/classroom/${classroomId}/roster`)
+        .set(auth(token))
+        .expect(200);
+      const rows = roster.body.filter(
+        (row: { studentId: { id?: string } | string }) =>
+          String((row.studentId as { id?: string })?.id ?? row.studentId) === studentId,
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: 'active', rollNumber: enrollment.body.rollNumber });
+    });
+
     /**
      * `ຫ້ອງພາກອັງກິດ` — set at placement, edited later, and carried through a move.
      *
@@ -2368,6 +2401,144 @@ describe('Academic operations (e2e)', () => {
       // Loosening the DTO must not loosen the rule: 3 is still too much here.
       expect(response.body.saved).toBe(0);
       expect(response.body.errors[0]).toMatchObject({ reason: 'score.exceedsMax' });
+    });
+
+    it('lists a child who left and came back once, on the roll number they hold now', async () => {
+      const studentId = await createStudent('S-MM-BACK', 'ນາງ');
+      const first = await http()
+        .post('/api/enrollments')
+        .set(auth(token))
+        .send({ studentId, classroomId })
+        .expect(201);
+      await http()
+        .post('/api/monthly-marks/month')
+        .set(auth(token))
+        .send({
+          subjectId: socialSubjectId,
+          classroomId,
+          semesterId,
+          month: 9,
+          entries: [{ studentId, attendance: 1, activity: 2, test: 4 }],
+        })
+        .expect(201);
+
+      // Out to the other room and back: two placements here, one of them closed,
+      // and the marks belong to the child rather than to either.
+      await http()
+        .patch(`/api/enrollments/${first.body.id}/status`)
+        .set(auth(token))
+        .send({ status: 'transferred', transferredToClassroomId: secondClassroomId })
+        .expect(200);
+      const away = await http()
+        .get(`/api/enrollments/classroom/${secondClassroomId}/roster`)
+        .set(auth(token))
+        .expect(200);
+      const awayRow = (away.body as { id: string; studentId: { id?: string } | string }[]).find(
+        (row) => String((row.studentId as { id?: string })?.id ?? row.studentId) === studentId,
+      )!;
+      await http()
+        .patch(`/api/enrollments/${awayRow.id}/status`)
+        .set(auth(token))
+        .send({ status: 'transferred', transferredToClassroomId: classroomId })
+        .expect(200);
+
+      const grid = await http()
+        .get('/api/monthly-marks/month')
+        .query({ subjectId: socialSubjectId, classroomId, semesterId, month: 9 })
+        .set(auth(token))
+        .expect(200);
+      const rows = (
+        grid.body.rows as { studentId: string; isEnrolled: boolean; rollNumber: number }[]
+      ).filter((row) => row.studentId === studentId);
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].isEnrolled).toBe(true);
+      expect(rows[0].rollNumber).not.toBe(first.body.rollNumber);
+    });
+
+    /**
+     * ໝົດປີ ທັງຫ້ອງ — the whole year of one room, every subject. Nothing on it is
+     * worked out afresh: each figure is checked against the sheet it is read from.
+     */
+    it('lays out the room’s year, agreeing with the month sheet, the ledger and the roll', async () => {
+      const year = await http()
+        .get('/api/monthly-marks/class-year')
+        .query({ classroomId })
+        .set(auth(token))
+        .expect(200);
+
+      type YearRow = {
+        studentId: string;
+        studentCode: string;
+        gender: string | null;
+        firstNameLo: string | null;
+        terms: {
+          months: { month: number; scores: (number | null)[]; deducted: number | null }[];
+          exam: (number | null)[];
+          marks: (number | null)[];
+          deducted: number | null;
+          absences: number | null;
+        }[];
+        annual: (number | null)[];
+        deducted: number | null;
+        absences: number | null;
+      };
+      const body = year.body as {
+        subjects: { id: string }[];
+        semesters: { id: string; months: number[] }[];
+        rows: YearRow[];
+        classSize: { students: number; female: number };
+      };
+      const first = body.semesters.findIndex((term) => term.id === semesterId);
+      expect(body.semesters[first].months).toEqual([9, 10, 11]);
+      for (const row of body.rows) {
+        expect(row.terms).toHaveLength(body.semesters.length);
+        expect(row.annual).toHaveLength(body.subjects.length);
+      }
+
+      // The September column is the month sheet's figure, subject for subject.
+      const month = await http()
+        .get('/api/monthly-marks/class-month')
+        .query({ classroomId, semesterId, month: 9 })
+        .set(auth(token))
+        .expect(200);
+      const marked = body.rows.find((row) => row.studentId === markedStudentId)!;
+      const sheetRow = (month.body.rows as { studentId: string; scores: (number | null)[] }[]).find(
+        (row) => row.studentId === markedStudentId,
+      )!;
+      const monthSubjects = (month.body.subjects as { id: string }[]).map((subject) => subject.id);
+      body.subjects.forEach((subject, index) => {
+        expect(marked.terms[first].months[0].scores[index]).toBe(
+          sheetRow.scores[monthSubjects.indexOf(subject.id)] ?? null,
+        );
+      });
+      expect(marked.firstNameLo).toBeTruthy();
+
+      // ຖືກຕັດ: the 16 Sep deduction lands in September, and the year adds up to
+      // what the ledger says the child has lost.
+      const standing = await http()
+        .get(`/api/conduct-deductions/summary/classroom/${classroomId}/school-year/${schoolYearId}`)
+        .set(auth(token))
+        .expect(200);
+      const ledger = (standing.body as { studentCode: string; deducted: number }[]).find(
+        (row) => row.studentCode === 'S-DED-001',
+      )!;
+      const penalised = body.rows.find((row) => row.studentCode === 'S-DED-001')!;
+      expect(ledger.deducted).toBeGreaterThan(0);
+      expect(penalised.terms[first].months[0].deducted).toBeGreaterThan(0);
+      expect(penalised.deducted).toBe(ledger.deducted);
+
+      // ວັນຂາດ for the term are the roll's own count.
+      const roll = await http()
+        .get(`/api/attendances/summary/classroom/${classroomId}/semester/${semesterId}`)
+        .set(auth(token))
+        .expect(200);
+      for (const entry of roll.body as { studentId: string; absentTotal: number }[]) {
+        const row = body.rows.find((candidate) => candidate.studentId === entry.studentId);
+        if (row) expect(row.terms[first].absences).toBe(entry.absentTotal);
+      }
+
+      expect(body.classSize.female).toBeLessThanOrEqual(body.classSize.students);
     });
   });
 

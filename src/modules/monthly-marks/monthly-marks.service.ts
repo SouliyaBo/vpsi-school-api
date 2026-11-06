@@ -1442,7 +1442,23 @@ export class MonthlyMarksService {
           isEnrolled: enrollment.status === 'active',
         };
       })
-      .filter((row) => row.isEnrolled || marked.has(row.studentId));
+      .filter((row) => row.isEnrolled || marked.has(row.studentId))
+      .filter((row, _, rows) => this.isTheStudentsRow(row, rows));
+  }
+
+  /**
+   * One row per child. A child who left this room and came back — or was "moved"
+   * into the room they were already in, as ມ.5's 0638 was — holds two placements
+   * here, and the marks are the child's, not the placement's: the closed row
+   * would print the same marks a second time, under the old roll number. The
+   * open placement is the one the room reads; failing that, the latest closed one.
+   */
+  private isTheStudentsRow<T extends { studentId: string; isEnrolled: boolean }>(
+    row: T,
+    rows: T[],
+  ): boolean {
+    const own = rows.filter((other) => other.studentId === row.studentId);
+    return row === (own.find((other) => other.isEnrolled) ?? own[own.length - 1]);
   }
 
   /**
@@ -1656,7 +1672,7 @@ export class MonthlyMarksService {
     };
   }
 
-  private classroomView(classroom: unknown) {
+  classroomView(classroom: unknown) {
     const room = classroom as {
       _id: Types.ObjectId;
       name: string;
@@ -1701,7 +1717,7 @@ function fullMarkFor(subject: Pick<SubjectDocument, 'monthlyColumnMax'>): number
   return fullMarkOf(columnMaxFor(subject.monthlyColumnMax));
 }
 
-function gradeLevelIdOf(classroom: unknown): Types.ObjectId | null {
+export function gradeLevelIdOf(classroom: unknown): Types.ObjectId | null {
   const room = classroom as { gradeLevelId?: { _id?: Types.ObjectId } | Types.ObjectId | null };
   const level = room.gradeLevelId;
   if (!level) return null;

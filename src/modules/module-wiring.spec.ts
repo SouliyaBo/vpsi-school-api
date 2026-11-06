@@ -25,6 +25,7 @@ import { LibraryService } from './library/library.service';
 import { MonthlyMarksModule } from './monthly-marks/monthly-marks.module';
 import { MonthlyMarksService } from './monthly-marks/monthly-marks.service';
 import { MonthlyStandingService } from './monthly-marks/monthly-standing.service';
+import { ClassYearService } from './monthly-marks/class-year.service';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SettingsModule } from './settings/settings.module';
 import { TelegramModule } from './telegram/telegram.module';
@@ -243,6 +244,7 @@ describe('module wiring', () => {
     const app = await build([MonthlyMarksModule]);
     expect(app.get(MonthlyMarksService)).toBeInstanceOf(MonthlyMarksService);
     expect(app.get(MonthlyStandingService)).toBeInstanceOf(MonthlyStandingService);
+    expect(app.get(ClassYearService)).toBeInstanceOf(ClassYearService);
     await app.close();
   });
 

@@ -101,6 +101,11 @@ export class AnnualSheetQueryDto {
   schoolYearId?: string;
 }
 
+/** ໝົດປີ ທັງຫ້ອງ — one class's year, every subject. The year is the room's own. */
+export class ClassYearQueryDto {
+  @ApiProperty() @IsMongoId() classroomId: string;
+}
+
 /**
  * One student's four cells for the month.
  *
